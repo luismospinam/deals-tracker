@@ -1,0 +1,34 @@
+services:
+  postgres:
+    # 16-alpine because it was already present locally and pulling 17 stalled.
+    # Nothing this project uses is version-specific: pg_trgm, NUMERIC, TIMESTAMPTZ,
+    # lateral joins, ON CONFLICT and window functions all predate 16. Override with
+    # POSTGRES_IMAGE in .env to upgrade.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: deals-tracker-db
+    # Long-lived: survives Docker Desktop restarts and reboots.
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deals}
+      POSTGRES_USER: ${POSTGRES_USER:-deals}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      # Deals arrive from US and Colombian sources; keep the server in UTC and
+      # let the app handle display-time zones.
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      # Named volume, not a bind mount: data survives `docker compose down`
+      # and container image upgrades.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deals} -d ${POSTGRES_DB:-deals}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  pgdata:
+    name: deals-tracker-pgdata

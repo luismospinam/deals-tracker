@@ -1,0 +1,175 @@
+# Providers to poll.
+#
+# `type` selects the protocol adapter; everything else is data. Adding a site
+# that speaks a protocol already implemented is a new block here and no code:
+#   - another VTEX retailer  -> type: vtex
+#   - another Slickdeals RSS -> type: rss-slickdeals
+#   - another ML country     -> type: mercadolibre, change siteId
+#
+# A genuinely new platform (Rappi, or a bespoke HTML site) needs a new adapter
+# class plus one line in SourceRegistry.
+
+defaults:
+  minDiscountPercent: 25.0
+  pollIntervalMinutes: 60
+  userAgent: "deals-tracker/0.1 (personal price monitor)"
+  perHostDelayMillis: 1200
+  httpPort: 8080
+
+providers:
+  - id: slickdeals
+    type: rss-slickdeals
+    enabled: true
+    # Every Slickdeals RSS feed is hard-capped at 25 items (pp=100 does not help), but
+    # the feeds carry different sets -- frontpage overlaps the others by ZERO, and
+    # newdeals is identical to the unfiltered feed. Reading these three gave 71 unique
+    # deals vs 25 from any one. Deduped by thread id within this provider.
+    url: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1"
+    currency: USD
+    # Amazon items may or may not reach Colombia; Luis verifies and the verdict sticks.
+    coShippingDefault: UNKNOWN
+    options:
+      # Slickdeals publishes no list price, so the discount floor can never fire for
+      # this source -- it would be filtered to nothing. But the frontpage is already
+      # a community-curated deal feed, so every newly seen item is worth surfacing.
+      promoteAllNew: "true"
+      # Pages to fetch per search term. Each page is 25 items and one cheap request.
+      # Only `q=` searches paginate -- `page` is silently ignored on the mode feeds.
+      #
+      # 3, measured rather than guessed. Age of results by page for q=apple:
+      #   page 1 -> 25/25 within 14 days (median   2d)
+      #   page 2 -> 13/25 within 14 days (median  14d)
+      #   page 3 ->  0/25 within 14 days (median  34d)
+      #   page 8 ->  0/25 within 14 days (median 437d)
+      # Pages beyond 3 contributed nothing fresh, just wasted requests. The search
+      # window also shifts between requests, so repeated polls still accumulate
+      # coverage beyond any single run.
+      searchPages: "3"
+
+      # Drop deals the source published more than this many days ago.
+      #
+      # Essential, not just an optimisation: search results are NOT ordered strictly by
+      # date (page 7 came back newer than page 6), so capping page depth cannot bound
+      # age on its own. Without this the feed accumulated deals from 2025.
+      # Ignored for sources that publish no posting date (VTEX, MercadoLibre).
+      maxAgeDays: "14"
+    listOptions:
+      # Fixed feeds: the curated views. These do NOT paginate.
+      urls:
+        - "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1"
+        - "https://slickdeals.net/newsearch.php?mode=popdeals&searcharea=deals&searchin=first&rss=1"
+        - "https://slickdeals.net/newsearch.php?mode=newdeals&searcharea=deals&searchin=first&rss=1"
+
+      # Paginated searches. This is the ONLY way to reach deals older than the ~25
+      # most recent, which is why a deal that is visible on slickdeals.net/deals/apple
+      # as "2w ago" never shows up in the mode feeds above.
+      #
+      # "amazon" is a broad sweep that suits this provider's Amazon-only filter.
+      # Add your own interests -- each term costs searchPages requests per poll.
+      searches:
+        - "amazon"
+        - "apple"
+
+      # The merchant filter is config, not an if-branch. Add "best-buy" here if
+      # you ever start using a package forwarder.
+      allowedMerchants: ["amazon"]
+
+      # Amazon ships internationally, but NOT groceries, liquids or medicines -- and
+      # bulky low-value consumables are not worth shipping to Colombia even when
+      # allowed. Excluding them keeps the manual shipping check focused.
+      #
+      # Case-insensitive regex, matched against the title. Same list drives
+      # `--fetch-once` filtering and `--purge-excluded` cleanup, so they cannot drift.
+      # Delete any line you disagree with; run --purge-excluded --dry-run to preview.
+      excludeTitlePatterns:
+        # Amazon's own grocery private labels -- the single clearest signal.
+        - "Amazon Grocery"
+        - "Amazon Fresh"
+        - "Amazon Saver"
+        - "Happy Belly"
+        - "Wickedly Prime"
+        # Subscribe & Save. Marks consumables generally: food, OTC medicine (TUMS,
+        # Neosporin, allergy tablets), paper goods and personal care. Broader than
+        # "grocery" but everything it catches is restricted or uneconomic to ship.
+        # Remove these two lines if you want household consumables back.
+        - "\\bS&S\\b"
+        - "\\bSnS\\b"
+        # Food and drink nouns, for grocery deals with no S&S marker.
+        - "\\b(juice|soda|coffee|tea|cereal|granola|oatmeal|cookies?|candy|chocolate)\\b"
+        - "\\b(snacks?|chips|cashews?|almonds|peanuts|pretzels|crackers)\\b"
+        - "\\b(sauce|ketchup|mustard|mayo|soup|pasta|noodles|seasoning|syrup)\\b"
+        - "\\b(gatorade|soylent|protein powder)\\b"
+        # Supplements and OTC medicine -- restricted for international shipping.
+        - "\\b(vitamins?|multivitamin|supplements?|antacid|antihistamine|ibuprofen)\\b"
+
+  - id: exito
+    type: vtex
+    enabled: true
+    baseUrl: "https://www.exito.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      # VTEX caps a page at 50; small windows keep the ~19MB-per-50 payloads manageable.
+      pageSize: "24"
+      maxPagesPerCategory: "3"
+    listOptions:
+      # Mercado is listed last deliberately: it is the largest and fastest-churning
+      # catalog, so if it gets throttled the other two have already landed.
+      categories: ["tecnologia", "electrodomesticos", "mercado"]
+
+  - id: carulla
+    type: vtex
+    # Same VTEX platform as Exito, so this integration is config only -- but the
+    # taxonomy is NOT the same. Verified against carulla.com's own category tree:
+    # Carulla is grocery-first and has NO "mercado" category. Groceries are split
+    # into despensa / lacteos-huevos-y-refrigerados / frutas-y-verduras / etc.
+    #
+    # Beware: requesting a category that does not exist does NOT return 404. VTEX
+    # answers 206 with an unfiltered product list, so a wrong slug here yields
+    # plausible-looking but arbitrary results. VtexSource validates these slugs
+    # against the live category tree on startup and warns.
+    enabled: true
+    baseUrl: "https://www.carulla.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      pageSize: "24"
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories: ["tecnologia", "electrodomesticos", "despensa"]
+
+  - id: mercadolibre-co
+    type: mercadolibre
+    # DISABLED: blocked by MercadoLibre, not by a bug here.
+    #
+    # Auth works -- client_credentials issues a valid user-scoped token, and
+    # /users/me and /categories/{id} both return 200 with it. But every search and
+    # browse endpoint (/sites/MCO/search, /products/search, /highlights/...) returns
+    # 403 PA_UNAUTHORIZED_RESULT_FROM_POLICIES. Registering an app is not enough;
+    # MercadoLibre gates catalog search behind separate approval.
+    #
+    # Two ways forward, both pending a decision: request search access for this app,
+    # or read the server-rendered /ofertas pages instead (prices ARE in that HTML,
+    # and robots.txt does not disallow /ofertas for generic agents).
+    enabled: false
+    siteId: MCO
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      # App credentials (ml.clientId and ml.clientSecret) live in gitignored
+      # local.properties, never here -- config/sources.yaml is committed.
+      pageSize: "50"
+    listOptions:
+      # MCO1051 Celulares, MCO1000 Electrónica/Audio/Video,
+      # MCO1403 Alimentos y Bebidas, MCO1574 Hogar/Electrodomésticos
+      categories: ["MCO1051", "MCO1000", "MCO1574", "MCO1403"]
+
+  - id: rappi-medellin
+    type: rappi
+    # Deferred: services.rappi.com.co does not resolve and robots.txt disallows
+    # /api, /api-services and /base-api. Flip to true once an adapter exists.
+    enabled: false
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      city: "medellin"

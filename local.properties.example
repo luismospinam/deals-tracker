@@ -1,0 +1,7 @@
+# Copy to local.properties and fill in. GITIGNORED - never commit this file's real values.
+#
+# MercadoLibre app credentials, from developers.mercadolibre.com.
+# Optional: the mercadolibre-co provider is disabled (see BLOCKERS.md), so the app runs
+# fine without these.
+ml.clientId=your-mercadolibre-app-id
+ml.clientSecret=your-mercadolibre-client-secret

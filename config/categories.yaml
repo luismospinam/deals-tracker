@@ -1,0 +1,192 @@
+# Product categories, for the Category filter in the UI.
+#
+# Needed because the sources disagree completely about categorisation:
+#   - Exito/Carulla (VTEX) publish a real 3-level taxonomy, in Spanish, but each store
+#     has its own -- and they even spell it differently ("Tecnología" vs "Tecnologia").
+#   - Slickdeals publishes only its FORUM name ("Hot Deals" on 212 of 220 deals), which
+#     carries no product information at all.
+#
+# So each category is matched two ways, and matching is accent- and case-insensitive:
+#   sourcePatterns -- regex against the source's own category path. Tried FIRST, because
+#                     the retailer's own taxonomy beats guessing from a title.
+#   titlePatterns  -- regex against the product title. The only option for Slickdeals.
+#
+# ORDER MATTERS: the first category that matches wins. Each of these orderings was forced
+# by a real misclassification, so do not reshuffle casually:
+#   Gaming before Computers    -- "gaming mouse" is a gaming deal, not a computer one.
+#   Beauty before Tools        -- an "LED face mask" is not an LED light.
+#   Beauty before Fashion      -- "Men's Bar Soap" is not clothing.
+#   Books before Audio         -- "Player Piano: A Novel (eBook)" is a book, not an instrument.
+#   TV & Video before Audio    -- a "Soporte Para Televisor" sits under Exito's
+#                                 "Accesorios audio y video", which Audio would otherwise claim.
+#
+# Anything unmatched becomes "Other". Run `./dt run --args="--recategorize --show-other"`
+# to list what ended up there, then add patterns for whatever is worth splitting out.
+
+categories:
+  - name: "Gaming"
+    sourcePatterns: ["consolas", "videojuego"]
+    titlePatterns:
+      - "\\b(ps5|ps4|playstation|xbox|nintendo|switch\\s*2?|joy-?con|steam deck)s?\\b"
+      - "\\b(gaming (mouse|keyboard|headset|chair|monitor)|dualsense|gamecube)s?\\b"
+      - "\\b(videogame|video game)s?\\b"
+      - "\\b(controller|gamepad|joystick)s?\\b"
+
+  - name: "Computers"
+    sourcePatterns: ["computador", "portatil", "tablet", "informatica", "accesorios de computador"]
+    titlePatterns:
+      - "\\b(macbook|laptop|notebook|chromebook|desktop pc|imac|mac mini)s?\\b"
+      - "\\b(ssd|nvme|hdd|hard drive|ram|ddr[45]|gpu|graphics card|cpu|motherboard)s?\\b"
+      - "\\b(monitor|keyboard|mouse|webcam|docking station|usb hub|printer|scanner)s?\\b"
+      - "\\b(ipad|tablet|surface pro)s?\\b"
+      # Spanish, from Exito/Carulla titles: impresora = printer.
+      - "\\b(impresora|licencia|office 365|microsoft office|software|antivirus|calculator)s?\\b"
+      - "\\b(pcie|wi-?fi \\d|network card|router|ethernet|nas|label maker)s?\\b"
+      - "\\b(air duster|filament|3d print|thunderbolt|usb4|docking)s?\\b"
+
+  - name: "Phones & Wearables"
+    sourcePatterns: ["celular", "accesorios para celulares", "reloj inteligente", "smartwatch"]
+    titlePatterns:
+      - "\\b(iphone|galaxy s\\d|pixel \\d|smartphone|phone case)s?\\b"
+      - "\\b(apple watch|smartwatch|fitbit|garmin|airtag|tile tracker)s?\\b"
+      - "\\b(power bank|magsafe|usb-?c[\\w\\s-]{0,30}cable|lightning cable)s?\\b"
+      - "\\b(wall|car|fast|gan|usb)[\\w\\s-]{0,30}charger\\b"
+      - "\\b(charging (station|dock|pad)|wireless charger)s?\\b"
+      - "\\b(tracker tag|finetrack|tile mate|bluetooth tracker)s?\\b"
+
+  - name: "Books & Media"
+    # A genuinely large Slickdeals cluster -- $1.99 ebook deals appear constantly.
+    sourcePatterns: ["libro", "papeleria"]
+    titlePatterns:
+      - "\\b(ebook|e-book|kindle|audiobook|audible)s?\\b"
+      - "\\b(hardcover|paperback|novel|encyclopedia)s?\\b"
+      - "\\b(blu-?ray|4k uhd|dvd|audio cd|mp3 album|2-movie|movie collection)s?\\b"
+      - "\\b(digital hd|complete series|season \\d|comic|magazine)s?\\b"
+      - "\\b(gel pens?|pencils?|markers?|notebook|sticky notes|scotch|tape dispenser|stationery)s?\\b"
+      - "\\b(sticker|gift tag|greeting card|wrapping paper)s?\\b"
+
+  - name: "TV & Video"
+    sourcePatterns: ["televisor", "video proyector", "audio y video", "accesorios audio y video"]
+    titlePatterns:
+      - "\\b(\\d{2}\" |television|smart tv|oled|qled|4k tv|projector)s?\\b"
+      - "\\b(fire tv (stick|cube)|roku|chromecast|apple tv|streaming (device|stick))s?\\b"
+      - "\\b(gimbal|stabilizer|gopro|dslr|mirrorless|action camera|tripod)s?\\b"
+
+  - name: "Audio"
+    # Musical instruments live here too -- too few to justify their own bucket.
+    sourcePatterns: ["audio", "audifono", "parlante", "equipos de sonido", "instrumentos musicales"]
+    titlePatterns:
+      - "\\b(airpods|earbuds|headphones|headset|soundbar|speaker|subwoofer)s?\\b"
+      - "\\b(bluetooth speaker|turntable|amplifier|guitar|piano|keyboard amp)s?\\b"
+      - "\\b(bose|sonos|jbl|sennheiser|audio-?technica)s?\\b"
+
+  - name: "Appliances"
+    sourcePatterns:
+      - "electrodomestico"
+      - "refrigeracion"
+      - "lavado y secado"
+      - "climatizacion"
+      - "coccion"
+      - "ventilacion"
+      - "cocinas"
+      - "preparacion de alimentos"
+      - "preparacion de bebidas"
+    titlePatterns:
+      - "\\b(refrigerator|freezer|washer|dryer|dishwasher|air conditioner|heater)s?\\b"
+      - "\\b(microwave|air fryer|blender|coffee maker|espresso machine|toaster|kettle)s?\\b"
+      - "\\b(vacuum|roomba|steam mop|dehumidifier|humidifier|water heater)s?\\b"
+      - "\\b(ceiling fan|tower fan|box fan|shaved ice|ice maker|ice machine|rice cooker)s?\\b"
+
+  - name: "Beauty & Health"
+    # Before Tools: an "LED face mask" must not be read as an LED light.
+    sourcePatterns: ["cuidado personal", "salud y belleza", "belleza", "suministros medicos"]
+    titlePatterns:
+      - "\\b(shaver|trimmer|razor|after shave|hair dryer|straightener|toothbrush)s?\\b"
+      - "\\b(light therapy|face mask|serum|moisturizer|shampoo|sunscreen|lotion)s?\\b"
+      - "\\b(supplement|softgels|collagen|biotin|coq10|probiotic|whey protein)s?\\b"
+      - "\\b(exfoliant|salicylic|ointment|antibiotic|first aid|bandage|thermometer)s?\\b"
+      - "\\b(deodorant|body wash|bar soap|soap|conditioner|nail|makeup|perfume|cologne)s?\\b"
+      - "\\b(gua sha|jade roller|skincare|toner|essence|radiance|vita c|vitamin c serum)s?\\b"
+      - "\\b(massager|flosser|water pik|blood pressure|pill organizer)s?\\b"
+
+  - name: "Groceries"
+    sourcePatterns:
+      - "mercado"
+      - "despensa"
+      - "frutas y verduras"
+      - "lacteos"
+      - "pollo, carne y pescado"
+      - "panaderia"
+      - "bebidas"
+      - "granos"
+      - "salsas"
+      - "aceites"
+      - "enlatados"
+      - "harinas"
+      - "pastas"
+      - "cafe"
+      - "galletas"
+      - "congelados"
+      - "delicatessen"
+      - "vinos y licores"
+      - "snacks"
+    titlePatterns:
+      - "\\b(coffee|tea|cereal|granola|snack|cookies|candy|chocolate)s?\\b"
+      - "\\b(sauce|pasta|rice|flour|canned|olive oil|juice|soda)s?\\b"
+      - "\\b(condensed milk|evaporated milk|honey|jam|peanut butter|spice)s?\\b"
+
+  - name: "Toys & Baby"
+    sourcePatterns: ["jugueteria", "juguete", "muneca", "bebe", "juguetes y juegos"]
+    titlePatterns:
+      - "\\b(lego|playset|action figure|doll|barbie|hot wheels|funko|puzzle)s?\\b"
+      - "\\b(stroller|diaper|baby monitor|car seat)s?\\b"
+      - "\\b(mattel|hasbro|playmobil|green toys|estes)s?\\b"
+      - "\\b(model rocket|rc (car|helicopter|drone)|board game|card game)s?\\b"
+      - "\\b(crayola|coloring book|bubble machine|play-?doh|talking toy|plush)s?\\b"
+      - "\\btoys?\\b"
+
+  - name: "Fashion"
+    sourcePatterns: ["moda y accesorios", "moda", "calzado", "ropa"]
+    titlePatterns:
+      - "\\b(t-?shirt|shirt|jeans|dress|jacket|hoodie|sweater|swimsuit|bikini)s?\\b"
+      - "\\b(sneakers|shoes|boots|sandals|socks|underwear|bra)s?\\b"
+      - "\\b(backpack|handbag|purse|wallet|sunglasses|watch band|sport loop|luggage|suitcase)s?\\b"
+      - "\\b(bras?|rash guard|belt|sundress|coat|flannel|leggings|shorts|pants|skirt)s?\\b"
+      - "\\b(gloves|hat|cap|scarf|tie|watch strap|jewelry|earrings|necklace|ring)s?\\b"
+      - "\\b(women'?s|men'?s|kids'?) \\w+"
+
+  - name: "Tools & Outdoor"
+    sourcePatterns: ["ferreteria", "herramientas", "jardin", "deportes", "vehiculos", "movilidad electrica"]
+    titlePatterns:
+      - "\\b(drill|wrench|screwdriver|socket set|tool kit|saw|sander|scissors)s?\\b"
+      - "\\b(camping|tent|cot|grill|propane|cooler|hiking|bike|kayak)s?\\b"
+      - "\\bsolar[\\w\\s-]{0,30}(lights?|lanterns?|spotlight|pathway)s?\\b"
+      - "\\b(outdoor (decoration|lights?)|garden hose|lawn|patio|carport|shed|gazebo|pergola)s?\\b"
+      - "\\b(power station|generator|inflator|air compressor|paint sprayer|dust separator)s?\\b"
+      - "\\b(knife|pocket ?knife|fixed blade|multi-?tool|keychain tool|clamp meter|multimeter|endoscope)s?\\b"
+      - "\\b(flashlight|headlamp|spotlight|lantern|batteries|battery pack)s?\\b"
+      - "\\b(mosquito|repeller|hydration[\\w\\s]{0,30}(vest|pack)|water bottle|thermos)s?\\b"
+      - "\\b(air chuck|duct tape|binoculars|paddle board|barbecue|bbq)s?\\b"
+      - "\\b(exercise|training vest|dumbbell|kettlebell|yoga mat|treadmill|weights?)s?\\b"
+      - "\\b(weighted vest|cultivator|tiller|chainsaw|leaf blower|pressure washer)s?\\b"
+      - "\\b(power bit|drill bit|air pump|electric pump|roof bag|cargo carrier)s?\\b"
+
+  - name: "Home & Kitchen"
+    # Last of the specific buckets: broad, so it should not claim a deal another
+    # category would have matched.
+    sourcePatterns: ["hogar", "decoracion", "aseo del hogar", "cocina", "fiesta", "mascotas"]
+    titlePatterns:
+      - "\\b(cookware|frying pan|saucepan|knife set|cutting board|dinnerware|mug)s?\\b"
+      - "\\b(bedding|sheets|pillow|comforter|mattress|towel|curtain|rug)s?\\b"
+      - "\\b(furniture|desk|chair|shelf|storage bin|organizer|lamp|smart plug)s?\\b"
+      - "\\b(detergent|cleaner|trash bags|pet |cat |dog )s?\\b"
+      - "\\b(dish soap|dishwashing|mop|broom|sponge|air freshener|paper towels)s?\\b"
+      # Smart-home devices sit here rather than Computers: they are household fixtures.
+      - "\\bsmart[\\w\\s-]{0,30}(bulb|lock|deadbolt|plug|switch|display|thermostat)s?\\b"
+      - "\\b(echo (show|dot|hub)|alexa|google nest|ring doorbell|security camera)s?\\b"
+      - "\\b(oil sprayer|sink caddy|drying (rack|stone)|beer (mug|cooling)|pint glass|tumbler)s?\\b"
+      # Spanish, from Exito/Carulla: aro de luz = ring light.
+      - "\\b(aro de luz|tripode)s?\\b"
+      - "\\b(shower head|mirror|seat cushion|stair treads|box spring|clothes rack)s?\\b"
+      - "\\b(night light|banner|cheesecloth|ice cream scoop|spatula|tongs|colander)s?\\b"
+      - "\\b(mason jar|jar sealer|food ?saver|squeegee|storage basket|closet)s?\\b"

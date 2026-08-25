@@ -1,0 +1,112 @@
+[
+ {
+  "productId": "104768840",
+  "productName": "Iphone 17 Pro Max 256Gb Plata Esim",
+  "brand": "APPLE",
+  "linkText": "iphone-17-pro-max-256gb-plata-esim-104768840-mp",
+  "link": "https://tienda.exito.com/iphone-17-pro-max-256gb-plata-esim-104768840-mp/p",
+  "categories": [
+   "/Tecnología/Celulares/",
+   "/Tecnología/"
+  ],
+  "items": [
+   {
+    "itemId": "104768840",
+    "images": [
+     {
+      "imageId": "31306665",
+      "imageLabel": null,
+      "imageTag": "<img src=\"~/arquivos/ids/31306665-#width#-#height#/iphone-17-pro-max-256gb-plata-esim.jpg?v=638961847094500000\" width=\"#width#\" height=\"#height#\" alt=\"\" id=\"\" />",
+      "imageUrl": "https://exitocol.vteximg.com.br/arquivos/ids/31306665/iphone-17-pro-max-256gb-plata-esim.jpg?v=638961847094500000",
+      "imageText": null,
+      "imageLastModified": "2025-10-16T04:11:49.4500000Z"
+     }
+    ],
+    "sellers": [
+     {
+      "sellerId": "11574",
+      "commertialOffer": {
+       "ListPrice": 9700900.0,
+       "Price": 7185900.0,
+       "AvailableQuantity": 10
+      }
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "productId": "101457058",
+  "productName": "Cargador Compatble Apple Usb C 20W Carga Rapida Para Iphone, Ipad, Apple Watch",
+  "brand": "APPLE",
+  "linkText": "cargador-original-apple-tipo-c-20w-carga-rapida-101457058-mp",
+  "link": "https://tienda.exito.com/cargador-original-apple-tipo-c-20w-carga-rapida-101457058-mp/p",
+  "categories": [
+   "/Tecnología/Computadores/Accesorios de computador/",
+   "/Tecnología/Computadores/",
+   "/Tecnología/"
+  ],
+  "items": [
+   {
+    "itemId": "101457058",
+    "images": [
+     {
+      "imageId": "34001515",
+      "imageLabel": null,
+      "imageTag": "<img src=\"~/arquivos/ids/34001515-#width#-#height#/cargador-compatble-apple-usb-c-20w-carga-rapida-para-iphone-ipad-apple-watch.jpg?v=639192446061670000\" width=\"#width#\" height=\"#height#\" alt=\"\" id=\"\" />",
+      "imageUrl": "https://exitocol.vteximg.com.br/arquivos/ids/34001515/cargador-compatble-apple-usb-c-20w-carga-rapida-para-iphone-ipad-apple-watch.jpg?v=639192446061670000",
+      "imageText": null,
+      "imageLastModified": "2026-07-10T01:43:26.1670000Z"
+     }
+    ],
+    "sellers": [
+     {
+      "sellerId": "17318",
+      "commertialOffer": {
+       "ListPrice": 129900.0,
+       "Price": 19765.0,
+       "AvailableQuantity": 100
+      }
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "productId": "3255839",
+  "productName": "Televisor CAIXUN 55 pulgadas QLED Uhd4K Smart TV C55KAUGQ",
+  "brand": "CAIXUN",
+  "linkText": "televisor-caixun-55-pulgadas-qled-uhd-4k-smart-tv-c55kaugq-3255839",
+  "link": "https://tienda.exito.com/televisor-caixun-55-pulgadas-qled-uhd-4k-smart-tv-c55kaugq-3255839/p",
+  "categories": [
+   "/Tecnología/Televisores/Televisores Caixun/",
+   "/Tecnología/Televisores/",
+   "/Tecnología/"
+  ],
+  "items": [
+   {
+    "itemId": "3857626",
+    "images": [
+     {
+      "imageId": "33567229",
+      "imageLabel": "",
+      "imageTag": "<img src=\"~/arquivos/ids/33567229-#width#-#height#/Televisor-CAIXUN-55-pulgadas-QLED-Uhd-4K-Smart-TV-C55KAUGQ-3857626_a.jpg?v=639190451423600000\" width=\"#width#\" height=\"#height#\" alt=\"\" id=\"\" />",
+      "imageUrl": "https://exitocol.vteximg.com.br/arquivos/ids/33567229/Televisor-CAIXUN-55-pulgadas-QLED-Uhd-4K-Smart-TV-C55KAUGQ-3857626_a.jpg?v=639190451423600000",
+      "imageText": "",
+      "imageLastModified": "2026-07-07T18:19:02.3600000Z"
+     }
+    ],
+    "sellers": [
+     {
+      "sellerId": "1",
+      "commertialOffer": {
+       "ListPrice": 3999900.0,
+       "Price": 1449900.0,
+       "AvailableQuantity": 99999
+      }
+     }
+    ]
+   }
+  ]
+ }
+]

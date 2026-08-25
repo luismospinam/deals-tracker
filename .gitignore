@@ -1,0 +1,27 @@
+# Secrets — MUST stay out of history.
+# local.properties holds the MercadoLibre client secret.
+# .env holds the Postgres password.
+local.properties
+.env
+*.local
+
+# Gradle / build
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Runtime state
+logs/
+*.log
+.ml-token.json
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# macOS
+.DS_Store

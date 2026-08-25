@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# Wrapper around ./gradlew that pins the JDK, so the project runs on any Mac without
+# machine-specific paths in gradle.properties.
+#
+# Needed because a Mac's default `java` is often not the JDK this project targets — on
+# the original machine it was JDK 8, which cannot run Gradle 8.10. `/usr/libexec/java_home`
+# is built into macOS and resolves an installed JDK by version wherever it lives.
+#
+# Usage:
+#   ./dt run                                  start the app (web UI + hourly poller)
+#   ./dt test                                 run the test suite
+#   ./dt run --args="--fetch-once"            one-off fetch of every enabled source
+#   ./dt run --args="--fetch-once --source=exito"
+#   ./dt run --args="--purge-old --dry-run"
+set -euo pipefail
+
+REQUIRED_JDK=21
+cd "$(dirname "$0")"
+
+if ! JAVA_HOME="$(/usr/libexec/java_home -v "$REQUIRED_JDK" 2>/dev/null)"; then
+    cat >&2 <<EOF
+error: no JDK $REQUIRED_JDK found.
+
+Installed JDKs:
+$(/usr/libexec/java_home -V 2>&1 | sed 's/^/  /')
+
+Install one with:
+  brew install --cask corretto@$REQUIRED_JDK
+    or
+  brew install openjdk@$REQUIRED_JDK
+EOF
+    exit 1
+fi
+
+export JAVA_HOME
+exec ./gradlew "$@"

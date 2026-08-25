@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. Do not edit the __PLACEHOLDERS__ by hand - run scripts/install-launchd.sh,
+  which substitutes the real paths for this machine and loads the job.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.luis.dealstracker</string>
+
+    <!-- The app runs its own hourly poll loop internally, so launchd's only job is to
+         keep the single process alive. ./dt resolves the JDK itself. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PROJECT_DIR__/dt</string>
+        <string>--quiet</string>
+        <string>run</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Restart on crash, but not on a clean exit. -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Don't spin if it crashes on startup, e.g. Postgres not up yet. -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <key>StandardOutPath</key>
+    <string>__PROJECT_DIR__/logs/dealstracker.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__PROJECT_DIR__/logs/dealstracker.err.log</string>
+</dict>
+</plist>
