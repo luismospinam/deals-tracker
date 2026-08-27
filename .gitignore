@@ -16,6 +16,12 @@ logs/
 *.log
 .ml-token.json
 
+# Claude Code local state. worktrees/ holds real git worktrees and must never be
+# committed; settings.local.json is per-machine. A shared .claude/settings.json could be
+# tracked later by un-ignoring it explicitly.
+.claude/worktrees/
+.claude/settings.local.json
+
 # IDE
 .idea/
 *.iml
