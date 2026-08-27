@@ -188,6 +188,17 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
             }
         }
         button(classes = "primary") { type = ButtonType.submit; +"Apply" }
+        // A submit button with `formaction`, not a link: it posts this form's live values
+        // to the export route, so the download reflects the controls as they stand --
+        // including edits not yet applied. A static href would export the previous filter.
+        // Needs no JavaScript, and the form is already method=get.
+        button {
+            type = ButtonType.submit
+            attributes["formaction"] = "/export.xlsx"
+            title = "Download the matching deals as an Excel file. " +
+                "With nothing filtered this is every active deal except dismissed ones."
+            +"Export to Excel"
+        }
         button {
             attributes["hx-post"] = "/refresh"
             attributes["hx-swap"] = "none"

@@ -48,6 +48,14 @@ dependencies {
     implementation("org.flywaydb:flyway-core:10.20.1")
     implementation("org.flywaydb:flyway-database-postgresql:10.20.1")
 
+    // Excel export. Real .xlsx rather than CSV so prices land in typed numeric cells:
+    // COP and USD then sort and sum natively, and Excel can't reinterpret a title or
+    // mangle an accented category on open. SXSSF streams rows, so memory stays flat.
+    implementation("org.apache.poi:poi-ooxml:5.4.1")
+    // POI logs through log4j2-api. Without a binding it prints a StatusLogger error on
+    // first use; this routes it into the logback config the rest of the app already uses.
+    runtimeOnly("org.apache.logging.log4j:log4j-to-slf4j:2.24.3")
+
     implementation("ch.qos.logback:logback-classic:1.5.12")
 
     testImplementation(kotlin("test"))
