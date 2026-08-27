@@ -157,6 +157,7 @@ errors.
 | `./dt run --args="--purge-old --include-undated"` | Also remove rows with no posting date |
 | `./dt run --args="--purge-excluded --dry-run"` | Preview removal of grocery/consumable deals |
 | `./dt run --args="--recategorize"` | Re-apply `config/categories.yaml` to stored deals |
+| `./dt run --args="--verify-co-shipping --limit=10"` | Check Amazon → Colombia shipping (headed; needs you for first setup) |
 | `./dt run --args="--recategorize --show-other"` | Also list deals that stayed uncategorised |
 | `./dt test` | Test suite |
 | `docker compose up -d` / `down` | Start / stop Postgres (data survives `down`) |

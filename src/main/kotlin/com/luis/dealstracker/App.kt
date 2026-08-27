@@ -4,6 +4,8 @@ import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.Db
 import com.luis.dealstracker.ingest.Categorizer
+import com.luis.dealstracker.verify.AmazonVerifier
+import com.luis.dealstracker.verify.CoShippingConfig
 import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.sources.SourceRegistry
@@ -57,6 +59,27 @@ fun main(args: Array<String>) {
 
     val fetchOnce = args.contains("--fetch-once")
     val onlySource = args.firstOrNull { it.startsWith("--source=") }?.substringAfter("=")
+
+    if (args.contains("--verify-co-shipping")) {
+        val limit = args.firstOrNull { it.startsWith("--limit=") }?.substringAfter("=")?.toIntOrNull()
+        val cfg = CoShippingConfig(
+            country = app.defaults.coShippingCountry,
+            batchSize = app.defaults.coShippingBatchSize,
+            delayMillis = app.defaults.coShippingDelayMillis,
+            maxPerRun = app.defaults.coShippingMaxPerRun,
+            headless = args.contains("--headless"),
+        )
+        val outcome = AmazonVerifier(repo, cfg).run(limit)
+        println(
+            "\n[verify] done: ${outcome.checked} checked — " +
+                "${outcome.yes} ships, ${outcome.no} does not, ${outcome.unclear} unclear" +
+                (if (outcome.protectedManual > 0) ", ${outcome.protectedManual} manual verdict(s) left untouched" else "") +
+                (if (outcome.blocked) "  [STOPPED EARLY: Amazon was blocking]" else ""),
+        )
+        repo.coShippingStats().forEach { (k, v) -> println("  ${k.padEnd(18)} $v") }
+        http.close()
+        return
+    }
 
     if (args.contains("--recategorize")) {
         recategorize(repo, categorizer, showOther = args.contains("--show-other"))

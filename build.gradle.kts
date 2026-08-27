@@ -102,3 +102,24 @@ tasks.register<JavaExec>("verifyProbe") {
     mainClass.set("com.luis.dealstracker.verify.AmazonProbe2Kt")
     args = (project.findProperty("asins")?.toString() ?: "B09C5RG6KV").split(",")
 }
+
+// Assisted (human-in-the-loop) Amazon eligibility check. Headed by design: the operator
+// clears Amazon's human checks and sets the delivery country; the reading is automated
+// around that. Needs no stdin -- it polls the session cookie for the country.
+tasks.register<JavaExec>("assisted") {
+    group = "verify"
+    description = "Headed Amazon → Colombia check; you drive the browser when asked"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.luis.dealstracker.verify.AmazonAssistedKt")
+    args = (project.findProperty("asins")?.toString() ?: "").split(",").filter { it.isNotBlank() }
+}
+
+// Deep re-check of one ASIN, to resolve a disagreement between the automated read and
+// what a human sees. Reuses the persistent profile, so no setup step.
+tasks.register<JavaExec>("recheck") {
+    group = "verify"
+    description = "Re-check one ASIN including its full offer listing"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.luis.dealstracker.verify.AmazonRecheckKt")
+    args = listOf(project.findProperty("asin")?.toString() ?: "B09C5RG6KV")
+}

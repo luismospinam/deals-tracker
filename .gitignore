@@ -11,6 +11,10 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 
+# Persistent Chrome profile used by the assisted Amazon check. Holds real Amazon
+# cookies -- and a logged-in session if the operator signs in. Never commit.
+.amazon-profile/
+
 # Runtime state
 logs/
 *.log

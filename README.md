@@ -272,6 +272,44 @@ boundaries are required so "tea" doesn't match "Steam" or "rice" match "Price".
 
 ## Colombia shipping
 
+Colombian retailers default to `co_shipping = YES`. Amazon deals start `UNKNOWN` and are
+resolved either by clicking **ships / doesn't** in the UI, or by the automated verifier:
+
+```bash
+./dt run --args="--verify-co-shipping --limit=10"
+```
+
+It opens a **headed** Chrome using a persistent profile (`.amazon-profile/`, gitignored).
+The first run asks you to set the delivery country — and optionally sign in, which you type
+yourself; nothing about credentials is read or stored. After that the profile carries the
+session, so later runs need no interaction.
+
+Verdicts are stored with provenance, visible in the UI: an **auto** marker distinguishes an
+automated call from one you made, hovering shows the exact page text it rests on, and a
+**no import fees** flag appears when Amazon says charges are covered.
+
+### Things that are easy to get wrong here
+
+- **`#availability` carries the refusal, not the delivery block.** A refused item leaves
+  `#deliveryBlockMessage` **empty**, so reading only the delivery block returns "unclear"
+  for every non-shippable item instead of NO.
+- **Both regions are AJAX-filled and empty on load.** They must be polled; reading once
+  yields `""`, which is indistinguishable from "the page said nothing".
+- **A YES requires the country to be named** ("… to Colombia"), never merely the absence of
+  a refusal. An absent signal usually means a partly rendered page, and a wrong YES sends
+  you to buy something that cannot arrive.
+- **Manual verdicts are never overwritten**, enforced in SQL rather than by the caller
+  remembering. `co_shipping_source` records who decided.
+- **Failures back off exponentially** (`2^attempts` hours, capped at a week). Without this,
+  an unreadable deal is retried on every cycle forever — the original 3-state enum could
+  not express "checked and could not tell".
+- **Amazon will block unattended traffic.** From a datacenter IP it blocked us after ~7
+  page loads regardless of pacing. The wall is a single button, which is why this runs
+  headed and pauses for you rather than trying to get around it. It never solves a
+  challenge and never spoofs anything.
+
+## Colombia shipping (manual fallback)
+
 Colombian retailers default to `co_shipping = YES`. Amazon deals from Slickdeals
 default to `UNKNOWN`: v1 does not determine eligibility automatically. Each unverified
 row has **ships / doesn't** buttons, and the verdict is stored, so an item is only

@@ -1,0 +1,112 @@
+package com.luis.dealstracker.verify
+
+import com.luis.dealstracker.model.CoShipping
+
+/**
+ * The text of the page regions that carry shipping eligibility. Separating this from the
+ * browser is what makes the decision logic testable offline against captured fixtures,
+ * the same way every other parser in this project is tested.
+ *
+ * Both `availability` and `deliveryBlock` are populated by **AJAX** and are empty on load,
+ * so whoever fills this in must poll for them. Reading once yields "" and looks
+ * indistinguishable from "the page said nothing".
+ */
+data class PageSignals(
+    /** `#availability` — carries the refusal message when an item cannot be shipped. */
+    val availability: String = "",
+    /** `#deliveryBlockMessage` — carries "FREE delivery … to <Country>" when it can. */
+    val deliveryBlock: String = "",
+    /** `#amazonGlobal_feature_div` — import charges and "FREE Shipping to <Country>". */
+    val amazonGlobal: String = "",
+)
+
+/** A verdict plus the evidence behind it, so a stored result can always be audited. */
+data class CoVerdict(
+    val value: CoShipping,
+    /** True when the page gave no usable signal, as opposed to a definite YES/NO. */
+    val unclear: Boolean,
+    /** The exact page text the decision rests on. Stored alongside the verdict. */
+    val evidence: String,
+    /** Whether Amazon said import charges are already covered, when it said anything. */
+    val importChargesIncluded: Boolean? = null,
+)
+
+/**
+ * Decides Colombia shipping eligibility from page text.
+ *
+ * Verified against four ASINs whose verdicts a human confirmed in their own browser
+ * (see `fixtures/amazon/co-shipping-signals.json`). The rules follow that evidence:
+ *
+ *  - **NO** — `#availability` carries Amazon's explicit refusal:
+ *    *"This item cannot be shipped to your selected delivery location."*
+ *    Note a refused item leaves `#deliveryBlockMessage` **empty**, so the delivery block
+ *    alone can never distinguish "refused" from "not loaded yet".
+ *  - **YES** — the delivery block or the global-shipping widget names the destination
+ *    country: *"FREE delivery … to Colombia"* / *"FREE Shipping to Colombia"*.
+ *  - **UNCLEAR** otherwise.
+ *
+ * Deliberately conservative: a YES requires the country to be named, not merely the
+ * absence of a refusal. An absent signal is far more likely to mean "page not fully
+ * loaded" than "ships fine", and recording a wrong YES would send someone to buy
+ * something that cannot arrive.
+ */
+class CoShippingExtractor(private val country: String = "Colombia") {
+
+    fun extract(signals: PageSignals): CoVerdict {
+        val refusal = REFUSAL_PHRASES.firstOrNull { signals.availability.contains(it, ignoreCase = true) }
+        if (refusal != null) {
+            return CoVerdict(
+                value = CoShipping.NO,
+                unclear = false,
+                evidence = signals.availability.take(EVIDENCE_LIMIT),
+            )
+        }
+
+        val toCountry = "to $country"
+        val positive = when {
+            signals.deliveryBlock.contains(toCountry, ignoreCase = true) -> signals.deliveryBlock
+            signals.amazonGlobal.contains(toCountry, ignoreCase = true) -> signals.amazonGlobal
+            else -> null
+        }
+        if (positive != null) {
+            return CoVerdict(
+                value = CoShipping.YES,
+                unclear = false,
+                evidence = positive.take(EVIDENCE_LIMIT),
+                importChargesIncluded = importCharges(signals.amazonGlobal),
+            )
+        }
+
+        // No refusal and no named destination. Could be a partially rendered page, a bot
+        // wall, or wording we have not seen. Never guessed at.
+        return CoVerdict(
+            value = CoShipping.UNKNOWN,
+            unclear = true,
+            evidence = listOf(signals.availability, signals.deliveryBlock, signals.amazonGlobal)
+                .filter { it.isNotBlank() }
+                .joinToString(" | ")
+                .take(EVIDENCE_LIMIT)
+                .ifEmpty { "no eligibility signal on page" },
+        )
+    }
+
+    private fun importCharges(amazonGlobal: String): Boolean? = when {
+        amazonGlobal.contains("No Import Charges", ignoreCase = true) -> true
+        amazonGlobal.contains("Import Fees Deposit", ignoreCase = true) -> false
+        amazonGlobal.contains("Import Charges", ignoreCase = true) -> false
+        else -> null
+    }
+
+    companion object {
+        /** Amazon's refusal wording. Matched against `#availability` only. */
+        private val REFUSAL_PHRASES = listOf(
+            "cannot be shipped to your selected delivery location",
+            "does not ship to",
+            "not available for shipping to",
+            "cannot be delivered to the selected address",
+        )
+
+        /** Enough to audit a verdict without bloating the row. */
+        const val EVIDENCE_LIMIT = 300
+    }
+}

@@ -16,6 +16,15 @@ defaults:
   perHostDelayMillis: 1200
   httpPort: 8080
 
+  # --- Amazon -> Colombia shipping verification ---
+  # Runs headed and assisted: unattended requests from a datacenter IP were blocked after
+  # ~7 page loads, and Amazon's wall is a single button only a human can clear. Tune the
+  # pacing here rather than in code -- what Amazon tolerates is found empirically.
+  coShippingCountry: "Colombia"
+  coShippingBatchSize: 10
+  coShippingDelayMillis: 30000
+  coShippingMaxPerRun: 40
+
 providers:
   - id: slickdeals
     type: rss-slickdeals

@@ -482,9 +482,118 @@ class DealRepository(private val ds: DataSource) {
             }
         }
 
+    /**
+     * Deals still needing an automated Colombia shipping check.
+     *
+     * Excludes anything already decided, anything decided MANUALLY (human effort must
+     * survive automation), and anything whose backoff window has not elapsed. Ordered so
+     * never-attempted rows go first, then the longest-waiting.
+     *
+     * Backoff is exponential in the attempt count: 2^attempts hours, capped. Without it a
+     * row that cannot be read would be retried on every cycle indefinitely.
+     */
+    fun coShippingCandidates(limit: Int, baseBackoffHours: Int = 6, maxBackoffHours: Int = 168): List<Pair<Long, String>> =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, asin FROM deals
+                 WHERE is_active
+                   AND asin IS NOT NULL
+                   AND co_shipping = 'UNKNOWN'
+                   AND coalesce(co_shipping_source, '') <> 'MANUAL'
+                   AND (
+                        co_shipping_checked_at IS NULL
+                     OR co_shipping_checked_at < now() - make_interval(
+                            hours => LEAST(? * POWER(2, co_shipping_attempts)::int, ?))
+                   )
+                 ORDER BY co_shipping_checked_at ASC NULLS FIRST, id ASC
+                 LIMIT ?
+                """.trimIndent(),
+            ).use { st ->
+                st.setInt(1, baseBackoffHours)
+                st.setInt(2, maxBackoffHours)
+                st.setInt(3, limit)
+                st.executeQuery().use { rs ->
+                    buildList { while (rs.next()) add(rs.getLong("id") to rs.getString("asin")) }
+                }
+            }
+        }
+
+    /** Active UNKNOWN deals with no ASIN — reported rather than silently skipped. */
+    fun coShippingUncheckableCount(): Int =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT count(*) FROM deals WHERE is_active AND co_shipping = 'UNKNOWN' AND asin IS NULL",
+            ).use { st -> st.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) else 0 } }
+        }
+
+    /**
+     * Records an automated verdict.
+     *
+     * Refuses to touch a row whose verdict is MANUAL — enforced in the WHERE clause rather
+     * than by the caller remembering, because silently clobbering hand-verified results
+     * would be the worst failure mode here. Returns false when the row was protected.
+     *
+     * An inconclusive result still updates checked_at and increments attempts, which is
+     * precisely what stops the same unreadable deal being retried every cycle.
+     */
+    fun recordCoShippingCheck(
+        id: Long,
+        verdict: CoShipping,
+        unclear: Boolean,
+        evidence: String,
+        importFree: Boolean?,
+    ): Boolean =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE deals
+                   SET co_shipping = CASE WHEN ? THEN co_shipping ELSE ? END,
+                       co_shipping_source = CASE WHEN ? THEN co_shipping_source ELSE 'AUTO' END,
+                       co_shipping_checked_at = now(),
+                       co_shipping_attempts = CASE WHEN ? THEN co_shipping_attempts + 1 ELSE 0 END,
+                       co_shipping_evidence = ?,
+                       co_shipping_import_free = ?
+                 WHERE id = ?
+                   AND coalesce(co_shipping_source, '') <> 'MANUAL'
+                """.trimIndent(),
+            ).use { st ->
+                st.setBoolean(1, unclear)
+                st.setString(2, verdict.name)
+                st.setBoolean(3, unclear)
+                st.setBoolean(4, unclear)
+                st.setString(5, evidence.take(300))
+                importFree?.let { st.setBoolean(6, it) } ?: st.setNull(6, java.sql.Types.BOOLEAN)
+                st.setLong(7, id)
+                st.executeUpdate() > 0
+            }
+        }
+
+    fun coShippingStats(): Map<String, Int> =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT co_shipping,
+                       coalesce(co_shipping_source, 'NONE') AS src,
+                       count(*)
+                  FROM deals WHERE is_active
+                 GROUP BY 1, 2 ORDER BY 1, 2
+                """.trimIndent(),
+            ).use { st ->
+                st.executeQuery().use { rs ->
+                    buildMap { while (rs.next()) put("${rs.getString(1)}/${rs.getString(2)}", rs.getInt(3)) }
+                }
+            }
+        }
+
     fun updateCoShipping(id: Long, value: CoShipping): Boolean =
         ds.connection.use { conn ->
-            conn.prepareStatement("UPDATE deals SET co_shipping = ? WHERE id = ?").use { st ->
+            // Marked MANUAL: this path is the UI's ships/no buttons, i.e. a human decision,
+            // which coShippingCandidates and recordCoShippingCheck both refuse to override.
+            conn.prepareStatement(
+                "UPDATE deals SET co_shipping = ?, co_shipping_source = 'MANUAL', " +
+                    "co_shipping_checked_at = now(), co_shipping_attempts = 0 WHERE id = ?",
+            ).use { st ->
                 st.setString(1, value.name)
                 st.setLong(2, id)
                 st.executeUpdate() > 0
@@ -583,6 +692,9 @@ class DealRepository(private val ds: DataSource) {
         communityScore = getInt("community_score").takeIf { !wasNull() },
         postedAt = getTimestamp("posted_at")?.toInstant(),
         categoryGroup = getString("category_group"),
+        coShippingSource = getString("co_shipping_source"),
+        coShippingEvidence = getString("co_shipping_evidence"),
+        coShippingImportFree = getBoolean("co_shipping_import_free").takeIf { !wasNull() },
         price = getBigDecimal("price"),
         listPrice = getBigDecimal("list_price"),
         minPriceEver = getBigDecimal("min_price"),

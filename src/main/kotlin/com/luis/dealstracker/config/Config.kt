@@ -55,6 +55,16 @@ data class Defaults(
     /** Politeness delay between requests to the same host. */
     val perHostDelayMillis: Long = 1_200,
     val httpPort: Int = 8080,
+
+    // --- Amazon -> Colombia shipping verification ---
+    /** Destination country whose eligibility is being checked. */
+    val coShippingCountry: String = "Colombia",
+    /** Deals per run. Low on purpose: a slow drip is what Amazon tolerates. */
+    val coShippingBatchSize: Int = 10,
+    /** Politeness floor between product pages, in milliseconds. */
+    val coShippingDelayMillis: Long = 30_000,
+    /** Hard ceiling per run regardless of batch size or --limit. */
+    val coShippingMaxPerRun: Int = 40,
 )
 
 @Serializable

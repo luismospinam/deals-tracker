@@ -389,3 +389,18 @@ table.history td { font-variant-numeric: tabular-nums; }
   font-size: 11px;
   font-weight: 600;
 }
+
+/* Provenance marker on a Colombia verdict: distinguishes an automated call from one made
+ * by hand, and flags when Amazon said import charges are already covered. Quiet on
+ * purpose -- the verdict itself is the signal, this is the footnote. */
+.prov {
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

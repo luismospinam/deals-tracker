@@ -14,7 +14,7 @@ import java.time.Instant
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "7"
+private const val CSS_VERSION = "8"
 
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
 private val GENERIC_CATEGORIES = setOf("Hot Deals", "Marketplace Deals", "Deal Talk", "Freebies")
@@ -389,9 +389,22 @@ private fun TBODY.dealRow(deal: Deal) {
  */
 private fun TD.coShippingCell(deal: Deal) {
     div("co") {
+        // Evidence as a tooltip, and an "auto" marker, so an automated verdict can be told
+        // apart from one Luis made by hand -- and audited without re-fetching the page.
+        val provenance = deal.coShippingEvidence?.takeIf { it.isNotBlank() }
+            ?.let { "${deal.coShippingSource ?: "?"}: $it" }
         when (deal.coShipping) {
-            CoShipping.YES -> span("co-yes") { +"✓ ships" }
-            CoShipping.NO -> span("co-no") { +"✗ no" }
+            CoShipping.YES -> span("co-yes") {
+                provenance?.let { title = it }
+                +"✓ ships"
+                if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
+                if (deal.coShippingImportFree == true) span("prov") { +"no import fees" }
+            }
+            CoShipping.NO -> span("co-no") {
+                provenance?.let { title = it }
+                +"✗ no"
+                if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
+            }
             CoShipping.UNKNOWN -> {
                 span("co-unk") { +"? unverified" }
                 div("actions") {

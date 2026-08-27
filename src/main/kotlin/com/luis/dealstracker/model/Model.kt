@@ -92,6 +92,12 @@ data class Deal(
     val postedAt: Instant?,
     /** Normalized bucket derived by Categorizer, not published by the source. */
     val categoryGroup: String?,
+    /** 'MANUAL' if Luis decided it, 'AUTO' if the verifier did, null if nobody has. */
+    val coShippingSource: String?,
+    /** The page text a verdict rests on, so it can be audited without re-fetching. */
+    val coShippingEvidence: String?,
+    /** Whether Amazon said import charges are already covered. Null = it said nothing. */
+    val coShippingImportFree: Boolean?,
     // Joined from price_observations for the feed view.
     val price: BigDecimal,
     val listPrice: BigDecimal?,
