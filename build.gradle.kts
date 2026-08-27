@@ -48,6 +48,10 @@ dependencies {
     implementation("org.flywaydb:flyway-core:10.20.1")
     implementation("org.flywaydb:flyway-database-postgresql:10.20.1")
 
+    // Headless browser for Amazon -> Colombia shipping verification. The Java binding
+    // bundles its own Node runtime, so the system Node (v16, EOL) is never used.
+    implementation("com.microsoft.playwright:playwright:1.62.0")
+
     implementation("ch.qos.logback:logback-classic:1.5.12")
 
     testImplementation(kotlin("test"))
@@ -64,4 +68,37 @@ tasks.test {
         events("passed", "skipped", "failed")
         showStandardStreams = true
     }
+}
+
+// One-off helper: installs only the Chromium build Playwright needs, instead of the
+// ~1.1GB every-browser default that Playwright.create() triggers.
+tasks.register<JavaExec>("installChromium") {
+    group = "browser"
+    description = "Download only the Chromium build required by Playwright"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.microsoft.playwright.CLI")
+    args("install", "chromium", "--with-deps")
+}
+
+// Phase 1 explorer for the Amazon -> Colombia shipping check. Separate from the app's
+// main class so it can be run without starting the web server or the poller.
+tasks.register<JavaExec>("probe") {
+    group = "verify"
+    description = "Explore how amazon.com exposes shipping eligibility (see AmazonProbe)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.luis.dealstracker.verify.AmazonProbeKt")
+    args = listOfNotNull(
+        project.findProperty("asin")?.toString() ?: "B09C5RG6KV",
+        project.findProperty("headed")?.let { "--headed" },
+        project.findProperty("popover")?.let { "--popover" },
+    )
+}
+
+// Phase 1, step 3: read eligibility with a session that already has Colombia set.
+tasks.register<JavaExec>("verifyProbe") {
+    group = "verify"
+    description = "Read Amazon shipping eligibility using the saved Colombia session"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.luis.dealstracker.verify.AmazonProbe2Kt")
+    args = (project.findProperty("asins")?.toString() ?: "B09C5RG6KV").split(",")
 }

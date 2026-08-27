@@ -34,4 +34,18 @@ EOF
 fi
 
 export JAVA_HOME
+
+# Playwright's bundled Node does not read the macOS keychain, so on a machine behind a
+# TLS-inspecting proxy (Zscaler here) every download fails with
+# UNABLE_TO_GET_ISSUER_CERT_LOCALLY. Export the trusted roots to a temp file and point
+# Node at them. Harmless on a machine with no such proxy: the file just adds roots that
+# are already trusted. Never committed -- it is regenerated per run.
+if [[ -z "${NODE_EXTRA_CA_CERTS:-}" ]]; then
+    CA_FILE="${TMPDIR:-/tmp}/deals-tracker-system-roots.pem"
+    if security find-certificate -a -p /Library/Keychains/System.keychain > "$CA_FILE" 2>/dev/null \
+       && [[ -s "$CA_FILE" ]]; then
+        export NODE_EXTRA_CA_CERTS="$CA_FILE"
+    fi
+fi
+
 exec ./gradlew "$@"
