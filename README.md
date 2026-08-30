@@ -288,6 +288,22 @@ Verdicts are stored with provenance, visible in the UI: an **auto** marker disti
 automated call from one you made, hovering shows the exact page text it rests on, and a
 **no import fees** flag appears when Amazon says charges are covered.
 
+### Cost, not just eligibility
+
+A YES verdict alone is misleading. Amazon's global-shipping widget reads either
+
+```
+No Import Charges & FREE Shipping to Colombia
+No Import Charges & $60.66 Shipping to Colombia
+```
+
+Both are the same verdict with the same import-charge status, but a $60.66 fee usually
+erases whatever discount made the deal interesting. So `co_shipping_cost` is stored
+separately (NUMERIC; `0` = free, NULL = Amazon quoted nothing) and shown in the UI as an
+amber **+US$60.66 ship** chip. Import charges get an amber **import fees** chip when they
+*do* apply — previously only the harmless "no import fees" case was shown, which was
+backwards.
+
 ### Things that are easy to get wrong here
 
 - **`#availability` carries the refusal, not the delivery block.** A refused item leaves

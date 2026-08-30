@@ -404,3 +404,11 @@ table.history td { font-variant-numeric: tabular-nums; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* A provenance marker for something that makes the deal WORSE -- a shipping fee or import
+ * charges. Warm rather than neutral, because these are the facts most likely to turn an
+ * apparent bargain into a bad buy. */
+.prov.warn-prov {
+  background: rgba(245, 166, 35, 0.16);
+  color: var(--warn);
+}

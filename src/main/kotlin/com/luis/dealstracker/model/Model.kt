@@ -98,6 +98,8 @@ data class Deal(
     val coShippingEvidence: String?,
     /** Whether Amazon said import charges are already covered. Null = it said nothing. */
     val coShippingImportFree: Boolean?,
+    /** International shipping fee quoted. ZERO = free, null = Amazon quoted nothing. */
+    val coShippingCost: BigDecimal?,
     // Joined from price_observations for the feed view.
     val price: BigDecimal,
     val listPrice: BigDecimal?,

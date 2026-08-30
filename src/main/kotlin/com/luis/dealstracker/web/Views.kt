@@ -14,7 +14,7 @@ import java.time.Instant
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "8"
+private const val CSS_VERSION = "9"
 
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
 private val GENERIC_CATEGORIES = setOf("Hot Deals", "Marketplace Deals", "Deal Talk", "Freebies")
@@ -398,7 +398,25 @@ private fun TD.coShippingCell(deal: Deal) {
                 provenance?.let { title = it }
                 +"✓ ships"
                 if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
-                if (deal.coShippingImportFree == true) span("prov") { +"no import fees" }
+                // The shipping fee often decides whether a "deal" is still a deal: the same
+                // YES verdict covers "FREE Shipping" and "$60.66 Shipping".
+                deal.coShippingCost?.let { cost ->
+                    if (cost.signum() == 0) {
+                        span("prov") { +"free ship" }
+                    } else {
+                        span("prov warn-prov") {
+                            title = "Amazon quoted this international shipping fee"
+                            +"+${formatMoney(cost, "USD")} ship"
+                        }
+                    }
+                }
+                // Import charges were previously only shown when they did NOT apply, which is
+                // backwards -- charges make a deal worse, so that is the case to flag.
+                when (deal.coShippingImportFree) {
+                    true -> span("prov") { +"no import fees" }
+                    false -> span("prov warn-prov") { +"import fees" }
+                    null -> Unit
+                }
             }
             CoShipping.NO -> span("co-no") {
                 provenance?.let { title = it }

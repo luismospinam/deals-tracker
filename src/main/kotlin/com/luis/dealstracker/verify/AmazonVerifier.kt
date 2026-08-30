@@ -1,6 +1,7 @@
 package com.luis.dealstracker.verify
 
 import com.luis.dealstracker.db.DealRepository
+import com.luis.dealstracker.model.CoShipping
 import com.microsoft.playwright.BrowserContext
 import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
@@ -18,9 +19,9 @@ data class CoShippingConfig(
     /** Deals per run. Low by default: this is a slow drip, not a sweep. */
     val batchSize: Int = 10,
     /** Politeness floor between page loads. */
-    val delayMillis: Long = 30_000,
+    val delayMillis: Long = 15_000,
     /** Hard ceiling per run, regardless of batchSize. */
-    val maxPerRun: Int = 40,
+    val maxPerRun: Int = 100,
     /** Headed by default: Amazon periodically wants a human, and headless cannot ask. */
     val headless: Boolean = false,
     val profileDir: String = ".amazon-profile",
@@ -91,19 +92,33 @@ class AmazonVerifier(
                     return VerifyOutcome(blocked = true)
                 }
 
-                candidates.forEachIndexed { i, (dealId, asin) ->
+                // A plain loop, not forEachIndexed: `return@forEachIndexed` is *continue*,
+                // not break, so the previous version printed "stopping the run" and then
+                // carried on hitting a site that had just objected.
+                for ((i, candidate) in candidates.withIndex()) {
+                    val (dealId, asin) = candidate
                     if (i > 0) page.waitForTimeout(config.delayMillis.toDouble())
 
                     val signals = readSignals(page, asin)
                     if (signals == null) {
-                        println("[verify] blocked at $asin — stopping the run rather than pushing through")
-                        outcome = outcome.copy(blocked = true)
-                        return@forEachIndexed
+                        // Record the failed attempt before leaving. Without this the deal
+                        // keeps checked_at=NULL and attempts=0, so it stays a fresh
+                        // candidate forever with no backoff -- the exact retry loop the V5
+                        // state model exists to prevent, reintroduced via this path.
+                        repo.recordCoShippingCheck(
+                            dealId, CoShipping.UNKNOWN, unclear = true,
+                            evidence = "blocked by Amazon human check", importFree = null,
+                            shippingCost = null,
+                        )
+                        println("[verify] blocked at $asin — stopping the run (attempt recorded, will back off)")
+                        outcome = outcome.copy(blocked = true, unclear = outcome.unclear + 1)
+                        break
                     }
 
                     val verdict = extractor.extract(signals)
                     val written = repo.recordCoShippingCheck(
-                        dealId, verdict.value, verdict.unclear, verdict.evidence, verdict.importChargesIncluded,
+                        dealId, verdict.value, verdict.unclear, verdict.evidence,
+                        verdict.importChargesIncluded, verdict.shippingCost,
                     )
                     outcome = when {
                         !written -> outcome.copy(protectedManual = outcome.protectedManual + 1)
@@ -112,7 +127,10 @@ class AmazonVerifier(
                         else -> outcome.copy(checked = outcome.checked + 1, no = outcome.no + 1)
                     }
                     val label = if (verdict.unclear) "UNCLEAR" else verdict.value.name
-                    println("[verify] $asin → $label${if (!written) " (skipped: manual verdict protected)" else ""}")
+                    val ship = verdict.shippingCost?.let {
+                        if (it.signum() == 0) "  free shipping" else "  shipping +\$$it"
+                    } ?: ""
+                    println("[verify] $asin → $label$ship${if (!written) " (skipped: manual verdict protected)" else ""}")
                     println("[verify]   evidence: ${verdict.evidence.take(110)}")
                 }
             } finally {

@@ -543,6 +543,7 @@ class DealRepository(private val ds: DataSource) {
         unclear: Boolean,
         evidence: String,
         importFree: Boolean?,
+        shippingCost: java.math.BigDecimal?,
     ): Boolean =
         ds.connection.use { conn ->
             conn.prepareStatement(
@@ -553,7 +554,8 @@ class DealRepository(private val ds: DataSource) {
                        co_shipping_checked_at = now(),
                        co_shipping_attempts = CASE WHEN ? THEN co_shipping_attempts + 1 ELSE 0 END,
                        co_shipping_evidence = ?,
-                       co_shipping_import_free = ?
+                       co_shipping_import_free = ?,
+                       co_shipping_cost = ?
                  WHERE id = ?
                    AND coalesce(co_shipping_source, '') <> 'MANUAL'
                 """.trimIndent(),
@@ -564,7 +566,8 @@ class DealRepository(private val ds: DataSource) {
                 st.setBoolean(4, unclear)
                 st.setString(5, evidence.take(300))
                 importFree?.let { st.setBoolean(6, it) } ?: st.setNull(6, java.sql.Types.BOOLEAN)
-                st.setLong(7, id)
+                st.setBigDecimal(7, shippingCost)
+                st.setLong(8, id)
                 st.executeUpdate() > 0
             }
         }
@@ -695,6 +698,7 @@ class DealRepository(private val ds: DataSource) {
         coShippingSource = getString("co_shipping_source"),
         coShippingEvidence = getString("co_shipping_evidence"),
         coShippingImportFree = getBoolean("co_shipping_import_free").takeIf { !wasNull() },
+        coShippingCost = getBigDecimal("co_shipping_cost"),
         price = getBigDecimal("price"),
         listPrice = getBigDecimal("list_price"),
         minPriceEver = getBigDecimal("min_price"),

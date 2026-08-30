@@ -154,6 +154,58 @@ class CoShippingExtractorTest {
         )
     }
 
+    /**
+     * The finding that prompted this: "No Import Charges & FREE Shipping to Colombia" and
+     * "No Import Charges & $60.66 Shipping to Colombia" are the SAME verdict with the same
+     * import-charge status, but very different deals. Storing only the verdict hid a fee
+     * large enough to erase any discount.
+     */
+    @Test
+    fun `captures the international shipping fee`() {
+        val paid = extractor.extract(
+            PageSignals(amazonGlobal = "No Import Charges & \$60.66 Shipping to Colombia Details"),
+        )
+        assertEquals(CoShipping.YES, paid.value)
+        assertEquals("60.66", paid.shippingCost?.toPlainString())
+        assertEquals(true, paid.importChargesIncluded, "import charges genuinely are zero here")
+
+        val free = extractor.extract(
+            PageSignals(amazonGlobal = "No Import Charges & FREE Shipping to Colombia Details"),
+        )
+        assertEquals("0.00", free.shippingCost?.toPlainString(), "FREE is recorded as 0, not null")
+    }
+
+    @Test
+    fun `free and null shipping cost mean different things`() {
+        // null must keep meaning "Amazon quoted nothing" -- collapsing it into 0 would
+        // silently claim free shipping we never saw stated.
+        assertNull(extractor.extract(PageSignals(deliveryBlock = "FREE delivery to Colombia")).shippingCost)
+    }
+
+    @Test
+    fun `parses a thousands-separated fee`() {
+        assertEquals(
+            "1234.50",
+            extractor.shippingCost("No Import Charges & \$1,234.50 Shipping to Colombia")?.toPlainString(),
+        )
+    }
+
+    @Test
+    fun `import fees are reported when they do apply`() {
+        val v = extractor.extract(
+            PageSignals(amazonGlobal = "Import Fees Deposit \$12.30 & FREE Shipping to Colombia"),
+        )
+        assertEquals(false, v.importChargesIncluded, "charges apply, so this must not read as covered")
+        assertEquals("0.00", v.shippingCost?.toPlainString())
+    }
+
+    @Test
+    fun `all four fixtures still agree after adding cost extraction`() {
+        fixtures.forEach { f ->
+            assertEquals(CoShipping.valueOf(f.humanVerifiedVerdict), extractor.extract(f.signals()).value, f.asin)
+        }
+    }
+
     @Test
     fun `evidence is capped so a row cannot be bloated`() {
         val v = extractor.extract(PageSignals(availability = "cannot be shipped to your selected delivery location " + "x".repeat(2000)))

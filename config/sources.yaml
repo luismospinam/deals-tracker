@@ -22,8 +22,8 @@ defaults:
   # pacing here rather than in code -- what Amazon tolerates is found empirically.
   coShippingCountry: "Colombia"
   coShippingBatchSize: 10
-  coShippingDelayMillis: 30000
-  coShippingMaxPerRun: 40
+  coShippingDelayMillis: 15000
+  coShippingMaxPerRun: 100
 
 providers:
   - id: slickdeals

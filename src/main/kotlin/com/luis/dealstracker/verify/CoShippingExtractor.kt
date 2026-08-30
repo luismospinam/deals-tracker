@@ -29,6 +29,14 @@ data class CoVerdict(
     val evidence: String,
     /** Whether Amazon said import charges are already covered, when it said anything. */
     val importChargesIncluded: Boolean? = null,
+    /**
+     * International shipping cost quoted for the destination. `ZERO` means Amazon said
+     * FREE; null means it quoted nothing.
+     *
+     * Captured because eligibility alone misleads: "No Import Charges & FREE Shipping" and
+     * "No Import Charges & $60.66 Shipping" are the same verdict but very different deals.
+     */
+    val shippingCost: java.math.BigDecimal? = null,
 )
 
 /**
@@ -74,6 +82,7 @@ class CoShippingExtractor(private val country: String = "Colombia") {
                 unclear = false,
                 evidence = positive.take(EVIDENCE_LIMIT),
                 importChargesIncluded = importCharges(signals.amazonGlobal),
+                shippingCost = shippingCost(signals.amazonGlobal),
             )
         }
 
@@ -97,7 +106,32 @@ class CoShippingExtractor(private val country: String = "Colombia") {
         else -> null
     }
 
+    /**
+     * Reads the quoted shipping fee from the global-shipping widget, which phrases it as
+     * either "… & FREE Shipping to <Country>" or "… & $60.66 Shipping to <Country>".
+     *
+     * Returns ZERO for FREE so "free" is a recorded fact rather than an absent value —
+     * null has to keep meaning "Amazon quoted nothing", which is a different thing.
+     */
+    internal fun shippingCost(amazonGlobal: String): java.math.BigDecimal? {
+        if (amazonGlobal.isBlank()) return null
+        FREE_SHIPPING_RE.find(amazonGlobal)?.let { return java.math.BigDecimal.ZERO.setScale(2) }
+        PAID_SHIPPING_RE.find(amazonGlobal)?.let { m ->
+            return runCatching {
+                java.math.BigDecimal(m.groupValues[1].replace(",", "")).setScale(2)
+            }.getOrNull()
+        }
+        return null
+    }
+
     companion object {
+        /** "& FREE Shipping to Colombia" */
+        private val FREE_SHIPPING_RE = Regex("""FREE\s+Shipping""", RegexOption.IGNORE_CASE)
+
+        /** "& $60.66 Shipping to Colombia" */
+        private val PAID_SHIPPING_RE =
+            Regex("""\$\s*([0-9][0-9,]*\.?[0-9]{0,2})\s+Shipping""", RegexOption.IGNORE_CASE)
+
         /** Amazon's refusal wording. Matched against `#availability` only. */
         private val REFUSAL_PHRASES = listOf(
             "cannot be shipped to your selected delivery location",
