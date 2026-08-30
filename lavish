@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# Wrapper around the lavish-axi CLI that pins a new enough Node, for the same reason ./dt
+# pins the JDK: the machine's default `node` is often not the one a tool needs.
+#
+# lavish-axi declares "engines": { "node": ">=22" }, but npm does not enforce engines by
+# default -- it installs happily and then dies at runtime with `ReferenceError: fetch is
+# not defined`, because global fetch only landed in Node 18. That error names neither the
+# version nor the fix, so this resolves a suitable Node from nvm instead and fails with a
+# message that does.
+#
+# The installed `lavish` skill tells the agent to invoke `npx -y lavish-axi ...`. In this
+# repo, use this script instead -- see CLAUDE.md.
+#
+# Usage:
+#   ./lavish .lavish/artifact.html          open or resume a review session
+#   ./lavish poll .lavish/artifact.html     wait for the user's feedback
+#   ./lavish playbook comparison            print guidance for a kind of artifact
+#   ./lavish --help                         all commands
+#   ./lavish stop                           shut down the background server
+set -euo pipefail
+
+REQUIRED_MAJOR=22
+
+node_major() { "$1" --version 2>/dev/null | sed 's/^v//; s/\..*//'; }
+
+# Prefer the highest nvm-installed Node that satisfies the requirement, so this keeps
+# working when a newer one is installed later.
+NODE_BIN=""
+NVM_NODES="${NVM_DIR:-$HOME/.nvm}/versions/node"
+if [[ -d "$NVM_NODES" ]]; then
+    while read -r dir; do
+        [[ -x "$dir/bin/node" ]] || continue
+        major="$(node_major "$dir/bin/node")"
+        if [[ -n "$major" && "$major" -ge "$REQUIRED_MAJOR" ]]; then
+            NODE_BIN="$dir/bin"
+            break
+        fi
+    done < <(find "$NVM_NODES" -maxdepth 1 -mindepth 1 -type d | sort -Vr)
+fi
+
+# Fall back to whatever is already on PATH, but only if it is new enough.
+if [[ -z "$NODE_BIN" ]] && command -v node >/dev/null 2>&1; then
+    if [[ "$(node_major "$(command -v node)")" -ge "$REQUIRED_MAJOR" ]]; then
+        NODE_BIN="$(dirname "$(command -v node)")"
+    fi
+fi
+
+if [[ -z "$NODE_BIN" ]]; then
+    cat >&2 <<EOF
+error: lavish-axi needs Node $REQUIRED_MAJOR or newer, and none was found.
+
+Current default: $(command -v node >/dev/null 2>&1 && node --version || echo "no node on PATH")
+
+Installed under nvm:
+$( [[ -d "$NVM_NODES" ]] && (cd "$NVM_NODES" && ls -1 | sed 's/^/  /') || echo "  (nvm not found)" )
+
+Install one with:
+  nvm install $REQUIRED_MAJOR
+EOF
+    exit 1
+fi
+
+export PATH="$NODE_BIN:$PATH"
+exec npx -y lavish-axi "$@"
