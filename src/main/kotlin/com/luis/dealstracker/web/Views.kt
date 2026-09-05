@@ -15,7 +15,7 @@ import java.util.Locale
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "12"
+private const val CSS_VERSION = "13"
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
@@ -632,6 +632,17 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
         deal.asin?.let { span { +"ASIN $it" } }
         span { +"first seen ${relativeAgo(deal.firstSeenAt)}" }
     }
+
+    // The feed's thumbnail is sized for recognition while scanning; this page is where the
+    // decision happens, so it shows the image at something like the size the sources
+    // actually serve (Slickdeals 300px square, VTEX 1000px). Previously the detail page
+    // carried no image at all -- you clicked through to judge a product and got no picture.
+    deal.imageUrl?.let { src ->
+        a(href = deal.url, target = "_blank", classes = "detail-img-link") {
+            img(alt = "", src = src, classes = "detail-img")
+        }
+    }
+
     p {
         span("price") { +formatMoney(deal.price, deal.currency) }
         deal.listPrice?.let {

@@ -419,7 +419,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 
 /* Uniform row height is what makes a long list scannable — the eye tracks a steady
  * rhythm instead of re-anchoring on every row. Titles clamp rather than wrap freely. */
-.col-thumb { width: 56px; }
+.col-thumb { width: 68px; }
 .col-price { width: 132px; text-align: right; }
 .col-disc  { width: 92px; }
 .col-score { width: 76px; }
@@ -430,18 +430,52 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .col-act   { width: 168px; }
 
 .thumb {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
   /* Product cutouts are shot on white, so a white plate is the honest background —
    * but flattened slightly so it is not the brightest thing on a dark page. */
   background: #ebe7de;
   border-radius: var(--radius-sm);
   padding: 2px;
+  /* position, so the hover rule below can raise it above its neighbours; the value is
+   * set here rather than on :hover so hovering never triggers a repositioning pass. */
+  position: relative;
+  transform-origin: left center;
+  transition: transform 0.16s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.16s ease;
 }
+
+/* Hover preview.
+ *
+ * The feed already downloads a 300x300 image from Slickdeals, and VTEX serves 1000x1000,
+ * so painting one at 56px discards almost every pixel we paid for. Scaling on hover costs
+ * no extra request and no extra byte — it just stops throwing the resolution away.
+ *
+ * Deliberately `transform: scale` rather than a width change, and deliberately triggered
+ * by the cell rather than the row. A transform does not participate in layout, so the row
+ * height cannot move — which is the one thing a table built for scanning cannot afford —
+ * and cell-scoped hover means the preview appears when you point at an image, not every
+ * time the cursor crosses a row on its way down the page.
+ *
+ * 56 x 4 = 224px, kept under the 300px source so it never upscales into mush.
+ */
+.deals tbody td.col-thumb:hover .thumb {
+  transform: scale(4);
+  /* Above the sticky thead (20) and the masthead (30), or the preview would slide under
+   * them for rows near the top of the viewport. */
+  z-index: 40;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.72), 0 0 0 1px var(--line);
+}
+
+/* Keyboard and reduced-motion parity: the preview is an enhancement, so it must not be
+ * the only way to see the image — the detail page carries a full-size one. */
+@media (prefers-reduced-motion: reduce) {
+  .thumb { transition: none; }
+}
+
 .thumb-blank {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   border-radius: var(--radius-sm);
   background: var(--surface-3);
   border: 1px solid var(--line);
@@ -651,6 +685,31 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 }
 .detail-head a { color: var(--text); }
 .detail-head a:hover { color: var(--accent); text-decoration: none; }
+
+/* Detail-page product image. Capped at 300px because that is what Slickdeals serves —
+ * VTEX has 1000px available, but a consistent size across sources matters more here than
+ * using every pixel one of them happens to offer. */
+.detail-img-link {
+  display: inline-block;
+  margin: 16px 0 4px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #ebe7de;
+  padding: 8px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.detail-img-link:hover {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 22px rgba(242, 118, 27, 0.18);
+  text-decoration: none;
+}
+.detail-img {
+  display: block;
+  width: 300px;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
 
 .spark {
   display: block;
