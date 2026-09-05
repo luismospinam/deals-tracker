@@ -25,6 +25,22 @@ defaults:
   coShippingDelayMillis: 15000
   coShippingMaxPerRun: 100
 
+  # Automatic verification: a small headed run after every Nth poll. Set to 0 to turn it
+  # off and rely on `./dt verify` alone.
+  #
+  # This deliberately does not try to keep up. Slickdeals brings ~30 new Amazon deals an
+  # hour while a browser session tolerates ~40-55 page loads before Amazon walls it, so
+  # the backlog grows either way -- the point is to chip at it in the background while
+  # leaving most of the session's tolerance for manual runs aimed at deals worth buying.
+  #
+  # 3 rather than 1: back-to-back runs burn the session's trust with nothing to show,
+  # since an hour only produces ~30 new candidates anyway.
+  coShippingEveryNPolls: 3
+  coShippingPollBatch: 5
+  # Shorter than a manual run's 180s -- nobody is necessarily watching an automatic one,
+  # so it should give up and let the next cycle retry rather than hold a window open.
+  coShippingPollWallWaitMillis: 45000
+
 providers:
   - id: slickdeals
     type: rss-slickdeals

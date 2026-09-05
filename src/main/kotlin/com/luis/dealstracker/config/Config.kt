@@ -65,6 +65,31 @@ data class Defaults(
     val coShippingDelayMillis: Long = 30_000,
     /** Hard ceiling per run regardless of batch size or --limit. */
     val coShippingMaxPerRun: Int = 40,
+
+    /**
+     * Verify after every Nth poll cycle. 0 disables the automatic run entirely.
+     *
+     * Not every cycle. New Amazon deals arrive far faster than they can be verified
+     * (~30 per poll against ~40-55 page loads before Amazon walls a session), so this
+     * cannot keep up and is not trying to -- it is a slow drip that chips at the backlog
+     * between manual `--verify-co-shipping` runs. Spacing it out also lets session trust
+     * recover, which back-to-back runs do not.
+     */
+    val coShippingEveryNPolls: Int = 3,
+    /**
+     * Deals per automatic run. Deliberately far smaller than a manual run's batch: this
+     * fires unattended on a schedule, so it should cost a handful of page loads and leave
+     * the session's remaining tolerance for the manual runs that target deals Luis cares about.
+     */
+    val coShippingPollBatch: Int = 5,
+    /**
+     * How long an automatic run waits for a human to clear an Amazon wall before giving up.
+     *
+     * Much shorter than a manual run's 180s. Nobody is necessarily watching, and a blocked
+     * automatic run should end and let the next cycle retry rather than hold a Chrome window
+     * open for three minutes waiting for a click that may never come.
+     */
+    val coShippingPollWallWaitMillis: Long = 45_000,
 )
 
 @Serializable

@@ -15,11 +15,14 @@ import com.luis.dealstracker.sources.vtex.VtexSource
 import com.luis.dealstracker.web.routes
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import com.luis.dealstracker.verify.VerifyOutcome
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 
 fun main(args: Array<String>) {
@@ -62,20 +65,9 @@ fun main(args: Array<String>) {
 
     if (args.contains("--verify-co-shipping")) {
         val limit = args.firstOrNull { it.startsWith("--limit=") }?.substringAfter("=")?.toIntOrNull()
-        val cfg = CoShippingConfig(
-            country = app.defaults.coShippingCountry,
-            batchSize = app.defaults.coShippingBatchSize,
-            delayMillis = app.defaults.coShippingDelayMillis,
-            maxPerRun = app.defaults.coShippingMaxPerRun,
-            headless = args.contains("--headless"),
-        )
+        val cfg = verifyConfig(app, headless = args.contains("--headless"))
         val outcome = AmazonVerifier(repo, cfg).run(limit)
-        println(
-            "\n[verify] done: ${outcome.checked} checked — " +
-                "${outcome.yes} ships, ${outcome.no} does not, ${outcome.unclear} unclear" +
-                (if (outcome.protectedManual > 0) ", ${outcome.protectedManual} manual verdict(s) left untouched" else "") +
-                (if (outcome.blocked) "  [STOPPED EARLY: Amazon was blocking]" else ""),
-        )
+        println("\n${summarize(outcome)}")
         repo.coShippingStats().forEach { (k, v) -> println("  ${k.padEnd(18)} $v") }
         http.close()
         return
@@ -128,9 +120,18 @@ fun main(args: Array<String>) {
     // point, so the UI can also trigger a refresh on demand.
     scope.launch {
         val intervalMillis = app.defaults.pollIntervalMinutes * 60_000
+        val everyN = app.defaults.coShippingEveryNPolls
+        var cycle = 0
         while (true) {
             runCatching { ingest.runAll() }
                 .onFailure { println("[poller] cycle failed: ${it.message}") }
+
+            // Counted even when the fetch failed: a failed fetch does not make the
+            // already-stored backlog any less worth verifying.
+            cycle++
+            if (everyN > 0 && cycle % everyN == 0) {
+                verifyPeriodically(repo, app)
+            }
             delay(intervalMillis)
         }
     }
@@ -252,4 +253,66 @@ private fun purgeExcluded(
             }
         }
     println(if (dryRun) "dry run complete" else "purged $total deal(s)")
+}
+
+/**
+ * Builds the verifier config from `defaults:` in sources.yaml.
+ *
+ * Shared by the CLI and the periodic run so the two cannot drift: the country and the
+ * politeness delay are properties of Amazon, not of how the run was triggered. Only the
+ * batch size and the wall-wait differ, and those are passed in.
+ */
+private fun verifyConfig(
+    app: AppConfig,
+    headless: Boolean = false,
+    batchSize: Int = app.defaults.coShippingBatchSize,
+    wallWaitMillis: Long = CoShippingConfig().wallWaitMillis,
+) = CoShippingConfig(
+    country = app.defaults.coShippingCountry,
+    batchSize = batchSize,
+    delayMillis = app.defaults.coShippingDelayMillis,
+    maxPerRun = app.defaults.coShippingMaxPerRun,
+    headless = headless,
+    wallWaitMillis = wallWaitMillis,
+)
+
+private fun summarize(outcome: VerifyOutcome): String =
+    "[verify] done: ${outcome.checked} checked — " +
+        "${outcome.yes} ships, ${outcome.no} does not, ${outcome.unclear} unclear" +
+        (if (outcome.protectedManual > 0) ", ${outcome.protectedManual} manual verdict(s) left untouched" else "") +
+        (if (outcome.blocked) "  [STOPPED EARLY: Amazon was blocking]" else "")
+
+/**
+ * The small automatic verification drip that runs every Nth poll cycle.
+ *
+ * Three things this must not do, each learned the hard way:
+ *
+ *  - **Take ingest down with it.** Playwright is the most failure-prone part of this app
+ *    (browser launch, profile locks, Amazon's walls), and none of that should stop deals
+ *    from being fetched. Hence `runCatching` around the whole thing.
+ *  - **Block a dispatcher thread.** Playwright's API is synchronous and a run lasts minutes,
+ *    so it goes to `Dispatchers.IO` rather than stalling the poller's thread.
+ *  - **Run headless.** Headless reliably walls after ~9 page loads where a headed session
+ *    reaches 40-55, and a headless run appeared to cost the profile's accumulated trust.
+ *    A visible window every Nth hour is the price of the session staying usable.
+ *
+ * It also cannot keep up with arrivals and is not meant to -- see `coShippingEveryNPolls`.
+ */
+private suspend fun verifyPeriodically(repo: DealRepository, app: AppConfig) {
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val cfg = verifyConfig(
+                app,
+                batchSize = app.defaults.coShippingPollBatch,
+                wallWaitMillis = app.defaults.coShippingPollWallWaitMillis,
+            )
+            val outcome = AmazonVerifier(repo, cfg).run()
+            // Only report when it actually did something; an idle cycle where everything is
+            // decided or in backoff should stay quiet in the log.
+            if (outcome.checked > 0 || outcome.blocked) println(summarize(outcome))
+            if (outcome.blocked) {
+                println("[verify] Amazon blocked this automatic run — backing off until the next scheduled one")
+            }
+        }.onFailure { println("[verify] automatic run failed: ${it.message}") }
+    }
 }
