@@ -95,11 +95,36 @@ class AmazonVerifier(
                 // A plain loop, not forEachIndexed: `return@forEachIndexed` is *continue*,
                 // not break, so the previous version printed "stopping the run" and then
                 // carried on hitting a site that had just objected.
+                progressTotal = candidates.size
+                var lastHitAmazon = false
                 for ((i, candidate) in candidates.withIndex()) {
-                    val (dealId, asin) = candidate
-                    if (i > 0) page.waitForTimeout(config.delayMillis.toDouble())
+                    val (dealId, asin, title) = candidate
+                    progressDone = i
+                    // Only pause when the previous iteration actually hit Amazon; deals
+                    // resolved from the title cost no request and need no cooling off.
+                    if (i > 0 && lastHitAmazon) {
+                        showStatus(page, i, candidates.size, "pausing ${config.delayMillis / 1000}s to stay polite")
+                        page.waitForTimeout(config.delayMillis.toDouble())
+                    }
+                    lastHitAmazon = false
 
-                    val signals = readSignals(page, asin)
+                    // Digital items are identifiable from the stored title alone, so resolve
+                    // them WITHOUT loading a page. Amazon requests are the scarce resource
+                    // here, and there is nothing on the page to learn: a Kindle book renders
+                    // no shipping widget at all.
+                    val titleOnly = PageSignals(title = title)
+                    if (extractor.isDigital(titleOnly)) {
+                        val v = extractor.extract(titleOnly)
+                        repo.recordCoShippingCheck(
+                            dealId, v.value, v.unclear, v.evidence, v.importChargesIncluded, v.shippingCost,
+                        )
+                        outcome = outcome.copy(checked = outcome.checked + 1, yes = outcome.yes + 1)
+                        println("[verify] $asin → ${v.value.name}  (digital, no page load needed)")
+                        continue
+                    }
+                    lastHitAmazon = true
+
+                    val signals = readSignals(page, asin)?.copy(title = title)
                     if (signals == null) {
                         // Record the failed attempt before leaving. Without this the deal
                         // keeps checked_at=NULL and attempts=0, so it stays a fresh
@@ -173,14 +198,89 @@ class AmazonVerifier(
         return false
     }
 
+    /**
+     * Shows what the run is doing, always — not only when it needs help.
+     *
+     * Each product involves ~30s of intentional waiting (a 15s politeness delay plus AJAX
+     * polling), which is indistinguishable from a hang. Stating the progress and the reason
+     * for the pause removes the ambiguity.
+     */
+    private fun showStatus(page: Page, done: Int, total: Int, note: String) {
+        // Always create-or-update. Navigation destroys the DOM, so an update-only path
+        // meant the banner vanished after the first page and never came back.
+        val label = if (done >= 0) "verified $done of $total · $note" else note
+        runCatching {
+            page.evaluate(
+                """
+                ([done, total, note]) => {
+                  let b = document.getElementById('dt-status-banner');
+                  if (!b) {
+                    b = document.createElement('div');
+                    b.id = 'dt-status-banner';
+                    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483646;' +
+                      'background:#171a21;color:#9aa4b6;font:600 13px/1.4 -apple-system,sans-serif;' +
+                      'padding:9px 16px;text-align:center;border-top:2px solid #5b9dff';
+                    document.body.appendChild(b);
+                  }
+                  b.textContent = 'Deals Tracker — verified ' + done + ' of ' + total +
+                    ' · ' + note + ' · no action needed unless an amber banner appears';
+                }
+                """.trimIndent(),
+                listOf(done, total, note),
+            )
+        }
+    }
+
+    /**
+     * Makes the "I need a human" state impossible to miss.
+     *
+     * Previously this was only printed to the terminal, so the window looked frozen while
+     * it silently waited — the operator had no way to know a click was wanted. Now it
+     * overlays a banner on the page itself and fires a desktop notification.
+     */
+    private fun askForHelp(page: Page, asin: String) {
+        runCatching {
+            page.evaluate(
+                """
+                (asin) => {
+                  if (document.getElementById('dt-help-banner')) return;
+                  const b = document.createElement('div');
+                  b.id = 'dt-help-banner';
+                  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;' +
+                    'background:#f5a623;color:#1a1a1a;font:600 16px/1.5 -apple-system,sans-serif;' +
+                    'padding:14px 18px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.4)';
+                  b.textContent = 'Deals Tracker needs you: click Amazon\'s "Continue shopping" ' +
+                    'button below to carry on verifying (' + asin + '). Waiting…';
+                  document.body.appendChild(b);
+                }
+                """.trimIndent(),
+                asin,
+            )
+        }
+        // Desktop notification, so it is noticed even when the window is not focused.
+        runCatching {
+            ProcessBuilder(
+                "osascript", "-e",
+                """display notification "Click 'Continue shopping' in the Chrome window" """ +
+                    """with title "Deals Tracker: Amazon needs a human" sound name "Ping"""",
+            ).start()
+        }
+    }
+
     /** Returns null when Amazon is blocking and the operator did not clear it. */
+    private var progressDone = 0
+    private var progressTotal = 0
+
     private fun readSignals(page: Page, asin: String): PageSignals? {
         page.navigate("https://www.amazon.com/dp/$asin")
         page.waitForLoadState()
+        // Re-assert after navigation: the previous page's banner went with the old DOM.
+        showStatus(page, progressDone, progressTotal, "reading shipping info for $asin")
 
         var walls = runCatching { botWallMarkers(page.content()) }.getOrDefault(emptyList())
         if (walls.isNotEmpty()) {
             println("[verify] human check shown (${walls.first()}) — please clear it in the window")
+            askForHelp(page, asin)
             val until = System.currentTimeMillis() + config.wallWaitMillis
             while (System.currentTimeMillis() < until && walls.isNotEmpty()) {
                 page.waitForTimeout(3000.0)
@@ -207,6 +307,7 @@ class AmazonVerifier(
             availability = availability,
             deliveryBlock = delivery,
             amazonGlobal = text(page, "#amazonGlobal_feature_div"),
+            buybox = text(page, "#buybox"),
         )
     }
 

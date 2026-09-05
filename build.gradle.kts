@@ -123,9 +123,3 @@ tasks.register<JavaExec>("recheck") {
     mainClass.set("com.luis.dealstracker.verify.AmazonRecheckKt")
     args = listOf(project.findProperty("asin")?.toString() ?: "B09C5RG6KV")
 }
-
-tasks.register<JavaExec>("importProbe") {
-    group = "verify"
-    classpath = sourceSets["main"].runtimeClasspath
-    mainClass.set("com.luis.dealstracker.verify.ImportProbeKt")
-}

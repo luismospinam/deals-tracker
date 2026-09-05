@@ -492,11 +492,11 @@ class DealRepository(private val ds: DataSource) {
      * Backoff is exponential in the attempt count: 2^attempts hours, capped. Without it a
      * row that cannot be read would be retried on every cycle indefinitely.
      */
-    fun coShippingCandidates(limit: Int, baseBackoffHours: Int = 6, maxBackoffHours: Int = 168): List<Pair<Long, String>> =
+    fun coShippingCandidates(limit: Int, baseBackoffHours: Int = 6, maxBackoffHours: Int = 168): List<Triple<Long, String, String>> =
         ds.connection.use { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, asin FROM deals
+                SELECT id, asin, title FROM deals
                  WHERE is_active
                    AND asin IS NOT NULL
                    AND co_shipping = 'UNKNOWN'
@@ -514,7 +514,11 @@ class DealRepository(private val ds: DataSource) {
                 st.setInt(2, maxBackoffHours)
                 st.setInt(3, limit)
                 st.executeQuery().use { rs ->
-                    buildList { while (rs.next()) add(rs.getLong("id") to rs.getString("asin")) }
+                    buildList {
+                        while (rs.next()) {
+                            add(Triple(rs.getLong("id"), rs.getString("asin"), rs.getString("title")))
+                        }
+                    }
                 }
             }
         }

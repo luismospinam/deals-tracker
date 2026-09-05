@@ -18,6 +18,18 @@ data class PageSignals(
     val deliveryBlock: String = "",
     /** `#amazonGlobal_feature_div` — import charges and "FREE Shipping to <Country>". */
     val amazonGlobal: String = "",
+    /**
+     * `#buybox` — how Amazon offers (or declines to offer) the purchase. When nothing can
+     * be delivered to the address it replaces the buy box with "See Similar Items" /
+     * "See All Buying Options" and says nothing explicit about shipping.
+     */
+    val buybox: String = "",
+    /**
+     * The deal title, already stored, used only to spot digital items. Kindle books and
+     * gift codes carry "(eBook)" / "Digital Code" here far more reliably than anywhere in
+     * the shipping widgets — which for a digital item never render at all.
+     */
+    val title: String = "",
 )
 
 /** A verdict plus the evidence behind it, so a stored result can always be audited. */
@@ -70,6 +82,23 @@ class CoShippingExtractor(private val country: String = "Colombia") {
             )
         }
 
+        // Digital items have nothing to ship: a Kindle book reads "Available instantly" and
+        // renders no delivery block, so the shipping question is a category error. Left as
+        // UNCLEAR they would be re-checked forever against a question with no answer.
+        //
+        // Recorded as YES because the practical question — can this be bought from
+        // Colombia — is yes for digital delivery. The caveat is stated in the evidence
+        // rather than hidden: Kindle titles CAN be region-restricted, so a YES here is an
+        // inference about delivery mechanics, not a confirmation Amazon gave us.
+        if (isDigital(signals)) {
+            return CoVerdict(
+                value = CoShipping.YES,
+                unclear = false,
+                evidence = "digital item (no shipping required); assumed purchasable from " +
+                    "$country — Amazon did not confirm regional availability",
+            )
+        }
+
         val toCountry = "to $country"
         val positive = when {
             signals.deliveryBlock.contains(toCountry, ignoreCase = true) -> signals.deliveryBlock
@@ -86,6 +115,22 @@ class CoShippingExtractor(private val country: String = "Colombia") {
             )
         }
 
+        // No buy box for this destination. Amazon states no refusal here — it simply
+        // withdraws the purchase option and offers alternatives instead, leaving both the
+        // delivery block and availability empty.
+        //
+        // Treated as NO on the strength of a manual check: all 7 items showing this pattern
+        // were confirmed unshippable to Colombia in a real browser. Noted as inferred, since
+        // unlike the NO above it rests on an absence rather than on Amazon's own words.
+        if (noOfferForDestination(signals)) {
+            return CoVerdict(
+                value = CoShipping.NO,
+                unclear = false,
+                evidence = "no buy box for this destination (Amazon offered only " +
+                    "\"See Similar Items\" / \"See All Buying Options\") — inferred, not stated",
+            )
+        }
+
         // No refusal and no named destination. Could be a partially rendered page, a bot
         // wall, or wording we have not seen. Never guessed at.
         return CoVerdict(
@@ -98,6 +143,23 @@ class CoShippingExtractor(private val country: String = "Colombia") {
                 .ifEmpty { "no eligibility signal on page" },
         )
     }
+
+    /**
+     * True when Amazon offers no purchasable option for the destination.
+     *
+     * Requires ALL of: no delivery estimate anywhere, nothing in availability, and a buybox
+     * offering only alternatives. Demanding all three keeps a merely slow-loading page from
+     * being mistaken for an unavailable one.
+     */
+    internal fun noOfferForDestination(signals: PageSignals): Boolean =
+        signals.deliveryBlock.isBlank() &&
+            signals.availability.isBlank() &&
+            NO_OFFER_RE.containsMatchIn(signals.buybox)
+
+    /** Digital goods: nothing is shipped, so no shipping widget ever renders. */
+    internal fun isDigital(signals: PageSignals): Boolean =
+        DIGITAL_TITLE_RE.containsMatchIn(signals.title) ||
+            DIGITAL_AVAILABILITY_RE.containsMatchIn(signals.availability)
 
     private fun importCharges(amazonGlobal: String): Boolean? = when {
         amazonGlobal.contains("No Import Charges", ignoreCase = true) -> true
@@ -125,6 +187,24 @@ class CoShippingExtractor(private val country: String = "Colombia") {
     }
 
     companion object {
+        /** What Amazon shows in place of a buy box when nothing can be delivered. */
+        private val NO_OFFER_RE = Regex(
+            """See (Similar Items|All Buying Options)""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** "(eBook)", "Kindle Edition", "$10 Nintendo eShop Gift Card (Digital Code)". */
+        private val DIGITAL_TITLE_RE = Regex(
+            """\b(e-?books?|kindle|audible|audiobooks?|digital codes?|digital downloads?|gift cards?|eshop)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Amazon's wording for a digital purchase in the availability slot. */
+        private val DIGITAL_AVAILABILITY_RE = Regex(
+            """Available (instantly|now)""",
+            RegexOption.IGNORE_CASE,
+        )
+
         /** "& FREE Shipping to Colombia" */
         private val FREE_SHIPPING_RE = Regex("""FREE\s+Shipping""", RegexOption.IGNORE_CASE)
 

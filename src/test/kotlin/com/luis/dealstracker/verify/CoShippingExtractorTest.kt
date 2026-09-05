@@ -206,6 +206,118 @@ class CoShippingExtractorTest {
         }
     }
 
+    /**
+     * Digital items render no shipping widget at all, so left alone they stay UNCLEAR and
+     * get re-checked forever against a question that has no answer. Real examples from the
+     * feed: $1.99 Kindle books and a Nintendo eShop gift card.
+     */
+    @Test
+    fun `digital items resolve without a shipping widget`() {
+        val ebook = extractor.extract(
+            PageSignals(availability = "Available instantly", title = "\$1.99 | Solito: A Memoir (eBook) by Javier Zamora"),
+        )
+        assertEquals(CoShipping.YES, ebook.value)
+        assertFalse(ebook.unclear, "must not stay unclear and be retried forever")
+        assertTrue(ebook.evidence.contains("digital item"), "evidence should say why")
+        assertTrue(
+            ebook.evidence.contains("did not confirm"),
+            "the inference must be stated, not presented as Amazon's confirmation",
+        )
+
+        val giftCard = extractor.extract(
+            PageSignals(title = "Prime Members: \$10 Nintendo eShop Gift Card (Digital Code)"),
+        )
+        assertEquals(CoShipping.YES, giftCard.value)
+    }
+
+    /** Plural trap: `\be-?book\b` cannot match "eBooks" — no boundary between k and s. */
+    @Test
+    fun `detects plural digital markers`() {
+        listOf(
+            "Gordon Ramsay Cookbooks [eBooks] \$1.99-\$2.99",
+            "3 Audiobooks for the price of one",
+            "\$50 Amazon Gift Cards bundle",
+        ).forEach { t ->
+            assertEquals(
+                CoShipping.YES, extractor.extract(PageSignals(title = t)).value,
+                "should detect digital in: $t",
+            )
+        }
+    }
+
+    @Test
+    fun `a physical book is not treated as digital`() {
+        // "Books & Media" contains hardcovers too; only digital markers should trigger this.
+        val hardcover = extractor.extract(
+            PageSignals(
+                availability = "In Stock",
+                title = "Marvel Studios Character Encyclopedia (Hardcover) \$11.20",
+            ),
+        )
+        assertEquals(CoShipping.UNKNOWN, hardcover.value, "no shipping signal yet, so unclear")
+        assertTrue(hardcover.unclear)
+    }
+
+    /** An explicit refusal from Amazon outranks our digital inference. */
+    @Test
+    fun `explicit refusal still wins over the digital shortcut`() {
+        val v = extractor.extract(
+            PageSignals(
+                availability = "This item cannot be shipped to your selected delivery location.",
+                title = "Some Kindle thing (eBook)",
+            ),
+        )
+        assertEquals(CoShipping.NO, v.value)
+    }
+
+    /**
+     * Amazon sometimes offers no buy box at all for the destination: no delivery estimate,
+     * nothing in availability, and "See Similar Items" where Add-to-Cart would be. It never
+     * says the item cannot ship — it just withdraws the option.
+     *
+     * All 7 deals showing this pattern were confirmed unshippable in a real browser, which
+     * is what justifies calling it NO. The evidence marks it as inferred, because unlike the
+     * explicit-refusal case it rests on an absence rather than Amazon's own words.
+     */
+    @Test
+    fun `no buy box for the destination is a no`() {
+        val v = extractor.extract(
+            PageSignals(
+                availability = "",
+                deliveryBlock = "",
+                buybox = "Deliver to Luis - Medellín 050034 / See Similar Items / " +
+                    "See All Buying Options / Add to List",
+                title = "Lodge Pre-Seasoned Cast Iron Burger Press, 6.25 Inches",
+            ),
+        )
+        assertEquals(CoShipping.NO, v.value)
+        assertFalse(v.unclear)
+        assertTrue(v.evidence.contains("inferred"), "must not present an inference as Amazon's statement")
+    }
+
+    /**
+     * All three conditions are required, so a page that simply had not finished loading is
+     * not mistaken for an unavailable one — "See All Buying Options" also appears as a
+     * secondary link on pages that DO have a buy box.
+     */
+    @Test
+    fun `a shippable item with a buying-options link is still a yes`() {
+        val v = extractor.extract(
+            PageSignals(
+                availability = "In Stock",
+                deliveryBlock = "FREE delivery Monday, September 7 to Colombia",
+                buybox = "In Stock / See All Buying Options / Add to Cart",
+            ),
+        )
+        assertEquals(CoShipping.YES, v.value, "a real delivery estimate outranks the link")
+    }
+
+    @Test
+    fun `an empty page is still unclear, not a no`() {
+        // No buybox text either -- nothing to go on, so it must not become a NO.
+        assertEquals(CoShipping.UNKNOWN, extractor.extract(PageSignals()).value)
+    }
+
     @Test
     fun `evidence is capped so a row cannot be bloated`() {
         val v = extractor.extract(PageSignals(availability = "cannot be shipped to your selected delivery location " + "x".repeat(2000)))
