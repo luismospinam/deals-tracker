@@ -388,8 +388,21 @@ class DealRepository(private val ds: DataSource) {
         val where = c.where
         val params = c.params
 
-        val orderBy = when (filter.sort) {
-            "newest" -> "d.first_seen_at DESC"
+        // "How recent is this deal", used by both `newest` and the relevance default.
+        //
+        // COALESCE rather than first_seen_at alone, because first_seen_at records when *we*
+        // ingested a deal, while the Seen column shows the source's own posting date when it
+        // has one. A single Slickdeals poll returns items posted anywhere from minutes to
+        // hours earlier and stamps them all with the same first_seen_at, so ordering by our
+        // ingest time produced a feed that was correctly sorted and looked shuffled -- the
+        // column the user reads and the column the query sorted on were different clocks.
+        //
+        // The fallback matters: VTEX publishes no posting date at all, so posted_at alone
+        // with NULLS LAST would dump every Exito and Carulla deal below every Slickdeals one.
+        val recency = "COALESCE(d.posted_at, d.first_seen_at) DESC"
+
+        val sortKey = when (filter.sort) {
+            "newest" -> recency
             "score" -> "d.community_score DESC NULLS LAST"
             "price" -> "po.price ASC"
             "drop" -> "(agg.min_price - po.price) DESC"
@@ -398,9 +411,16 @@ class DealRepository(private val ds: DataSource) {
             // no list price -- Slickdeals/Amazon deals have a NULL discount, so they
             // sank below the row limit and became invisible. Promoted-and-recent
             // first treats all sources fairly.
-            else -> "d.promoted DESC, d.first_seen_at DESC, " +
+            else -> "d.promoted DESC, $recency, " +
                 "CASE WHEN po.list_price > 0 THEN (1 - po.price / po.list_price) ELSE 0 END DESC"
         }
+
+        // Every sort key above has ties, and some are enormous: a whole poll batch shares a
+        // first_seen_at, and hundreds of deals share a null discount or a zero score. Postgres
+        // guarantees no order within a tie, so without a unique final key the same query can
+        // return the same rows in a different order on each request -- which is what makes a
+        // working sort look broken. id is unique and monotonic, so it settles every tie.
+        val orderBy = "$sortKey, d.id DESC"
 
         val sql = """
             SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n
