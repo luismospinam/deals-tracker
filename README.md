@@ -191,6 +191,53 @@ searching `%` finds titles containing a percent sign instead of returning everyt
 Backed by the `pg_trgm` GIN index on `title`, with an `ILIKE` clause alongside so short
 terms still match exactly where trigram similarity is weak.
 
+## Exporting to Excel
+
+**Export to Excel** downloads the current selection as a real `.xlsx` — `deals-YYYY-MM-DD.xlsx`,
+two sheets, 24 columns.
+
+The button is a submit button on the filter form with `formaction="/export.xlsx"`, so it
+sends the controls exactly as they stand — including edits you haven't clicked **Apply**
+on yet. Both the page and the export build their `FeedFilter` from
+`feedFilterFrom(params)`, so what you're looking at and what you download cannot drift
+apart.
+
+### What you get if you export without filtering anything
+
+**An untouched form is not "no filter".** Three constraints apply before any input:
+
+| Constraint | Effect |
+|---|---|
+| `d.is_active` | retired deals excluded — anything unseen for `staleAfterHours` (48h) |
+| `state IN (NEW, SEEN, SAVED)` | **dismissed deals excluded** — reachable only via the State filter |
+| relevance sort | promoted first, then recency, then discount |
+
+So it's every active, non-dismissed deal — not a dump of the `deals` table. Rather than
+leave that to be rediscovered, the **Export info** sheet writes it into every file, along
+with the generated timestamp, the row counts, and each filter's value.
+
+### It exports all matching rows, not the page
+
+`FeedFilter.limit` caps the *rendered* page at 1000 so the browser stays responsive, and
+the header says "showing 1000 of 1420" when that bites. A spreadsheet can't say that in
+passing, so inheriting the display cap would hand you a file that looks complete and
+silently isn't. The export raises the limit to `DealsExport.MAX_ROWS` (50,000) instead. If
+that ever bites, `Truncated` on the Export info sheet says so and names the shortfall —
+and the `no` case is written too, so its absence is never ambiguous.
+
+### Reading the sheet
+
+- **Blank means unknown, never zero** — the same rule the feed UI follows. Slickdeals
+  publishes no list price, so its **List price**, **Discount** and **Drop from peak** cells
+  are empty; Éxito and Carulla publish no **Community score**, and neither publishes a
+  **Posted at**. A `0` in any of those would sort and average as though the value were
+  known to be zero.
+- **Prices are typed numeric cells**, which is the reason for `.xlsx` over CSV: they sum
+  and sort natively, and Excel can't reinterpret an accented category on open. COP and USD
+  share the **Price** column with per-row currency formats (`$1,899,900` vs `US$18.99`), so
+  the **Currency** column is what keeps a mixed export meaningful — don't total across it.
+- The header row is frozen and every column carries an autofilter dropdown.
+
 ## Deal age
 
 `maxAgeDays` (default **14**) drops anything the source published longer ago than that.
@@ -333,10 +380,13 @@ ever checked once.
 
 ## Known limitations
 
-- **No pagination.** The feed renders up to 1000 rows in one page, which covers the
-  current volume (~370 deals across three sources). When a page is capped the header
-  says "showing X of Y" rather than reporting the page size as a total, so truncation
-  is visible — but real pagination is the fix once volume outgrows this.
+- **No pagination, and the cap is close.** The feed renders up to 1000 rows in one page.
+  That covered the volume comfortably at ~370 deals; as of 2026-08-27 it is **920 active
+  deals across three sources**, so the cap is roughly 80 deals away from biting. When a
+  page is capped the header says "showing X of Y" rather than reporting the page size as a
+  total, so truncation stays visible — but real pagination is the fix, and it is now
+  closer to needed than optional. The Excel export deliberately ignores this cap, so it
+  is unaffected.
 - **Default sort is `relevance`** (promoted first, then recency, then discount).
   Sorting purely by discount buried Slickdeals entirely, since Amazon deals have no
   list price and therefore a NULL discount.

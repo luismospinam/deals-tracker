@@ -8,13 +8,29 @@ import kotlinx.html.*
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
+import java.util.Locale
 
 /**
  * Bumped whenever app.css changes, to defeat browser caching of the stylesheet.
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "9"
+private const val CSS_VERSION = "12"
+
+/**
+ * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
+ * industrial sans for prose and a true monospace for every number and column label.
+ *
+ * Fetched from a CDN, consistent with how htmx is already loaded below. `display=swap`
+ * means a slow font never blocks the feed from rendering, and app.css declares a local
+ * fallback for each family, so the page is fully usable offline — only the character of
+ * the type is lost, not the layout.
+ */
+private const val FONT_HREF = "https://fonts.googleapis.com/css2" +
+    "?family=Archivo:wght@400..700" +
+    "&family=IBM+Plex+Mono:wght@400;500;600;700" +
+    "&family=Instrument+Serif:ital@0;1" +
+    "&display=swap"
 
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
 private val GENERIC_CATEGORIES = setOf("Hot Deals", "Marketplace Deals", "Deal Talk", "Freebies")
@@ -24,6 +40,9 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         meta(charset = "utf-8")
         meta(name = "viewport", content = "width=device-width, initial-scale=1")
         title(title)
+        link(rel = "preconnect", href = "https://fonts.googleapis.com")
+        link(rel = "preconnect", href = "https://fonts.gstatic.com") { attributes["crossorigin"] = "" }
+        link(rel = "stylesheet", href = FONT_HREF)
         link(rel = "stylesheet", href = "/static/app.css?v=$CSS_VERSION")
         script(src = "https://unpkg.com/htmx.org@1.9.12") {}
     }
@@ -31,6 +50,9 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         header {
             h1 { +"Deals Tracker" }
             span("sub") { a(href = "/") { +"feed" } }
+            // Holds the right rail apart from the nameplate, so the serif sits alone
+            // instead of being crowded by the mono labels.
+            div("masthead-gap") {}
             span("sub") { +"local price monitor" }
         }
         main { block() }
@@ -44,14 +66,71 @@ fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) 
     else -> "$currency " + String.format("%,.2f", amount)
 }
 
+/** The under-a-minute case, which is a complete phrase and so cannot take a suffix. */
+private const val JUST_NOW = "just now"
+
 fun relativeTime(instant: Instant): String {
     val d = Duration.between(instant, Instant.now())
     return when {
-        d.toMinutes() < 1 -> "just now"
+        d.toMinutes() < 1 -> JUST_NOW
         d.toMinutes() < 60 -> "${d.toMinutes()}m"
         d.toHours() < 24 -> "${d.toHours()}h"
         else -> "${d.toDays()}d"
     }
+}
+
+/**
+ * "3h ago", "2d ago" — but "just now", not "just now ago".
+ *
+ * Every call site was gluing " ago" onto [relativeTime], which reads correctly for the
+ * duration cases and wrongly for the newest rows. Newly ingested deals are exactly the
+ * ones most looked at, so the broken phrasing showed up on the most-read rows.
+ */
+fun relativeAgo(instant: Instant): String =
+    relativeTime(instant).let { if (it == JUST_NOW) it else "$it ago" }
+
+/** As [relativeAgo], for the age chip: "3h old", but "brand new" rather than "just now old". */
+private fun relativeOld(instant: Instant): String =
+    relativeTime(instant).let { if (it == JUST_NOW) "brand new" else "$it old" }
+
+/**
+ * A one-click preset over an existing filter parameter.
+ *
+ * Deliberately *not* a form input of its own. A chip writes into the single canonical
+ * control that owns its parameter — the select or number field in the More-filters panel —
+ * so no parameter ever has two inputs that could disagree about what is being filtered,
+ * and no filtering capability is lost to the shorthand. The arbitrary-value controls all
+ * survive; the chips just cover the values actually reached for.
+ */
+private data class ChipPreset(val param: String, val value: String, val label: String)
+
+/**
+ * Note that "Lowest yet" and "Promoted" both target `only`, which is single-valued. Because
+ * they write to the same select, turning one on turns the other off for free — the conflict
+ * is impossible to express rather than merely discouraged.
+ */
+private val FILTER_CHIPS = listOf(
+    ChipPreset("minDiscount", "50", "50%+ off"),
+    ChipPreset("only", "lowest", "Lowest yet"),
+    ChipPreset("co", "YES", "Ships to CO"),
+    ChipPreset("only", "promoted", "Promoted"),
+    ChipPreset("minScore", "20", "Score 20+"),
+)
+
+/** Parameters that live in the collapsed panel rather than on the always-visible row. */
+private val ADVANCED_PARAMS = listOf("minDiscount", "maxPrice", "minScore", "co", "state", "only")
+
+/**
+ * How many filters are engaged but not visible — the number on the More-filters badge.
+ *
+ * Values a chip is already showing are excluded, because the chip is visible: the badge
+ * answers "what is narrowing my results that I cannot see?", which is the only reason to
+ * surface a count at all. A collapsed panel that silently filtered the feed would be worse
+ * than the cluttered bar it replaces.
+ */
+internal fun hiddenFilterCount(q: Map<String, String>): Int = ADVANCED_PARAMS.count { p ->
+    val v = q[p].orEmpty()
+    v.isNotBlank() && FILTER_CHIPS.none { it.param == p && it.value == v }
 }
 
 fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<String, String>) {
@@ -105,55 +184,8 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
                 }
             }
         }
-        label {
-            +"Min discount %"
-            input(type = InputType.number, name = "minDiscount") {
-                value = q["minDiscount"].orEmpty(); min = "0"; max = "99"; placeholder = "0"
-                attributes["size"] = "4"
-            }
-        }
-        label {
-            +"Max price"
-            input(type = InputType.number, name = "maxPrice") {
-                value = q["maxPrice"].orEmpty()
-                attributes["size"] = "8"
-            }
-        }
-        label {
-            +"Min score"
-            input(type = InputType.number, name = "minScore") {
-                value = q["minScore"].orEmpty()
-                placeholder = "any"
-                title = "Slickdeals community vote score. 0 or below means downvoted."
-                attributes["size"] = "4"
-            }
-        }
-        label {
-            +"Colombia"
-            select {
-                name = "co"
-                listOf("" to "any", "YES" to "ships", "UNKNOWN" to "unverified", "NO" to "no").forEach { (v, t) ->
-                    option {
-                        value = v
-                        if (q["co"] == v) selected = true
-                        +t
-                    }
-                }
-            }
-        }
-        label {
-            +"State"
-            select {
-                name = "state"
-                listOf("" to "active", "NEW" to "new", "SAVED" to "saved", "DISMISSED" to "dismissed").forEach { (v, t) ->
-                    option {
-                        value = v
-                        if (q["state"] == v) selected = true
-                        +t
-                    }
-                }
-            }
-        }
+        // Sort stays on the visible row: it reorders the feed rather than narrowing it, so
+        // it does not belong behind a disclosure labelled "More filters".
         label {
             +"Sort"
             select {
@@ -174,25 +206,140 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
                 }
             }
         }
-        label {
-            +"Only"
-            select {
-                name = "only"
-                listOf("" to "everything", "promoted" to "promoted", "lowest" to "at lowest ever").forEach { (v, t) ->
-                    option {
-                        value = v
-                        if (q["only"] == v) selected = true
-                        +t
+
+        button(classes = "primary") { type = ButtonType.submit; +"Apply" }
+
+        // Export and Refresh act on the feed rather than describing it, so they sit in a
+        // right-hand utility group instead of competing with Apply at the end of the row.
+        div("util") {
+            // A submit button with `formaction`, not a link: it posts this form's live values
+            // to the export route, so the download reflects the controls as they stand --
+            // including edits not yet applied. A static href would export the previous filter.
+            // Needs no JavaScript, and the form is already method=get.
+            button {
+                type = ButtonType.submit
+                attributes["formaction"] = "/export.xlsx"
+                title = "Download the matching deals as an Excel file. " +
+                    "With nothing filtered this is every active deal except dismissed ones."
+                +"Export to Excel"
+            }
+            button {
+                attributes["hx-post"] = "/refresh"
+                attributes["hx-swap"] = "none"
+                type = ButtonType.button
+                +"Refresh now"
+            }
+        }
+
+        div("fbreak") {}
+
+        // The presets. `aria-pressed` rather than a checkbox because these are buttons that
+        // act immediately -- a screen reader should hear a toggle, not an unsubmitted field.
+        div("chiprow") {
+            FILTER_CHIPS.forEach { chip ->
+                val on = q[chip.param] == chip.value
+                button(classes = if (on) "chip-tog on" else "chip-tog") {
+                    type = ButtonType.button
+                    attributes["data-param"] = chip.param
+                    attributes["data-value"] = chip.value
+                    attributes["aria-pressed"] = on.toString()
+                    +chip.label
+                }
+            }
+        }
+
+        div("fbreak") {}
+
+        // Collapsed, but still inside the form: a closed <details> keeps its fields in the
+        // DOM, so their values continue to submit and the Excel export continues to match
+        // the page. Hiding a control must not quietly drop the filter it holds.
+        details("more") {
+            summary {
+                +"More filters"
+                val hidden = hiddenFilterCount(q)
+                if (hidden > 0) span("act-count") { +"$hidden" }
+            }
+            div("more-grid") {
+                label {
+                    +"Min discount %"
+                    input(type = InputType.number, name = "minDiscount") {
+                        value = q["minDiscount"].orEmpty(); min = "0"; max = "99"; placeholder = "0"
+                        attributes["size"] = "4"
+                    }
+                }
+                label {
+                    +"Max price"
+                    input(type = InputType.number, name = "maxPrice") {
+                        value = q["maxPrice"].orEmpty()
+                        attributes["size"] = "8"
+                    }
+                }
+                label {
+                    +"Min score"
+                    input(type = InputType.number, name = "minScore") {
+                        value = q["minScore"].orEmpty()
+                        placeholder = "any"
+                        title = "Slickdeals community vote score. 0 or below means downvoted."
+                        attributes["size"] = "4"
+                    }
+                }
+                label {
+                    +"Colombia"
+                    select {
+                        name = "co"
+                        listOf("" to "any", "YES" to "ships", "UNKNOWN" to "unverified", "NO" to "no").forEach { (v, t) ->
+                            option {
+                                value = v
+                                if (q["co"] == v) selected = true
+                                +t
+                            }
+                        }
+                    }
+                }
+                label {
+                    +"State"
+                    select {
+                        name = "state"
+                        listOf("" to "active", "NEW" to "new", "SAVED" to "saved", "DISMISSED" to "dismissed").forEach { (v, t) ->
+                            option {
+                                value = v
+                                if (q["state"] == v) selected = true
+                                +t
+                            }
+                        }
+                    }
+                }
+                label {
+                    +"Only"
+                    select {
+                        name = "only"
+                        listOf("" to "everything", "promoted" to "promoted", "lowest" to "at lowest ever").forEach { (v, t) ->
+                            option {
+                                value = v
+                                if (q["only"] == v) selected = true
+                                +t
+                            }
+                        }
                     }
                 }
             }
         }
-        button(classes = "primary") { type = ButtonType.submit; +"Apply" }
-        button {
-            attributes["hx-post"] = "/refresh"
-            attributes["hx-swap"] = "none"
-            type = ButtonType.button
-            +"Refresh now"
+
+        // A chip sets its owning control and submits in the same click. Requiring a second
+        // press on Apply would make the shortcut no faster than the dropdown it replaces.
+        script {
+            unsafe {
+                +"""
+                document.querySelectorAll('.filters .chip-tog').forEach(function (b) {
+                  b.addEventListener('click', function () {
+                    var f = b.form, c = f.elements[b.dataset.param];
+                    if (!c) return;
+                    c.value = b.classList.contains('on') ? '' : b.dataset.value;
+                    if (f.requestSubmit) { f.requestSubmit(); } else { f.submit(); }
+                  });
+                });
+                """.trimIndent()
+            }
         }
     }
 }
@@ -261,7 +408,14 @@ private fun sourceDotClass(source: String): String = when (source) {
 }
 
 private fun TBODY.dealRow(deal: Deal) {
-    tr {
+    // Drives the margin heat gutter (see app.css). Deliberately the *same* tier function
+    // the discount badge uses, so the bar and the number cannot disagree. A deal with no
+    // computable discount gets no class and therefore no bar — a zero-height bar would
+    // read as "0% off" rather than "not known".
+    // null rather than "" so kotlinx.html omits the attribute entirely — an empty
+    // class="" on every discount-less row is 202 wasted attributes on a typical feed.
+    val heat = deal.discountPercent?.let { "heat heat-s${discountTier(it)}" }
+    tr(classes = heat) {
         id = "deal-${deal.id}"
 
         td(classes = "col-thumb") {
@@ -269,7 +423,9 @@ private fun TBODY.dealRow(deal: Deal) {
             if (img != null) img(classes = "thumb", src = img, alt = "") else div("thumb-blank") {}
         }
 
-        td {
+        // Classed so it can host the heat gutter at narrow widths, where .col-thumb is
+        // display:none and takes its pseudo-element with it.
+        td(classes = "col-deal") {
             a(href = deal.url, target = "_blank", classes = "title") { +deal.title }
             div("meta") {
                 span("src") {
@@ -360,8 +516,8 @@ private fun TBODY.dealRow(deal: Deal) {
             val posted = deal.postedAt
             if (posted != null) {
                 div("seen") {
-                    title = "Posted by the source ${relativeTime(posted)} ago"
-                    +"${relativeTime(posted)} old"
+                    title = "Posted by the source ${relativeAgo(posted)}"
+                    +relativeOld(posted)
                 }
             } else {
                 div("seen") {
@@ -469,9 +625,12 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
             span("dot ${sourceDotClass(deal.source)}") {}
             +deal.source
         }
-        deal.merchant?.let { +it }
-        deal.asin?.let { +"ASIN $it" }
-        +"first seen ${relativeTime(deal.firstSeenAt)} ago"
+        // Each wrapped in its own span. Bare text nodes inside a flex container merge into
+        // one anonymous flex item, so `gap` never applied between them and the line
+        // rendered as "amazonASIN B0CV8VQJV1first seen 2h ago".
+        deal.merchant?.let { span { +it } }
+        deal.asin?.let { span { +"ASIN $it" } }
+        span { +"first seen ${relativeAgo(deal.firstSeenAt)}" }
     }
     p {
         span("price") { +formatMoney(deal.price, deal.currency) }
@@ -499,7 +658,7 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
             tbody {
                 history.reversed().take(50).forEach { obs ->
                     tr {
-                        td { +"${relativeTime(obs.observedAt)} ago" }
+                        td { +relativeAgo(obs.observedAt) }
                         td { +formatMoney(obs.price, obs.currency) }
                         td { +(obs.listPrice?.let { formatMoney(it, obs.currency) } ?: "—") }
                     }
@@ -509,7 +668,14 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
     }
 }
 
-/** Inline SVG sparkline — no chart library needed for a single series. */
+/**
+ * Inline SVG sparkline — no chart library needed for a single series.
+ *
+ * Three things beyond the bare line, each earning its ink: an area fill, because a 3%
+ * decline over 120px is close to invisible as a stroke alone; a jade marker on the
+ * cheapest observation, since "was it ever cheaper than this?" is the question the detail
+ * page exists to answer; and inset padding so a flat series does not graze the frame.
+ */
 private fun MAIN.sparkline(history: List<PriceObservation>) {
     val prices = history.map { it.price }
     val min = prices.min()
@@ -517,26 +683,54 @@ private fun MAIN.sparkline(history: List<PriceObservation>) {
     val range = (max - min).takeIf { it.signum() > 0 }
     val w = 640.0
     val h = 120.0
+    val pad = 10.0
     val stepX = if (history.size > 1) w / (history.size - 1) else w
 
-    val points = history.mapIndexed { i, obs ->
-        val x = i * stepX
+    // Locale.ROOT, not the default locale: "%.1f" under a comma-decimal locale such as
+    // es-CO emits "12,5", which silently corrupts an SVG points list into extra
+    // coordinates. The chart would render as garbage only on some machines.
+    fun n(v: Double) = "%.1f".format(Locale.ROOT, v)
+
+    val coords = history.mapIndexed { i, obs ->
         val y = if (range == null) h / 2 else {
-            h - ((obs.price - min).toDouble() / range.toDouble()) * (h - 12) - 6
+            h - pad - ((obs.price - min).toDouble() / range.toDouble()) * (h - 2 * pad)
         }
-        "${"%.1f".format(x)},${"%.1f".format(y)}"
-    }.joinToString(" ")
+        (i * stepX) to y
+    }
+    val points = coords.joinToString(" ") { (x, y) -> "${n(x)},${n(y)}" }
+    // Closed back along the baseline so the region under the line can be filled.
+    val area = "${n(0.0)},${n(h)} $points ${n(w)},${n(h)}"
+
+    val lowIdx = coords.indices.minBy { history[it].price }
+    val (lowX, lowY) = coords[lowIdx]
+
+    val currency = history.first().currency
+    val label = "price history, ${history.size} observations, " +
+        "low ${formatMoney(min, currency)}, high ${formatMoney(max, currency)}"
 
     div {
         unsafe {
-            +"""<svg class="spark" viewBox="0 0 $w $h" width="100%" height="$h"
-                 preserveAspectRatio="none" role="img" aria-label="price history">
-                 <polyline fill="none" stroke="#5b9dff" stroke-width="2" points="$points"/>
+            // No preserveAspectRatio="none" and no height attribute: the previous version
+            // stretched the viewBox to a fixed height, which would squash the low marker
+            // into an ellipse and thin the stroke unevenly. Letting the aspect ratio hold
+            // and capping width in CSS scales the whole chart uniformly instead.
+            +"""<svg class="spark" viewBox="0 0 ${n(w)} ${n(h)}" width="100%" role="img" aria-label="$label">
+                 <defs>
+                   <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stop-color="#f2761b" stop-opacity="0.30"/>
+                     <stop offset="100%" stop-color="#f2761b" stop-opacity="0"/>
+                   </linearGradient>
+                 </defs>
+                 <polygon fill="url(#sparkFill)" points="$area"/>
+                 <polyline fill="none" stroke="#f2761b" stroke-width="2"
+                           stroke-linecap="round" stroke-linejoin="round" points="$points"/>
+                 <circle cx="${n(lowX)}" cy="${n(lowY)}" r="3.5" fill="#4fbf8b"
+                         stroke="#0d0c0a" stroke-width="1.5"/>
                </svg>"""
         }
     }
     p("sub") {
-        +"range ${formatMoney(min, history.first().currency)} – ${formatMoney(max, history.first().currency)}"
+        +"range ${formatMoney(min, currency)} – ${formatMoney(max, currency)}"
     }
 }
 
@@ -550,7 +744,7 @@ fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
                 runs.forEach { run ->
                     tr {
                         td { +(run["source"] as? String ?: "?") }
-                        td { +((run["startedAt"] as? Instant)?.let { "${relativeTime(it)} ago" } ?: "—") }
+                        td { +((run["startedAt"] as? Instant)?.let { relativeAgo(it) } ?: "—") }
                         td { +"${run["itemCount"]}" }
                         td { +"${run["newCount"]}" }
                         val error = run["error"] as? String

@@ -35,3 +35,11 @@ logs/
 
 # macOS
 .DS_Store
+
+# Lavish Editor review artifacts (scratch, not part of the app)
+.lavish/
+
+# Editor state. settings.json is shared -- it enables the plugins this repo expects --
+# but permission grants and worktrees are per-machine.
+.claude/settings.local.json
+.claude/worktrees/
