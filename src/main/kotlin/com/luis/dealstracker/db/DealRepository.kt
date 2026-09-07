@@ -543,6 +543,41 @@ class DealRepository(private val ds: DataSource) {
             }
         }
 
+    /**
+     * One specific deal to verify, for the UI's per-deal Verify button.
+     *
+     * Deliberately ignores the backoff window that [coShippingCandidates] applies: backoff
+     * exists to stop the *automatic* runs from hammering a deal that keeps coming back
+     * unclear, but an explicit click is a human asking for this one now. It still refuses a
+     * MANUAL verdict, since that is the operator's own answer and outranks any automated one.
+     *
+     * Returns null when the deal is gone, inactive, already decided, manual, or has no ASIN —
+     * the caller turns that into a message rather than a check.
+     */
+    fun coShippingCandidate(dealId: Long): Triple<Long, String, String>? =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, asin, title FROM deals
+                 WHERE id = ?
+                   AND is_active
+                   AND asin IS NOT NULL
+                   AND asin <> ''
+                   AND co_shipping = 'UNKNOWN'
+                   AND coalesce(co_shipping_source, '') <> 'MANUAL'
+                """.trimIndent(),
+            ).use { st ->
+                st.setLong(1, dealId)
+                st.executeQuery().use { rs ->
+                    if (rs.next()) {
+                        Triple(rs.getLong("id"), rs.getString("asin"), rs.getString("title"))
+                    } else {
+                        null
+                    }
+                }
+            }
+        }
+
     /** Active UNKNOWN deals with no ASIN — reported rather than silently skipped. */
     fun coShippingUncheckableCount(): Int =
         ds.connection.use { conn ->

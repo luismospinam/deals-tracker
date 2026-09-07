@@ -16,6 +16,7 @@ import com.luis.dealstracker.web.routes
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import com.luis.dealstracker.verify.VerifyOutcome
+import com.luis.dealstracker.verify.VerifySlot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -66,9 +67,24 @@ fun main(args: Array<String>) {
     if (args.contains("--verify-co-shipping")) {
         val limit = args.firstOrNull { it.startsWith("--limit=") }?.substringAfter("=")?.toIntOrNull()
         val cfg = verifyConfig(app, headless = args.contains("--headless"))
-        val outcome = AmazonVerifier(repo, cfg).run(limit)
-        println("\n${summarize(outcome)}")
-        repo.coShippingStats().forEach { (k, v) -> println("  ${k.padEnd(18)} $v") }
+        // The running app verifies on a schedule too, and both share one Chrome profile.
+        // Without this the loser of that race dies on an opaque Playwright error.
+        val outcome = VerifySlot.tryWith(
+            VerifySlot.lockFileFor(cfg.profileDir),
+            onBusy = {
+                println(
+                    "[verify] another verification is already running -- most likely the app's " +
+                        "own scheduled run. Both share ${cfg.profileDir}, which Chrome locks, " +
+                        "so only one can hold it. Retry in a minute.",
+                )
+                null
+            },
+        ) { AmazonVerifier(repo, cfg).run(limit) }
+
+        if (outcome != null) {
+            println("\n${summarize(outcome)}")
+            repo.coShippingStats().forEach { (k, v) -> println("  ${k.padEnd(18)} $v") }
+        }
         http.close()
         return
     }
@@ -262,7 +278,7 @@ private fun purgeExcluded(
  * politeness delay are properties of Amazon, not of how the run was triggered. Only the
  * batch size and the wall-wait differ, and those are passed in.
  */
-private fun verifyConfig(
+internal fun verifyConfig(
     app: AppConfig,
     headless: Boolean = false,
     batchSize: Int = app.defaults.coShippingBatchSize,
@@ -306,7 +322,16 @@ private suspend fun verifyPeriodically(repo: DealRepository, app: AppConfig) {
                 batchSize = app.defaults.coShippingPollBatch,
                 wallWaitMillis = app.defaults.coShippingPollWallWaitMillis,
             )
-            val outcome = AmazonVerifier(repo, cfg).run()
+            val outcome = VerifySlot.tryWith(
+                VerifySlot.lockFileFor(cfg.profileDir),
+                // A click or a CLI run already has the profile. Skipping is right: the next
+                // cycle comes around in a few hours and the backlog is not going anywhere.
+                onBusy = {
+                    println("[verify] skipping scheduled run — a verification is already in progress")
+                    null
+                },
+            ) { AmazonVerifier(repo, cfg).run() }
+            if (outcome == null) return@runCatching
             // Only report when it actually did something; an idle cycle where everything is
             // decided or in backoff should stay quiet in the log.
             if (outcome.checked > 0 || outcome.blocked) println(summarize(outcome))

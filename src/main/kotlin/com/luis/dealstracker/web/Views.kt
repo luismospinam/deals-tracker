@@ -5,6 +5,7 @@ import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
 import com.luis.dealstracker.model.PriceObservation
 import kotlinx.html.*
+import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
@@ -15,7 +16,7 @@ import java.util.Locale
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "13"
+private const val CSS_VERSION = "14"
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
@@ -407,15 +408,31 @@ private fun sourceDotClass(source: String): String = when (source) {
     else -> "dot-other"
 }
 
-private fun TBODY.dealRow(deal: Deal) {
-    // Drives the margin heat gutter (see app.css). Deliberately the *same* tier function
-    // the discount badge uses, so the bar and the number cannot disagree. A deal with no
-    // computable discount gets no class and therefore no bar — a zero-height bar would
-    // read as "0% off" rather than "not known".
-    // null rather than "" so kotlinx.html omits the attribute entirely — an empty
-    // class="" on every discount-less row is 202 wasted attributes on a typical feed.
-    val heat = deal.discountPercent?.let { "heat heat-s${discountTier(it)}" }
-    tr(classes = heat) {
+/**
+ * Drives the margin heat gutter (see app.css). Deliberately the *same* tier function the
+ * discount badge uses, so the bar and the number cannot disagree. A deal with no computable
+ * discount gets no class and therefore no bar — a zero-height bar would read as "0% off"
+ * rather than "not known".
+ *
+ * null rather than "" so kotlinx.html omits the attribute entirely — an empty class="" on
+ * every discount-less row is 202 wasted attributes on a typical feed.
+ */
+private fun heatClass(deal: Deal): String? =
+    deal.discountPercent?.let { "heat heat-s${discountTier(it)}" }
+
+private fun TBODY.dealRow(deal: Deal, note: String? = null) {
+    tr(classes = heatClass(deal)) { dealRowBody(deal, note) }
+}
+
+/**
+ * The row's attributes and cells, separate from the `tr` that holds them.
+ *
+ * Split out so an HTMX swap can emit a bare `<tr>` — see [rowFragment]. The feed renders
+ * this inside a `tbody`; the swap renders the identical markup with no wrapper at all, so
+ * the two can never drift apart.
+ */
+private fun TR.dealRowBody(deal: Deal, note: String? = null) {
+    run {
         id = "deal-${deal.id}"
 
         td(classes = "col-thumb") {
@@ -508,7 +525,7 @@ private fun TBODY.dealRow(deal: Deal) {
             }
         }
 
-        td(classes = "col-co") { coShippingCell(deal) }
+        td(classes = "col-co") { coShippingCell(deal, note) }
 
         td(classes = "col-seen") {
             // The source's own posting date when known, since that is what tells you the
@@ -543,7 +560,7 @@ private fun TBODY.dealRow(deal: Deal) {
  * does not determine that automatically. Unverified is the only actionable state, so it
  * carries the warm colour and the inline buttons; resolved states stay quiet.
  */
-private fun TD.coShippingCell(deal: Deal) {
+private fun TD.coShippingCell(deal: Deal, note: String? = null) {
     div("co") {
         // Evidence as a tooltip, and an "auto" marker, so an automated verdict can be told
         // apart from one Luis made by hand -- and audited without re-fetching the page.
@@ -596,7 +613,34 @@ private fun TD.coShippingCell(deal: Deal) {
                         title = "Mark as not shippable"
                         +"no"
                     }
+                    // Only offered when there is an ASIN to look up. Amazon is reachable only
+                    // by /dp/<ASIN> -- the stored URL is the Slickdeals thread, and the feed's
+                    // outbound links are click? redirects with expiring tokens. Rendering the
+                    // button without one would promise a check that cannot be performed.
+                    if (!deal.asin.isNullOrBlank()) {
+                        button(classes = "verify-btn") {
+                            attributes["hx-post"] = "/deal/${deal.id}/verify"
+                            attributes["hx-target"] = "#deal-${deal.id}"
+                            attributes["hx-swap"] = "outerHTML"
+                            // A real browser has to cold-start and Amazon's widgets are
+                            // AJAX-filled, so this is tens of seconds, not milliseconds.
+                            // Disable the whole row's buttons while it runs rather than
+                            // letting a second click start a competing browser.
+                            attributes["hx-disabled-elt"] = "closest .actions button"
+                            attributes["hx-indicator"] = "#spin-${deal.id}"
+                            title = "Open Amazon in a browser and read the delivery block for this ASIN"
+                            +"verify"
+                        }
+                        span("htmx-indicator spinner") {
+                            id = "spin-${deal.id}"
+                            title = "Checking Amazon — this takes up to a minute"
+                            +"checking…"
+                        }
+                    }
                 }
+                // Outcome of a check that left the verdict UNKNOWN. Without this the row
+                // swaps back looking untouched and the click appears to have done nothing.
+                note?.let { div("co-note") { +it } }
             }
         }
     }
@@ -611,11 +655,24 @@ private fun DIV.stateButton(dealId: Long, state: DealState, label: String) {
     }
 }
 
-/** Standalone row renderer so HTMX actions can swap a single row in place. */
-fun HTML.singleRow(deal: Deal) {
-    body {
-        table { tbody { dealRow(deal) } }
-    }
+/**
+ * One row as a bare `<tr>` fragment, for an HTMX `outerHTML` swap.
+ *
+ * This must NOT be a whole document. It used to respond via `respondHtml`, which emits
+ * `<html><body><table><tbody><tr>` — and htmx, swapping that into a `<tr>` slot, takes the
+ * body's children and drops an entire nested `<table>` into the row position. The nested
+ * table brought its own column widths, so every action button silently wrecked the
+ * alignment of the feed it was acting on. A fragment has no wrapper to leak.
+ *
+ * [note] carries the outcome of an action that did not change the verdict — an unclear
+ * check, a block, a busy session. Without it those cases swap in a row that looks identical
+ * to the one clicked, which reads as the button doing nothing.
+ */
+fun rowFragment(deal: Deal, note: String? = null): String {
+    val consumer = createHTML(prettyPrint = false)
+    TR(mapOf("class" to heatClass(deal)).filterValues { it != null }.mapValues { it.value!! }, consumer)
+        .visit { dealRowBody(deal, note) }
+    return consumer.finalize()
 }
 
 fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {

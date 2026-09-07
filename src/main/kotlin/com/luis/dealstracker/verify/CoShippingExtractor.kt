@@ -194,8 +194,23 @@ class CoShippingExtractor(private val country: String = "Colombia") {
         )
 
         /** "(eBook)", "Kindle Edition", "$10 Nintendo eShop Gift Card (Digital Code)". */
+        /**
+         * Titles for goods that are delivered, not shipped.
+         *
+         * The `digital <noun>` arm is enumerated rather than written as `digital\s+\w+`
+         * because plenty of *physical* products are named "digital": a digital camera, a
+         * digital thermometer, a digital photo frame. Matching those would mark real
+         * parcels as needing no shipping.
+         *
+         * For the same reason there is no bare `4k uhd` or `prime video` arm. "(4K UHD
+         * Blu-ray)" is a disc that has to physically arrive, and "Fire TV Stick with Prime
+         * Video" is hardware — both would be misread. The word "digital" has to be present
+         * and attached to a media noun.
+         */
         private val DIGITAL_TITLE_RE = Regex(
-            """\b(e-?books?|kindle|audible|audiobooks?|digital codes?|digital downloads?|gift cards?|eshop)\b""",
+            """(\be-?books?\b|\bkindle\b|\baudible\b|\baudiobooks?\b|\bgift cards?\b|\beshop\b""" +
+                """|\bdigital\s+(?:films?|movies?|videos?|hd|copy|copies|codes?|downloads?|rentals?|games?)\b""" +
+                """|\(digital\))""",
             RegexOption.IGNORE_CASE,
         )
 

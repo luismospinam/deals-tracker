@@ -60,15 +60,27 @@ class AmazonVerifier(
 ) {
     private val extractor = CoShippingExtractor(config.country)
 
-    fun run(limit: Int? = null): VerifyOutcome {
-        val take = (limit ?: config.batchSize).coerceAtMost(config.maxPerRun)
-        val candidates = repo.coShippingCandidates(take)
-        val uncheckable = repo.coShippingUncheckableCount()
+    /**
+     * @param only verify just this one deal, for the UI's Verify button. Bypasses the
+     *   backoff window that batch runs respect — backoff throttles unattended retries,
+     *   whereas a click is a person asking for this deal now.
+     */
+    fun run(limit: Int? = null, only: Long? = null): VerifyOutcome {
+        val candidates = if (only != null) {
+            listOfNotNull(repo.coShippingCandidate(only))
+        } else {
+            val take = (limit ?: config.batchSize).coerceAtMost(config.maxPerRun)
+            repo.coShippingCandidates(take)
+        }
 
         // Never a silent skip: deals with no ASIN cannot be looked up by this route and
-        // that fact has to surface, or the totals quietly stop adding up.
-        if (uncheckable > 0) {
-            println("[verify] $uncheckable active UNKNOWN deal(s) have no ASIN and cannot be checked this way")
+        // that fact has to surface, or the totals quietly stop adding up. Only for batch
+        // runs -- for a single click the count of *other* unreachable deals is noise.
+        if (only == null) {
+            val uncheckable = repo.coShippingUncheckableCount()
+            if (uncheckable > 0) {
+                println("[verify] $uncheckable active UNKNOWN deal(s) have no ASIN and cannot be checked this way")
+            }
         }
         if (candidates.isEmpty()) {
             println("[verify] nothing to check (all decided, MANUAL, or still in backoff)")
@@ -267,6 +279,42 @@ class AmazonVerifier(
         }
     }
 
+    /**
+     * Bot-wall markers on the current page, ignoring anything this tool put there itself.
+     *
+     * Two independent guards, because the single substring scan this replaced produced a
+     * false positive that could not be cleared:
+     *
+     *  - **A product title means a product page.** Amazon's wall *replaces* the listing; it
+     *    does not decorate it. So if `#productTitle` renders, we are looking at the product
+     *    regardless of what strings appear elsewhere in the markup. This is the guard that
+     *    matters, since it does not depend on knowing every phrase Amazon might use.
+     *  - **Our own overlays are excised before matching.** The help banner names the button
+     *    it is asking for, so scanning raw HTML made the banner satisfy the very condition
+     *    it was announcing — a wall that sustained itself until the timeout expired.
+     */
+    private fun wallMarkersOn(page: Page): List<String> {
+        val onProductPage = runCatching { page.locator("#productTitle").count() > 0 }
+            .getOrDefault(false)
+        if (onProductPage) return emptyList()
+
+        val html = runCatching {
+            page.evaluate(
+                """
+                () => {
+                  const root = document.documentElement.cloneNode(true);
+                  root.querySelectorAll('#dt-help-banner, #dt-status-banner')
+                      .forEach(e => e.remove());
+                  return root.outerHTML;
+                }
+                """.trimIndent(),
+            ) as? String
+        }.getOrNull()
+            ?: runCatching { page.content() }.getOrDefault("")
+
+        return botWallMarkers(html)
+    }
+
     /** Returns null when Amazon is blocking and the operator did not clear it. */
     private var progressDone = 0
     private var progressTotal = 0
@@ -277,14 +325,14 @@ class AmazonVerifier(
         // Re-assert after navigation: the previous page's banner went with the old DOM.
         showStatus(page, progressDone, progressTotal, "reading shipping info for $asin")
 
-        var walls = runCatching { botWallMarkers(page.content()) }.getOrDefault(emptyList())
+        var walls = wallMarkersOn(page)
         if (walls.isNotEmpty()) {
             println("[verify] human check shown (${walls.first()}) — please clear it in the window")
             askForHelp(page, asin)
             val until = System.currentTimeMillis() + config.wallWaitMillis
             while (System.currentTimeMillis() < until && walls.isNotEmpty()) {
                 page.waitForTimeout(3000.0)
-                walls = runCatching { botWallMarkers(page.content()) }.getOrDefault(emptyList())
+                walls = wallMarkersOn(page)
             }
             if (walls.isNotEmpty()) return null
             println("[verify] cleared — continuing")

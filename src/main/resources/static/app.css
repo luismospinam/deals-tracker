@@ -877,3 +877,66 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   font-size: 10px;
   font-weight: 500;
 }
+
+/* ---- Per-deal Amazon verification ------------------------------------------------ */
+
+/* The verify button drives a real browser, so it is the one action here that costs real
+ * time and a finite resource (Amazon's tolerance for the session). Accented to separate it
+ * from the ships/no buttons beside it, which only record what you already know. */
+.actions button.verify-btn {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.actions button.verify-btn:hover { background: var(--accent-wash); }
+
+/* htmx toggles `htmx-request` on the element named by hx-indicator. Default hidden, so a
+ * row at rest carries no spinner; `display` rather than `opacity` so the hidden state
+ * claims no width and cannot nudge the buttons out of the column. */
+.htmx-indicator { display: none; }
+.htmx-indicator.htmx-request { display: inline-flex; }
+
+.spinner {
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.spinner::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--accent-line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* A disabled button must not merely ignore clicks -- it has to look unavailable, or the
+ * lack of response reads as the page being broken. hx-disabled-elt sets this while the
+ * check runs. */
+.actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.actions button:disabled:hover {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-dim);
+}
+
+/* Outcome of a check that left the verdict UNKNOWN -- unclear page, Amazon wall, busy
+ * session. Muted rather than alarming: none of these mean anything is wrong, only that the
+ * question is still open. Wraps, because these are sentences rather than labels. */
+.co-note {
+  margin-top: 4px;
+  max-width: 190px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-faint);
+  white-space: normal;
+}

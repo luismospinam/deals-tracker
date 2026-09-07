@@ -36,7 +36,12 @@ object ProbeConfig {
  */
 internal fun botWallMarkers(html: String): List<String> = listOf(
     "Click the button below to continue shopping",
-    "Continue shopping",
+    // NOT a bare "Continue shopping". That phrase occurs in the hidden markup of ordinary
+    // product pages, so it flagged pages that were loading perfectly well -- and because
+    // the help banner this tool injects contains the phrase itself, the clear-check then
+    // matched its own banner and could never succeed. Deals that plainly shipped to
+    // Colombia were recorded as blocked and backed off. The full sentence above is the
+    // actual interstitial's wording and is specific enough to stand alone.
     "Enter the characters you see below",
     "Type the characters you see in this image",
     "api-services-support@amazon.com",

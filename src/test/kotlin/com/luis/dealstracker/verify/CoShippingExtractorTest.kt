@@ -245,6 +245,55 @@ class CoShippingExtractorTest {
         }
     }
 
+    /**
+     * Regression: a Prime Video film reached the browser and burned ~2 minutes to end up
+     * UNCLEAR, because the digital rule only knew about "digital code" and "digital
+     * download". Streaming video needs no shipping either, and detecting it by title costs
+     * zero Amazon requests.
+     */
+    @Test
+    fun `detects digital video and game wording`() {
+        listOf(
+            "Sonic The Hedgehog 3 (2024) (4K UHD Digital Film) \$4.99",
+            "The Batman (Digital HD) \$4.99",
+            "Dune Part Two (Digital Movie) \$7.99",
+            "Assorted Digital Movies \$4.99 each",
+            "Hogwarts Legacy (PC Digital Game) \$19.99",
+            "Various Digital Rentals \$0.99",
+            "Cyberpunk 2077 (Digital) \$24.99",
+        ).forEach { t ->
+            assertEquals(
+                CoShipping.YES, extractor.extract(PageSignals(title = t)).value,
+                "should detect digital in: $t",
+            )
+        }
+    }
+
+    /**
+     * The counterweight to the rule above. "Digital" is in the name of a great many
+     * physical products, and a 4K disc is a parcel however much its title resembles a
+     * streaming listing. Treating any of these as digital would claim they need no
+     * shipping — the exact error the video rule risks if written loosely.
+     */
+    @Test
+    fun `physical products named digital are not treated as digital`() {
+        listOf(
+            "Canon EOS R100 Digital Camera \$399",
+            "ThermoPro Digital Meat Thermometer \$12.99",
+            "Nixplay 10\" Digital Photo Frame \$89",
+            "Oppenheimer (4K UHD Blu-ray) \$14.99",
+            "Fire TV Stick 4K with Prime Video \$24.99",
+            "Casio Men's Digital Watch \$18.99",
+        ).forEach { t ->
+            val v = extractor.extract(PageSignals(availability = "In Stock", title = t))
+            assertEquals(
+                CoShipping.UNKNOWN, v.value,
+                "must not shortcut a physical item as digital: $t",
+            )
+            assertTrue(v.unclear, "should stay unresolved rather than claim a verdict: $t")
+        }
+    }
+
     @Test
     fun `a physical book is not treated as digital`() {
         // "Books & Media" contains hardcovers too; only digital markers should trigger this.
