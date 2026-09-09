@@ -28,15 +28,26 @@ defaults:
   # Automatic verification: a small headed run after every Nth poll. Set to 0 to turn it
   # off and rely on `./dt verify` alone.
   #
-  # This deliberately does not try to keep up. Slickdeals brings ~30 new Amazon deals an
-  # hour while a browser session tolerates ~40-55 page loads before Amazon walls it, so
-  # the backlog grows either way -- the point is to chip at it in the background while
-  # leaving most of the session's tolerance for manual runs aimed at deals worth buying.
+  # 1, i.e. every poll. This was 3, on the reasoning that back-to-back runs would burn
+  # session trust for little gain -- but that rested on a "~40-55 page loads before Amazon
+  # walls a session" figure measured while a bug was reporting healthy pages as blocked.
+  # With that fixed, a 12-deal batch ran clean, so the ceiling is unknown and probably
+  # higher than assumed.
   #
-  # 3 rather than 1: back-to-back runs burn the session's trust with nothing to show,
-  # since an hour only produces ~30 new candidates anyway.
-  coShippingEveryNPolls: 3
-  coShippingPollBatch: 5
+  # The decisive reason is simpler: the cycle counter lives in memory, so every app restart
+  # sends it back to zero. At 3 the app had to stay up two unbroken hours before verifying
+  # anything, and across days of use it never once managed that -- the automatic run had
+  # fired exactly zero times in normal operation. At 1 it runs on the first poll after
+  # startup, which is the only setting that survives how often this app actually restarts.
+  #
+  # Note the "Refresh now" button does NOT count: it calls ingest directly and never
+  # advances the poller's counter.
+  coShippingEveryNPolls: 1
+  # 15, not 5. Slickdeals brings 220-313 new deals a day; 5 an hour is 120 and loses ground,
+  # so the backlog grew to 503 while looking like it was being worked. 15 an hour is 360 a
+  # day -- enough to drain that backlog in about four days of uptime and then keep pace.
+  # Costs roughly 6 minutes of browser time per hour at the 15s spacing below.
+  coShippingPollBatch: 15
   # Shorter than a manual run's 180s -- nobody is necessarily watching an automatic one,
   # so it should give up and let the next cycle retry rather than hold a window open.
   coShippingPollWallWaitMillis: 45000

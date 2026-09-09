@@ -69,19 +69,34 @@ data class Defaults(
     /**
      * Verify after every Nth poll cycle. 0 disables the automatic run entirely.
      *
-     * Not every cycle. New Amazon deals arrive far faster than they can be verified
-     * (~30 per poll against ~40-55 page loads before Amazon walls a session), so this
-     * cannot keep up and is not trying to -- it is a slow drip that chips at the backlog
-     * between manual `--verify-co-shipping` runs. Spacing it out also lets session trust
-     * recover, which back-to-back runs do not.
+     * Still a slow drip rather than an attempt to keep up: new Amazon deals arrive far
+     * faster than [coShippingPollBatch] can clear them, so the backlog grows regardless.
+     *
+     * This was 3, to spare the session's trust. That rationale leaned on a page-load
+     * ceiling measured while a false wall detection was recording healthy pages as blocked,
+     * so the number it was protecting was never real. What settled it is the counter: it is
+     * process state, and every restart resets it. At 3 with hourly polls the app needed two
+     * unbroken hours to verify anything, and never got them -- the automatic run fired zero
+     * times across days of ordinary use. At 1 the first poll after startup verifies, which
+     * is the only cadence that outlives a restart.
+     *
+     * The real fix is to derive this from the last recorded check rather than from process
+     * uptime, since `co_shipping_checked_at` already knows. Deliberately not done: 1 makes
+     * the mechanism moot in practice.
      */
-    val coShippingEveryNPolls: Int = 3,
+    val coShippingEveryNPolls: Int = 1,
     /**
-     * Deals per automatic run. Deliberately far smaller than a manual run's batch: this
-     * fires unattended on a schedule, so it should cost a handful of page loads and leave
-     * the session's remaining tolerance for the manual runs that target deals Luis cares about.
+     * Deals per automatic run.
+     *
+     * Sized against measured arrivals rather than caution alone. Slickdeals brings 220-313
+     * new deals a day, so the original 5 per hour (120 a day) fell behind by roughly 110 a
+     * day — the backlog reached 503 while the log made it look like progress. 15 an hour is
+     * 360 a day, which drains that backlog in about four days of uptime and then keeps pace.
+     *
+     * Still bounded by [coShippingMaxPerRun], and still leaves the session's remaining
+     * tolerance for the Verify button and manual runs aimed at deals worth buying.
      */
-    val coShippingPollBatch: Int = 5,
+    val coShippingPollBatch: Int = 15,
     /**
      * How long an automatic run waits for a human to clear an Amazon wall before giving up.
      *
