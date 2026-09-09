@@ -95,14 +95,66 @@ class SlickdealsSourceTest {
     }
 
     /**
-     * The body price is the current deal price; the title often shows a historical
-     * low. For the Ocean Spray item the title says $3.65 but the body says $3.67.
+     * Title first: it states the price you actually pay.
+     *
+     * This assertion used to be the reverse, generalised from the Ocean Spray item where the
+     * title says $3.65 and the body $3.67. Two cents is indistinguishable from noise, and the
+     * rule drawn from it was wrong wherever a coupon, promo code or Subscribe & Save is
+     * involved — there the body's "for $N" is the price *before* the discount, and the gap is
+     * not cents but multiples. Across 47 live feed items carrying both, 28 disagreed: a $14
+     * shaver was stored at $54.24, its struck-through list price.
+     *
+     * So the two-cent cases now resolve to the title's number. That is the accepted cost of
+     * getting the coupon cases right, and it is the right trade for a tool that exists to
+     * detect real price movement.
      */
     @Test
-    fun `prefers body price over title price`() {
+    fun `prefers title price over body price`() {
         val juice = source.parse(feed).single { it.deal.title.contains("Ocean Spray") }
-        assertEquals("3.67", juice.deal.price.toPlainString())
-        assertTrue(juice.deal.title.contains("3.65"), "title carries the different, historical price")
+        assertEquals("3.65", juice.deal.price.toPlainString())
+    }
+
+    /** Coupon and promo-code wording, taken verbatim from the live feed. */
+    @Test
+    fun `does not store the pre-discount price for coupon deals`() {
+        listOf(
+            Triple(
+                "Greenworks 60V 4.0AH High Current (HC) Battery \$87.45 + Free S&H",
+                "Amazon has Greenworks 60V 4.0AH High Current (HC) Battery for \$166.47 - \$79.03 " +
+                    "when you 'clip' the coupon on the product page",
+                "87.45",
+            ),
+            Triple(
+                "Tablo 4th Gen 2-Turner 128GB Over the Air DVR w/ No Antenna \$59.95 + Free S&H",
+                "Tablo TV has the Tablo TV 2-Tuner Over-The-Air DVR on sale for \$79.95 - \$20 " +
+                    "with discount code ELLIS at checkout",
+                "59.95",
+            ),
+            Triple(
+                "Mbzoey Men's IPX7 Waterproof Electric Foil Shaver w/ Magnetic Cover \$14 + Free S&H",
+                "Amazon has Mbzoey Men's IPX7 Waterproof Electric Foil Shaver on sale for \$54.24",
+                "14.00",
+            ),
+        ).forEach { (title, body, expected) ->
+            val fromTitle = source.extractPriceFromTitle(title)
+            assertEquals(expected, fromTitle?.toPlainString(), "title price for: $title")
+            // The body genuinely does contain a higher number; the point is that it loses.
+            val fromBody = source.extractPrice(body)
+            assertTrue(
+                fromBody != null && fromBody > fromTitle,
+                "this case only matters because the body price is higher: $title",
+            )
+        }
+    }
+
+    /** The body is still the fallback — plenty of titles carry no price at all. */
+    @Test
+    fun `falls back to the body when the title has no price`() {
+        assertEquals(null, source.extractPriceFromTitle("Anker USB-C Charger, No Price Here"))
+        assertEquals(
+            "19.99",
+            source.extractPrice("Amazon has the Anker USB-C Charger for \$19.99 shipped")?.toPlainString(),
+        )
     }
 
     /** "Shipping is free ... on $35+ orders" must not be mistaken for the price. */

@@ -133,7 +133,16 @@ class SlickdealsSource : DealSource {
             val (merchant, via) = resolveMerchant(bodyText, fragment)
             val asin = fragment.select("[data-aps-asin]").firstOrNull()?.attr("data-aps-asin")
                 ?.takeIf { it.matches(ASIN_RE) }
-            val price = extractPrice(bodyText) ?: extractPriceFromTitle(title) ?: return@mapNotNull null
+            // Title first, body second. Slickdeals' title states the price you actually pay;
+            // the body's "for $N" is the price *before* a coupon, code or Subscribe & Save.
+            // Reading the body first meant storing the pre-discount price as the deal price
+            // on 28 of the 47 live feed items where both were present -- a shaver listed at
+            // $14 was stored at $54.24, which is its struck-through list price. On a tool
+            // whose entire purpose is spotting real price drops, that is the worst possible
+            // field to get wrong.
+            //
+            // The body remains the fallback: plenty of titles carry no price at all.
+            val price = extractPriceFromTitle(title) ?: extractPrice(bodyText) ?: return@mapNotNull null
 
             Parsed(
                 deal = RawDeal(
@@ -242,7 +251,7 @@ class SlickdealsSource : DealSource {
         FOR_PRICE_RE.find(bodyText)?.groupValues?.get(1)?.replace(",", "")
             ?.toBigDecimalOrNull()?.asMoney()
 
-    private fun extractPriceFromTitle(title: String): BigDecimal? =
+    internal fun extractPriceFromTitle(title: String): BigDecimal? =
         TITLE_PRICE_RE.findAll(title).lastOrNull()?.groupValues?.get(1)
             ?.replace(",", "")?.toBigDecimalOrNull()?.asMoney()
 
