@@ -16,7 +16,7 @@ import java.util.Locale
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "14"
+private const val CSS_VERSION = "15"
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
@@ -365,6 +365,16 @@ fun MAIN.dealTable(deals: List<Deal>) {
                     title = "Community vote score, where the source publishes one"
                     +"Score"
                 }
+                th(classes = "col-rank") {
+                    // Says plainly that the column is not strictly descending. The default sort
+                    // adds a rotation offset while this column shows the true score, so without
+                    // this note a row scoring 52.8 sitting below one scoring 50.9 reads as a bug.
+                    title = "Composed relevance score — the ranking behind the default sort. " +
+                        "Ordering adds a small rotation offset so comparable deals take turns near " +
+                        "the top, which is why this column is not strictly descending. " +
+                        "Hover a value for its breakdown."
+                    +"Rank"
+                }
                 th(classes = "col-sig") { +"Signals" }
                 th(classes = "col-co") { +"Colombia" }
                 th(classes = "col-seen") { +"Seen" }
@@ -401,6 +411,42 @@ internal fun scoreTier(score: Int): Int = when {
     score < 20 -> 1
     score < 50 -> 2
     else -> 3
+}
+
+/** The score to one decimal — enough to distinguish adjacent rows without implying precision. */
+internal fun formatRank(relevance: Double): String =
+    BigDecimal(relevance).setScale(1, java.math.RoundingMode.HALF_UP).toPlainString()
+
+/**
+ * Names the signals that fed a row's score, for the Rank column's tooltip.
+ *
+ * Deliberately **descriptive, not derivational**: it lists which inputs are present and what
+ * they say, and never recomputes a weight. `DealScore` is the only place the arithmetic
+ * lives, so a breakdown that re-derived the total could disagree with the number that
+ * actually did the sorting — and a ranking explanation that lies is worse than none.
+ *
+ * This exists because the score is the one part of this feed that is a judgement rather than
+ * a fact. Every other column reports something a source said; this one reports an opinion, so
+ * it has to be possible to see what the opinion was based on.
+ */
+internal fun rankBreakdown(deal: Deal): String {
+    val parts = buildList {
+        deal.discountPercent?.let { add("$it% off list") }
+        deal.dropFromPeak?.let { add("down ${formatMoney(it, deal.currency)} from our recorded peak") }
+        deal.communityScore?.let { add("community $it") }
+        deal.coShippingCost?.let { cost ->
+            if (cost.signum() == 0) add("free shipping")
+            else add("freight ${formatMoney(cost, "USD")}${deal.shippingCostPercent?.let { " ($it% of price)" } ?: ""}")
+        }
+        if (deal.coShippingImportFree == false) add("import charges apply")
+        if (deal.coShipping == CoShipping.NO) add("does not ship to Colombia")
+    }
+    val age = relativeAgo(deal.postedAt ?: deal.firstSeenAt)
+    return if (parts.isEmpty()) {
+        "Rank ${formatRank(deal.relevance)} — nothing but age to go on yet ($age)"
+    } else {
+        "Rank ${formatRank(deal.relevance)} from: ${parts.joinToString("; ")}; $age"
+    }
 }
 
 private fun sourceDotClass(source: String): String = when (source) {
@@ -502,6 +548,17 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null) {
             }
         }
 
+        // The composed score that produced this row's position. Shown as a column rather
+        // than a chip precisely because it IS on every row -- the Signals column next to it
+        // stays sparse because a badge everywhere means nothing, whereas a ranking everywhere
+        // is the point of a ranking. Without it the default order is unexplainable.
+        td(classes = "col-rank") {
+            span(if (deal.relevance < 0) "rank rank-neg" else "rank") {
+                title = rankBreakdown(deal)
+                +formatRank(deal.relevance)
+            }
+        }
+
         // Signals are deliberately sparse. A badge that appears on every row conveys
         // nothing, so each condition here requires evidence: an actual observed decline,
         // or a genuinely recent first sighting.
@@ -574,11 +631,22 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
                 // The shipping fee often decides whether a "deal" is still a deal: the same
                 // YES verdict covers "FREE Shipping" and "$60.66 Shipping".
                 deal.coShippingCost?.let { cost ->
-                    if (cost.signum() == 0) {
-                        span("prov") { +"free ship" }
-                    } else {
-                        span("prov warn-prov") {
-                            title = "Amazon quoted this international shipping fee"
+                    val share = deal.shippingCostPercent
+                    when {
+                        cost.signum() == 0 -> span("prov") { +"free ship" }
+                        // A fee that is a large share of the item is not a footnote on a good
+                        // deal, it is the reason it is not one -- so it states the proportion,
+                        // not just the amount. $248.68 reads as merely expensive; "93% of
+                        // price" reads as the answer.
+                        deal.shippingCostDominates -> span("prov kill-prov") {
+                            title = "Amazon quoted ${formatMoney(cost, "USD")} to ship this — " +
+                                "$share% of the item's own price. It ships, but almost certainly " +
+                                "is not worth it."
+                            +"+${formatMoney(cost, "USD")} ship · $share% of price"
+                        }
+                        else -> span("prov warn-prov") {
+                            title = "Amazon quoted this international shipping fee" +
+                                (share?.let { " — $it% of the item's price" } ?: "")
                             +"+${formatMoney(cost, "USD")} ship"
                         }
                     }

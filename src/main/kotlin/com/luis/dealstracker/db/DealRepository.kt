@@ -61,7 +61,16 @@ fun parseSearchTerms(search: String?): List<String> {
 internal fun escapeLike(term: String): String =
     term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
-class DealRepository(private val ds: DataSource) {
+/**
+ * @param feedRotationHours how often the feed's default ordering reshuffles among comparable
+ *   deals; 0 for a pure score ordering. Repository-wide policy rather than a per-query flag,
+ *   so the feed cannot accidentally be rendered with rotation on in one place and off in
+ *   another. Only the default sort is affected — see `DealScore.rotating`.
+ */
+class DealRepository(
+    private val ds: DataSource,
+    private val feedRotationHours: Int = 3,
+) {
 
     private fun <T> tx(block: (Connection) -> T): T =
         ds.connection.use { conn ->
@@ -407,12 +416,17 @@ class DealRepository(private val ds: DataSource) {
             "price" -> "po.price ASC"
             "drop" -> "(agg.min_price - po.price) DESC"
             "discount" -> "CASE WHEN po.list_price > 0 THEN (1 - po.price / po.list_price) ELSE 0 END DESC"
-            // Default. Sorting purely by discount buries every source that publishes
-            // no list price -- Slickdeals/Amazon deals have a NULL discount, so they
-            // sank below the row limit and became invisible. Promoted-and-recent
-            // first treats all sources fairly.
-            else -> "d.promoted DESC, $recency, " +
-                "CASE WHEN po.list_price > 0 THEN (1 - po.price / po.list_price) ELSE 0 END DESC"
+            // Default: the composed relevance score. This used to lead with `d.promoted DESC`
+            // followed by recency and then discount -- but `promoted` is true for 81% of active
+            // deals, so the leading key sorted almost nothing and the feed was effectively
+            // ordered by recency alone. Worse, nothing in that ordering knew about the shipping
+            // fee, so items costing more to ship than to buy ranked among the best deals on the
+            // page. See DealScore for the weights and the evidence behind each.
+            //
+            // The *only* place rotation is applied, and only to the ordering: the score shown in
+            // the Rank column stays plain `DealScore.SQL`, so a reshuffle can never be mistaken
+            // for the number having changed.
+            else -> "${DealScore.rotating(feedRotationHours)} DESC"
         }
 
         // Every sort key above has ties, and some are enormous: a whole poll batch shares a
@@ -423,7 +437,8 @@ class DealRepository(private val ds: DataSource) {
         val orderBy = "$sortKey, d.id DESC"
 
         val sql = """
-            SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n
+            SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n,
+                   ${DealScore.SQL} AS relevance
             FROM deals d
             JOIN LATERAL (
                 SELECT price, list_price FROM price_observations
@@ -448,7 +463,8 @@ class DealRepository(private val ds: DataSource) {
 
     fun findById(id: Long): Deal? {
         val sql = """
-            SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n
+            SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n,
+                   ${DealScore.SQL} AS relevance
             FROM deals d
             JOIN LATERAL (
                 SELECT price, list_price FROM price_observations
@@ -503,30 +519,61 @@ class DealRepository(private val ds: DataSource) {
         }
 
     /**
-     * Deals still needing an automated Colombia shipping check.
+     * Deals still needing an automated Colombia shipping check, **best first**.
      *
      * Excludes anything already decided, anything decided MANUALLY (human effort must
-     * survive automation), and anything whose backoff window has not elapsed. Ordered so
-     * never-attempted rows go first, then the longest-waiting.
+     * survive automation), and anything whose backoff window has not elapsed. Backoff is
+     * exponential in the attempt count: 2^attempts hours, capped. Without it a row that
+     * cannot be read would be retried on every cycle indefinitely.
      *
-     * Backoff is exponential in the attempt count: 2^attempts hours, capped. Without it a
-     * row that cannot be read would be retried on every cycle indefinitely.
+     * ## Why the ordering is the important part
+     *
+     * This queue is permanently oversubscribed and always will be. The automatic run takes
+     * `coShippingPollBatch` deals every Nth poll — roughly 40 page loads a day — against a
+     * source that brings tens of new Amazon deals an hour, and a browser session tolerates
+     * only 40-55 loads before Amazon walls it. The backlog cannot be drained, so *which*
+     * deals get the budget is the whole decision.
+     *
+     * It used to be ordered `co_shipping_checked_at ASC NULLS FIRST, id ASC` — sound for a
+     * queue with mixed retry state, but measured against the live database **all 223 waiting
+     * deals had `co_shipping_checked_at IS NULL`**. Every row tied on the leading key, so the
+     * ordering fell through to `id ASC`: the arbitrary sequence they happened to be ingested
+     * in. The result was 196 verdicts produced of which 177 landed on deals that had already
+     * retired — 90% of the effort expiring before the feed could use it.
+     *
+     * So the primary key is now [DealScore], the same ranking the feed itself uses. The old
+     * keys are kept as tiebreakers: among equally attractive deals the longest-waiting still
+     * goes first, and `id` still settles the rest so the order is never unstable.
+     *
+     * The score here is necessarily a *prior* — an unchecked deal has no
+     * `co_shipping_cost` yet, so the freight term is zero and the ranking rests on discount,
+     * observed drop, community score and age. That is exactly the information available for
+     * deciding whether a page load is worth spending.
      */
     fun coShippingCandidates(limit: Int, baseBackoffHours: Int = 6, maxBackoffHours: Int = 168): List<Triple<Long, String, String>> =
         ds.connection.use { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, asin, title FROM deals
-                 WHERE is_active
-                   AND asin IS NOT NULL
-                   AND co_shipping = 'UNKNOWN'
-                   AND coalesce(co_shipping_source, '') <> 'MANUAL'
+                SELECT d.id, d.asin, d.title FROM deals d
+                JOIN LATERAL (
+                    SELECT price, list_price FROM price_observations
+                    WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
+                ) po ON TRUE
+                JOIN LATERAL (
+                    SELECT MAX(price) AS max_price FROM price_observations WHERE deal_id = d.id
+                ) agg ON TRUE
+                 WHERE d.is_active
+                   AND d.asin IS NOT NULL
+                   AND d.co_shipping = 'UNKNOWN'
+                   AND coalesce(d.co_shipping_source, '') <> 'MANUAL'
                    AND (
-                        co_shipping_checked_at IS NULL
-                     OR co_shipping_checked_at < now() - make_interval(
-                            hours => LEAST(? * POWER(2, co_shipping_attempts)::int, ?))
+                        d.co_shipping_checked_at IS NULL
+                     OR d.co_shipping_checked_at < now() - make_interval(
+                            hours => LEAST(? * POWER(2, d.co_shipping_attempts)::int, ?))
                    )
-                 ORDER BY co_shipping_checked_at ASC NULLS FIRST, id ASC
+                 ORDER BY ${DealScore.SQL} DESC,
+                          d.co_shipping_checked_at ASC NULLS FIRST,
+                          d.id ASC
                  LIMIT ?
                 """.trimIndent(),
             ).use { st ->
@@ -763,5 +810,6 @@ class DealRepository(private val ds: DataSource) {
         minPriceEver = getBigDecimal("min_price"),
         maxPriceEver = getBigDecimal("max_price"),
         observationCount = getInt("n"),
+        relevance = getDouble("relevance"),
     )
 }

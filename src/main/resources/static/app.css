@@ -423,6 +423,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .col-price { width: 132px; text-align: right; }
 .col-disc  { width: 92px; }
 .col-score { width: 76px; }
+.col-rank  { width: 62px; text-align: right; }
 .col-sig   { width: 132px; }
 .col-co    { width: 132px; }
 .col-seen  { width: 88px; }
@@ -583,6 +584,22 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .score-1 { color: var(--text-dim); }
 .score-2 { color: var(--good);     border-color: rgba(79, 191, 139, 0.34); background: rgba(79, 191, 139, 0.09); }
 .score-3 { color: var(--good);     border-color: rgba(79, 191, 139, 0.6);  background: rgba(79, 191, 139, 0.16); font-weight: 700; }
+
+/* Composed relevance score — the default sort key (see DealScore.kt).
+ *
+ * Set in mono and right-aligned so the column reads as a ranking you can scan down, and
+ * deliberately quiet: it explains the order rather than competing with the discount badge
+ * for attention. Deals whose score has gone negative — almost always freight exceeding the
+ * item price — are the one case worth colouring, because a negative score is a claim that
+ * the row is worse than nothing rather than merely weak. */
+.rank {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: help;
+}
+.rank-neg { color: var(--bad); }
 
 /* Signal chips: the highest-value facts. Kept few so they stay meaningful. */
 .chip {
@@ -865,6 +882,18 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 .prov.warn-prov {
   background: rgba(217, 162, 39, 0.14);
   color: var(--d-mid);
+}
+
+/* Freight that costs a large share of the item itself. Amber was too gentle: measured
+ * against stored verdicts, 23 of 27 quoted fees exceeded half the item's price and 10
+ * exceeded the whole price — $248.68 of shipping on a $267.99 television — and every one
+ * of them rendered as a green "ships" with a mild amber note. A fee that large is not a
+ * caveat on a good deal, it is the reason it is not one, so it gets the same red as the
+ * top of the discount ramp and states the percentage rather than only the amount. */
+.prov.kill-prov {
+  background: rgba(255, 61, 20, 0.16);
+  color: var(--d-max);
+  font-weight: 700;
 }
 
 /* Normalized category bucket in the row meta: the value the Category filter matches on. */

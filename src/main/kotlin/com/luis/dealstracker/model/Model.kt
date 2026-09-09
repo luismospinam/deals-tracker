@@ -106,6 +106,14 @@ data class Deal(
     val minPriceEver: BigDecimal?,
     val maxPriceEver: BigDecimal?,
     val observationCount: Int,
+    /**
+     * The feed's composed ranking score, computed in SQL by `DealScore` — never here.
+     *
+     * Defaulted so a [Deal] can still be built in a test without reproducing the formula.
+     * A duplicate Kotlin implementation is exactly what `DealScore` exists to prevent: the
+     * value shown to the reader must be the value that did the sorting.
+     */
+    val relevance: Double = 0.0,
 ) {
     val discountPercent: BigDecimal?
         get() {
@@ -135,6 +143,38 @@ data class Deal(
     /** How far the price has fallen from the highest value we recorded, if at all. */
     val dropFromPeak: BigDecimal?
         get() = maxPriceEver?.takeIf { it > price }?.subtract(price)
+
+    /**
+     * Quoted international shipping as a percentage of the item's own price.
+     *
+     * The number that decides whether a YES verdict is worth acting on, and the reason it is
+     * surfaced rather than left implicit: of the 27 verified deals carrying a quoted fee, 23
+     * had a fee above half the item's price and 10 above the whole price — $248.68 of freight
+     * on a $267.99 television. Every one displayed as a plain green "ships".
+     *
+     * Null when Amazon quoted nothing (which is not the same as free) or the price is zero.
+     * A derived ratio, not a re-implementation of the ranking weight — `DealScore` remains
+     * the only place the score itself is computed.
+     */
+    val shippingCostPercent: BigDecimal?
+        get() {
+            val cost = coShippingCost ?: return null
+            if (price <= BigDecimal.ZERO) return null
+            return cost.divide(price, 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal(100))
+                .setScale(0, RoundingMode.HALF_UP)
+        }
+
+    /**
+     * True when the freight quote is a large enough share of the price to change the answer.
+     *
+     * 50% is where the observed distribution clusters hard rather than a round number picked
+     * for looks: 23 of the 27 quoted fees sat above this line, and 10 above 100%. Deliberately
+     * a display threshold only — the ranking penalty in `DealScore` is graduated, so a fee
+     * just under the line is not silently treated as free.
+     */
+    val shippingCostDominates: Boolean
+        get() = (shippingCostPercent ?: BigDecimal.ZERO) >= BigDecimal(50)
 }
 
 data class PriceObservation(

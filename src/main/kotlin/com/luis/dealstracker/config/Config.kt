@@ -105,6 +105,40 @@ data class Defaults(
      * open for three minutes waiting for a click that may never come.
      */
     val coShippingPollWallWaitMillis: Long = 45_000,
+
+    /**
+     * Warn when this percentage of active deals has landed in the `Other` category. 0 disables.
+     *
+     * Category rules need gardening as the sources' catalogs shift, and there was a feedback
+     * loop for it — `--recategorize --show-other` — but nothing that said *when* to run it. The
+     * tuning that took `Other` from 73 down to 33 of 612 has since drifted back to 78 of 618
+     * (12.6%) without a single line of output remarking on it, because the per-ingest count is
+     * a share of one 25-item batch and reads as noise.
+     *
+     * 10% is set just under the observed drift so the condition is live rather than theoretical:
+     * an over-broad or missing rule should announce itself, the same way an excluded title or a
+     * failed fetch already does.
+     */
+    val categoryOtherWarnPercent: Int = 10,
+
+    /**
+     * How often the feed's default ordering reshuffles among deals of similar quality, in hours.
+     * 0 turns rotation off and makes the ordering a pure function of the score.
+     *
+     * Exists because a deterministic score gives you an identical page on every visit: most of
+     * its inputs never change (only 14.6% of tracked deals have ever moved on price), and nothing
+     * records what you have already looked at — every active deal is still `state = NEW`, because
+     * `SEEN` is in the enum and the filter but no code path writes it.
+     *
+     * 3 hours is a compromise between two real costs. Reseeding faster means a deal you were
+     * still deciding on is hard to find ten minutes later; slower means several visits in a day
+     * all look the same. (This once lined up with `coShippingEveryNPolls`; that is now 1, so
+     * the two cadences are unrelated and neither should be tuned on account of the other.)
+     *
+     * See `DealScore.rotating` — the offset is bounded so it can reorder comparable deals but
+     * never lift a weak one above a strong one.
+     */
+    val feedRotationHours: Int = 3,
 )
 
 @Serializable

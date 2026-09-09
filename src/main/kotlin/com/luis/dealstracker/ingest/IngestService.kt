@@ -45,7 +45,39 @@ class IngestService(
                 println(report.summary())
                 report
             }
-        }
+        }.also { reportCategoryDrift() }
+
+    /**
+     * Warns when the share of deals stuck in `Other` has drifted past the configured threshold.
+     *
+     * Measured **across the stored active feed**, not the batch just ingested — which is the
+     * whole reason this exists as its own check. `ingest` already prints a per-provider
+     * uncategorised percentage, but that is a share of one 25-item Slickdeals fetch, so it
+     * swings wildly and reads as noise; nobody would act on it. The stored share is the number
+     * that actually reflects rule quality, and it had drifted from the tuned 33-of-612 back up
+     * to 78-of-618 with nothing ever remarking on it.
+     *
+     * Names the command that fixes it, because a warning whose remedy you have to go and look
+     * up is a warning that gets ignored.
+     */
+    fun reportCategoryDrift() {
+        val threshold = app.defaults.categoryOtherWarnPercent
+        if (threshold <= 0) return
+
+        val counts = runCatching { repo.categoryGroupCounts() }.getOrElse { return }
+        val total = counts.sumOf { it.second }
+        if (total == 0) return
+
+        val other = counts.firstOrNull { it.first == Categorizer.OTHER }?.second ?: 0
+        val percent = other * 100 / total
+        if (percent < threshold) return
+
+        println(
+            "[categories] WARNING: $other of $total active deals ($percent%) are '${Categorizer.OTHER}', " +
+                "over the ${threshold}% threshold — a rule is probably missing or too narrow.\n" +
+                "[categories]   see what is unmatched:  ./dt run --args=\"--recategorize --show-other\"",
+        )
+    }
 
     suspend fun run(provider: ProviderConfig): IngestReport {
         val runId = repo.startRun(provider.id)

@@ -16,6 +16,26 @@ defaults:
   perHostDelayMillis: 1200
   httpPort: 8080
 
+  # --- Feed ranking ---
+  # How often the default ordering reshuffles among deals of comparable quality, in hours.
+  # 0 = off, ordering becomes a pure function of the score.
+  #
+  # Needed because the score is deterministic and most of its inputs never move: only 14.6% of
+  # tracked deals have ever changed price, and nothing records what you have already looked at
+  # (every deal is still state = NEW -- SEEN is in the enum but nothing writes it). So without
+  # this the top of the page is the same list on every visit.
+  #
+  # The offset is a hash of (deal id, time bucket), so it is stable within a bucket -- reloading
+  # does not make rows jump -- and bounded to +/-4 points, which reorders comparable deals but
+  # cannot lift a weak one above a strong one. See DealScore.rotating.
+  feedRotationHours: 3
+
+  # Warn when this share of active deals has fallen into the 'Other' category. 0 = off.
+  # The per-provider percentage printed during ingest is a share of one small batch and reads
+  # as noise; this is measured across the stored feed, which is what reflects rule quality.
+  # Remedy is ./dt run --args="--recategorize --show-other".
+  categoryOtherWarnPercent: 10
+
   # --- Amazon -> Colombia shipping verification ---
   # Runs headed and assisted: unattended requests from a datacenter IP were blocked after
   # ~7 page loads, and Amazon's wall is a single button only a human can clear. Tune the
