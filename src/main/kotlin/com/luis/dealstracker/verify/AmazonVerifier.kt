@@ -29,6 +29,18 @@ data class CoShippingConfig(
     val wallWaitMillis: Long = 180_000,
     /** `#availability` and `#deliveryBlockMessage` are both AJAX-filled; they must be polled. */
     val signalTimeoutMillis: Long = 20_000,
+    /**
+     * Discard the profile's HTTP cache once it exceeds this many megabytes. 0 disables.
+     *
+     * A persistent profile grows without bound, and past roughly a gigabyte Chrome starts
+     * failing to reach `load` at all: every navigation timed out at 30s and the run died with
+     * "pipe closed", while plain curl fetched the same URL in 3.3s. The profile had reached
+     * 1.5GB across 50,670 files, 1.3GB of it cache.
+     *
+     * 400 is well under where the failure appeared but high enough that the cache still does
+     * its job between runs.
+     */
+    val maxProfileCacheMb: Long = 400,
 )
 
 data class VerifyOutcome(
@@ -89,6 +101,8 @@ class AmazonVerifier(
         println("[verify] checking ${candidates.size} deal(s), ${config.delayMillis / 1000}s apart, country=${config.country}")
 
         var outcome = VerifyOutcome()
+        trimProfileCache(config.profileDir, config.maxProfileCacheMb)
+
         Playwright.create().use { pw ->
             val ctx = pw.chromium().launchPersistentContext(
                 Paths.get(File(config.profileDir).absolutePath),
@@ -369,5 +383,42 @@ class AmazonVerifier(
     companion object {
         /** Only what is needed; extend when another destination is actually used. */
         private val COUNTRY_CODES = mapOf("Colombia" to "CO", "Mexico" to "MX")
+    }
+}
+
+/**
+ * Deletes the profile's HTTP cache when it grows past [maxMb], leaving the session alone.
+ *
+ * Only the cache directories, which Chrome rebuilds on demand. Cookies, `Login Data` and
+ * `Preferences` are separate files and are never touched -- which is what makes this safe to
+ * run unattended, since the whole value of this profile is the trusted, signed-in session with
+ * a Colombian delivery address that Amazon has come to accept. Re-establishing that costs a
+ * human; a cold cache costs a few seconds.
+ *
+ * Runs before launch rather than after: Chrome holds these files open while it lives, and the
+ * point is to hand it a profile it can actually work with.
+ */
+internal fun trimProfileCache(profileDir: String, maxMb: Long) {
+    if (maxMb <= 0) return
+    val default = File(profileDir, "Default")
+    if (!default.isDirectory) return
+
+    // "Cache" alone was 1.3GB of the 1.5GB, but the others regrow too and are equally
+    // disposable. Names are Chrome's own, and a missing one is simply skipped.
+    val caches = listOf("Cache", "Code Cache", "GPUCache", "DawnWebGPUCache", "DawnGraphiteCache")
+        .map { File(default, it) }
+        .filter { it.exists() }
+    if (caches.isEmpty()) return
+
+    val bytes = caches.sumOf { dir -> dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() } }
+    val mb = bytes / (1024 * 1024)
+    if (mb < maxMb) return
+
+    println("[verify] profile cache is ${mb}MB (limit ${maxMb}MB) — clearing it; the signed-in session is kept")
+    caches.forEach { dir ->
+        // Best-effort: a cache we fail to delete is not worth aborting a run over, and the
+        // next run tries again.
+        runCatching { dir.deleteRecursively() }
+            .onFailure { println("[verify] could not clear ${dir.name}: ${it.message}") }
     }
 }
