@@ -254,14 +254,29 @@ class VtexSource : DealSource {
         data class Offer(val price: BigDecimal, val listPrice: BigDecimal?, val qty: Int)
 
         val offers = product.items.flatMap { item ->
+            // VTEX quotes weighed goods PER UNIT, and `unitMultiplier` is the pack size. A 2kg
+            // pork belly came back as Price 25050 against a shelf price of $50,100, and its
+            // ListPrice 33400 against $66,800 -- both exactly half, because the API figure is
+            // per kg. It cuts the other way too: 0.5kg cuts would be stored at double.
+            //
+            // Applied to the list price as well as the price. Scaling one and not the other
+            // would invent a discount out of the pack size, which is worse than either error
+            // alone -- and the discount floor decides what gets promoted.
+            val multiplier = item.unitMultiplier
+                ?.takeIf { it > 0 && it.isFinite() }
+                ?.toBigDecimal()
+                ?: BigDecimal.ONE
+
             item.sellers.mapNotNull { seller ->
                 val o = seller.commertialOffer ?: return@mapNotNull null
-                val price = o.Price?.takeIf { it.signum() > 0 }?.asMoney() ?: return@mapNotNull null
+                val price = o.Price?.takeIf { it.signum() > 0 }
+                    ?.multiply(multiplier)?.asMoney() ?: return@mapNotNull null
                 Offer(
                     price = price,
                     // Ignore a list price that isn't above the sale price: it carries
-                    // no discount information and would compute as 0%.
-                    listPrice = o.ListPrice?.asMoney()?.takeIf { it > price },
+                    // no discount information and would compute as 0%. Compared after
+                    // scaling, since both sides must be in the same units.
+                    listPrice = o.ListPrice?.multiply(multiplier)?.asMoney()?.takeIf { it > price },
                     qty = o.AvailableQuantity ?: 0,
                 )
             }
@@ -328,6 +343,16 @@ data class VtexItem(
     val itemId: String? = null,
     val images: List<VtexImage>? = null,
     val sellers: List<VtexSeller> = emptyList(),
+    /**
+     * How many [measurementUnit] the pack contains. The offer's `Price` is **per unit**, so
+     * the shelf price is `Price * unitMultiplier`.
+     *
+     * Only meaningfully different from 1 for weighed goods, but it goes both ways: a 2kg pork
+     * belly priced per kg was understated by half, while 0.5kg cuts are overstated by double.
+     * Defaults to 1 so any item without the field behaves as before.
+     */
+    val unitMultiplier: Double? = null,
+    val measurementUnit: String? = null,
 )
 
 @Serializable

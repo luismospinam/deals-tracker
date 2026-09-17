@@ -57,6 +57,117 @@ class VtexSourceTest {
     }
 
     /**
+     * Weighed goods are quoted PER UNIT, so the pack price is `Price * unitMultiplier`.
+     *
+     * Taken from the live payload for Exito productId 7853, a 2kg LA FAZENDA pork belly. The
+     * API returns Price 25050 and ListPrice 33400; the page shows $50.100 and $66.800. Ignoring
+     * the multiplier stored exactly half of each.
+     */
+    @Test
+    fun `scales weighed goods by the unit multiplier`() {
+        val raw = """
+            [{"productId":"7853","productName":"Tocino o panceta LA FAZENDA fresco",
+              "linkText":"tocino-de-4-7853","categories":["/Mercado/Carne de cerdo/"],
+              "items":[{"itemId":"349149","measurementUnit":"kg","unitMultiplier":2.0,
+                "sellers":[{"sellerId":"1","commertialOffer":{
+                  "Price":25050.0,"ListPrice":33400.0,"AvailableQuantity":10}}]}]}]
+        """.trimIndent()
+        val product = json.decodeFromString<List<VtexProduct>>(raw).first()
+        val deal = source.toRawDeal(product, "https://www.exito.com", "COP")!!
+
+        assertEquals(BigDecimal("50100.00"), deal.price, "2kg pack at 25050/kg")
+        assertEquals(BigDecimal("66800.00"), deal.listPrice, "list price scales identically")
+        // The discount must be unchanged by the scaling -- 25% before and after.
+        assertEquals(BigDecimal("25.00"), deal.discountPercent?.setScale(2), "discount is unaffected")
+    }
+
+    /** The multiplier also goes below 1, where ignoring it *overstates* the price. */
+    @Test
+    fun `scales half kilo packs down rather than up`() {
+        val raw = """
+            [{"productId":"9001","productName":"Chuleta Economica de Cerdo","linkText":"chuleta-9001",
+              "items":[{"itemId":"1","measurementUnit":"kg","unitMultiplier":0.5,
+                "sellers":[{"sellerId":"1","commertialOffer":{
+                  "Price":12584.0,"AvailableQuantity":5}}]}]}]
+        """.trimIndent()
+        val deal = source.toRawDeal(
+            json.decodeFromString<List<VtexProduct>>(raw).first(), "https://www.exito.com", "COP",
+        )!!
+        assertEquals(BigDecimal("6292.00"), deal.price, "0.5kg at 12584/kg")
+    }
+
+    /**
+     * The overwhelming majority of items have no multiplier, and those must be untouched --
+     * this fix must not perturb the 98% of the catalog that was already correct.
+     */
+    @Test
+    fun `items without a multiplier are unchanged`() {
+        listOf(""""unitMultiplier":1.0,""", "").forEach { field ->
+            val raw = """
+                [{"productId":"5","productName":"Televisor","linkText":"tv-5",
+                  "items":[{"itemId":"1",$field
+                    "sellers":[{"sellerId":"1","commertialOffer":{
+                      "Price":1899900.0,"ListPrice":2999900.0,"AvailableQuantity":3}}]}]}]
+            """.trimIndent()
+            val deal = source.toRawDeal(
+                json.decodeFromString<List<VtexProduct>>(raw).first(), "https://www.exito.com", "COP",
+            )!!
+            assertEquals(BigDecimal("1899900.00"), deal.price)
+            assertEquals(BigDecimal("2999900.00"), deal.listPrice)
+        }
+    }
+
+    /** A zero or absurd multiplier must not zero out or corrupt a real price. */
+    @Test
+    fun `a nonsensical multiplier is ignored rather than applied`() {
+        listOf("0.0", "-1.0").forEach { m ->
+            val raw = """
+                [{"productId":"6","productName":"Arroz","linkText":"arroz-6",
+                  "items":[{"itemId":"1","unitMultiplier":$m,
+                    "sellers":[{"sellerId":"1","commertialOffer":{
+                      "Price":8500.0,"AvailableQuantity":2}}]}]}]
+            """.trimIndent()
+            val deal = source.toRawDeal(
+                json.decodeFromString<List<VtexProduct>>(raw).first(), "https://www.exito.com", "COP",
+            )!!
+            assertEquals(BigDecimal("8500.00"), deal.price, "multiplier $m must not be applied")
+        }
+    }
+
+    /**
+     * The same rule against a real captured payload rather than hand-written JSON.
+     *
+     * Six weighed items from a live Exito `mercado/pollo-carne-y-pescado` response. On that one
+     * page 16 of 50 items carried a multiplier other than 1 -- including 0.25, 0.8 and 1.1 --
+     * so this is ordinary for the grocery categories, not an exotic edge case.
+     */
+    @Test
+    fun `applies the multiplier across a real weighed-goods response`() {
+        val raw = requireNotNull(
+            javaClass.getResourceAsStream("/fixtures/exito-weighed-goods.json"),
+        ) { "missing weighed-goods fixture" }.bufferedReader().readText()
+
+        val parsed = json.decodeFromString<List<VtexProduct>>(raw)
+        assertTrue(parsed.isNotEmpty(), "fixture should hold products")
+
+        parsed.forEach { product ->
+            val item = product.items.first()
+            val multiplier = requireNotNull(item.unitMultiplier) { "fixture item needs a multiplier" }
+            assertTrue(multiplier != 1.0, "fixture is only meaningful for non-unit multipliers")
+
+            val apiPrice = requireNotNull(item.sellers.first().commertialOffer?.Price)
+            val deal = source.toRawDeal(product, "https://www.exito.com", "COP")!!
+
+            val expected = apiPrice.multiply(multiplier.toBigDecimal()).setScale(2)
+            assertEquals(expected, deal.price, "shelf price for ${product.productName}")
+            // Guard the direction as well as the arithmetic: these are all 0.5, so the stored
+            // price must come out BELOW the API figure. An inverted multiplier would still
+            // satisfy an equality test written against itself.
+            assertTrue(deal.price < apiPrice, "a 0.5 multiplier must reduce the price")
+        }
+    }
+
+    /**
      * Regression guard for user-visible broken links.
      *
      * VTEX's own `link` field returns the store's *internal* hostname
