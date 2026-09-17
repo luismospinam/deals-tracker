@@ -166,12 +166,47 @@ providers:
     coShippingDefault: "YES"
     options:
       # VTEX caps a page at 50; small windows keep the ~19MB-per-50 payloads manageable.
+      # Grocery pages are much lighter than tech (~1.5MB vs ~3.2MB per 24), which is what
+      # makes the grocery breadth below affordable.
       pageSize: "24"
       maxPagesPerCategory: "3"
     listOptions:
+      # Walked in VTEX's DEFAULT order, which is best-sellers (an unordered request returns
+      # results identical to O=OrderByTopSaleDESC). Right for these two: they are broad, and
+      # sorting them by discount surfaces marketplace listings with inflated list prices --
+      # `tecnologia` leads with a 95%-off webcam.
+      #
       # Mercado is listed last deliberately: it is the largest and fastest-churning
-      # catalog, so if it gets throttled the other two have already landed.
+      # catalog, so if it gets throttled the other two have already landed. It is kept
+      # despite the subcategories below because its best-seller view is the popular-staples
+      # baseline (leche, huevos, arroz) that a discount sort never returns.
       categories: ["tecnologia", "electrodomesticos", "mercado"]
+
+      # Walked sorted by advertised discount (O=OrderByBestDiscountDESC).
+      #
+      # This is how the store's actual promotions get in. Measured: `mercado` holds 65,966
+      # products, so 3 pages of 24 reaches 0.1% of it -- and in best-seller order that 0.1%
+      # is a fixed set of full-price staples, re-fetched unchanged every hour. Meanwhile a
+      # real 40%-off meat promotion (picanha, New York strip, entraña) sat permanently out
+      # of reach. Giving each grocery subcategory its own budget AND sorting it by discount
+      # is what surfaces those; `pollo-carne-y-pescado` alone has 2,406 products.
+      #
+      # Discount sort stays trustworthy here in a way it does not for `tecnologia`, because
+      # these are narrow single-purpose categories of ordinary supermarket goods with few
+      # third-party sellers to inflate a list price.
+      #
+      # NOTE these are NESTED paths -- Exito files groceries under `mercado/`, while Carulla
+      # has the equivalents at top level. Slug validation walks the full tree, so a typo
+      # still gets caught rather than silently returning unfiltered products.
+      bestDiscountCategories:
+        - "mercado/pollo-carne-y-pescado"
+        - "mercado/frutas-y-verduras"
+        - "mercado/lacteos-huevos-y-refrigerados"
+        - "mercado/despensa"
+        - "mercado/congelados"
+        - "mercado/charcuteria-y-delicatessen"
+        - "mercado/panaderia-y-reposteria"
+        - "mercado/bebidas"
 
   - id: carulla
     type: vtex
@@ -192,7 +227,26 @@ providers:
       pageSize: "24"
       maxPagesPerCategory: "2"
     listOptions:
-      categories: ["tecnologia", "electrodomesticos", "despensa"]
+      # Broad categories, so default (best-seller) order -- see the note on Exito's.
+      categories: ["tecnologia", "electrodomesticos"]
+
+      # Sorted by advertised discount, same reasoning as Exito's. `despensa` moves here
+      # from `categories`: it holds 10,545 products, so best-seller order was returning a
+      # fixed sliver of full-price staples.
+      #
+      # These are TOP-LEVEL here, unlike Exito, because Carulla is grocery-first and has no
+      # `mercado` parent at all. Note the meat slug also differs by a letter -- Carulla's is
+      # `pollo-carnes-y-pescado` (plural), Exito's is `pollo-carne-y-pescado`. Both verified
+      # against each store's live tree.
+      bestDiscountCategories:
+        - "pollo-carnes-y-pescado"
+        - "frutas-y-verduras"
+        - "lacteos-huevos-y-refrigerados"
+        - "despensa"
+        - "congelados"
+        - "panaderia"
+        - "delicatessen"
+        - "bebidas-snacks-y-dulces"
 
   - id: mercadolibre-co
     type: mercadolibre

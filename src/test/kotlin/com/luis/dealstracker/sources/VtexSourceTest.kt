@@ -1,5 +1,9 @@
 package com.luis.dealstracker.sources
 
+import com.luis.dealstracker.config.ProviderConfig
+import com.luis.dealstracker.sources.vtex.BEST_DISCOUNT_ORDER
+import com.luis.dealstracker.sources.vtex.CategoryTarget
+import com.luis.dealstracker.sources.vtex.VtexCategory
 import com.luis.dealstracker.sources.vtex.VtexProduct
 import com.luis.dealstracker.sources.vtex.VtexSource
 import kotlinx.serialization.json.Json
@@ -146,6 +150,99 @@ class VtexSourceTest {
         """.trimIndent()
         val parsed = json.decodeFromString<List<VtexProduct>>(raw)
         assertTrue(parsed.all { source.toRawDeal(it, "https://x.com", "COP") == null })
+    }
+
+    /**
+     * The regression that made this whole mechanism necessary.
+     *
+     * Without `O=`, VTEX returns its default order — which is best-sellers, and stable, so
+     * an hourly poll re-fetched an identical set of mostly full-price products forever.
+     */
+    @Test
+    fun `discount-ordered categories carry the sort parameter and plain ones do not`() {
+        val plain = source.searchUrl("https://www.exito.com", CategoryTarget("tecnologia", null), 0, 23)
+        assertEquals(
+            "https://www.exito.com/api/catalog_system/pub/products/search/tecnologia?_from=0&_to=23",
+            plain,
+        )
+        assertTrue(!plain.contains("&O="), "default order must send no O= parameter")
+
+        val sorted = source.searchUrl(
+            "https://www.exito.com",
+            CategoryTarget("mercado/pollo-carne-y-pescado", BEST_DISCOUNT_ORDER),
+            24,
+            47,
+        )
+        assertEquals(
+            "https://www.exito.com/api/catalog_system/pub/products/search/" +
+                "mercado/pollo-carne-y-pescado?_from=24&_to=47&O=OrderByBestDiscountDESC",
+            sorted,
+        )
+    }
+
+    @Test
+    fun `both category lists are walked, discount-sorted ones flagged as such`() {
+        val cfg = ProviderConfig(
+            id = "exito",
+            type = "vtex",
+            baseUrl = "https://www.exito.com",
+            listOptions = mapOf(
+                "categories" to listOf("tecnologia"),
+                "bestDiscountCategories" to listOf("mercado/pollo-carne-y-pescado"),
+            ),
+        )
+        val targets = source.targetsOf(cfg)
+        assertEquals(2, targets.size)
+        assertNull(targets[0].order, "plain categories keep the store's default order")
+        assertEquals(BEST_DISCOUNT_ORDER, targets[1].order)
+        // The log has to distinguish the two, or a misconfigured list is invisible.
+        assertEquals("tecnologia", targets[0].label)
+        assertTrue(targets[1].label.contains("by discount"), "got ${targets[1].label}")
+    }
+
+    /**
+     * Tree urls carry the store's INTERNAL host, exactly as `VtexProduct.link` does, so only
+     * the path can be compared against a configured slug.
+     */
+    @Test
+    fun `category paths are extracted from the internal host url`() {
+        assertEquals("mercado", source.categoryPath("https://tienda.exito.com/mercado"))
+        assertEquals(
+            "mercado/pollo-carne-y-pescado",
+            source.categoryPath("https://tienda.exito.com/mercado/pollo-carne-y-pescado/"),
+        )
+        assertEquals("despensa", source.categoryPath("https://secure.carulla.com/despensa"))
+        // A bare path (no scheme) is already what we want, and the host row itself is not
+        // a category — returning "" for it would match a blank configured slug.
+        assertEquals("mercado/despensa", source.categoryPath("/mercado/despensa"))
+        assertNull(source.categoryPath("https://tienda.exito.com/"))
+    }
+
+    /**
+     * Nested slugs are only reachable if the tree walk recurses. It previously read
+     * top-level nodes only, so every `mercado/...` path would have been reported as unknown
+     * — a warning firing on correct config, which trains you to ignore it.
+     */
+    @Test
+    fun `known paths include nested categories`() {
+        val tree = json.decodeFromString<List<VtexCategory>>(
+            """
+            [{"id":1,"name":"Mercado","url":"https://tienda.exito.com/mercado","children":[
+               {"id":2,"name":"Pollo","url":"https://tienda.exito.com/mercado/pollo-carne-y-pescado",
+                "children":[{"id":3,"name":"Res","url":"https://tienda.exito.com/mercado/pollo-carne-y-pescado/carne-de-res"}]},
+               {"id":4,"name":"Despensa","url":"https://tienda.exito.com/mercado/despensa"}]},
+             {"id":5,"name":"Tecnologia","url":"https://tienda.exito.com/tecnologia"}]
+            """.trimIndent(),
+        )
+        val known = source.knownPaths(tree)
+        assertTrue("mercado" in known)
+        assertTrue("tecnologia" in known)
+        assertTrue("mercado/pollo-carne-y-pescado" in known)
+        assertTrue("mercado/pollo-carne-y-pescado/carne-de-res" in known, "must recurse past depth 2")
+        assertTrue("mercado/despensa" in known)
+        // Carulla's plural spelling must NOT validate against Exito's tree; one letter of
+        // difference otherwise yields an unfiltered product list that looks legitimate.
+        assertTrue("mercado/pollo-carnes-y-pescado" !in known)
     }
 
     @Test

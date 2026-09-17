@@ -115,7 +115,11 @@ categories:
       - "despensa"
       - "frutas y verduras"
       - "lacteos"
-      - "pollo, carne y pescado"
+      # `carnes?` because the two stores disagree on the plural, exactly as they disagree on
+      # "Tecnología"/"Tecnologia": Exito files meat under "Mercado > Pollo, carne y pescado"
+      # and Carulla under "Pollo, Carnes y pescado". The singular-only pattern put 48 Carulla
+      # meat deals in Other.
+      - "pollo, carnes? y pescado"
       - "panaderia"
       - "bebidas"
       - "granos"
