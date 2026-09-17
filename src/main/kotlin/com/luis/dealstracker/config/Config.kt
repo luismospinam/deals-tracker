@@ -69,19 +69,34 @@ data class Defaults(
     /**
      * Verify after every Nth poll cycle. 0 disables the automatic run entirely.
      *
-     * Not every cycle. New Amazon deals arrive far faster than they can be verified
-     * (~30 per poll against ~40-55 page loads before Amazon walls a session), so this
-     * cannot keep up and is not trying to -- it is a slow drip that chips at the backlog
-     * between manual `--verify-co-shipping` runs. Spacing it out also lets session trust
-     * recover, which back-to-back runs do not.
+     * Still a slow drip rather than an attempt to keep up: new Amazon deals arrive far
+     * faster than [coShippingPollBatch] can clear them, so the backlog grows regardless.
+     *
+     * This was 3, to spare the session's trust. That rationale leaned on a page-load
+     * ceiling measured while a false wall detection was recording healthy pages as blocked,
+     * so the number it was protecting was never real. What settled it is the counter: it is
+     * process state, and every restart resets it. At 3 with hourly polls the app needed two
+     * unbroken hours to verify anything, and never got them -- the automatic run fired zero
+     * times across days of ordinary use. At 1 the first poll after startup verifies, which
+     * is the only cadence that outlives a restart.
+     *
+     * The real fix is to derive this from the last recorded check rather than from process
+     * uptime, since `co_shipping_checked_at` already knows. Deliberately not done: 1 makes
+     * the mechanism moot in practice.
      */
-    val coShippingEveryNPolls: Int = 3,
+    val coShippingEveryNPolls: Int = 1,
     /**
-     * Deals per automatic run. Deliberately far smaller than a manual run's batch: this
-     * fires unattended on a schedule, so it should cost a handful of page loads and leave
-     * the session's remaining tolerance for the manual runs that target deals Luis cares about.
+     * Deals per automatic run.
+     *
+     * Sized against measured arrivals rather than caution alone. Slickdeals brings 220-313
+     * new deals a day, so the original 5 per hour (120 a day) fell behind by roughly 110 a
+     * day — the backlog reached 503 while the log made it look like progress. 15 an hour is
+     * 360 a day, which drains that backlog in about four days of uptime and then keeps pace.
+     *
+     * Still bounded by [coShippingMaxPerRun], and still leaves the session's remaining
+     * tolerance for the Verify button and manual runs aimed at deals worth buying.
      */
-    val coShippingPollBatch: Int = 5,
+    val coShippingPollBatch: Int = 15,
     /**
      * How long an automatic run waits for a human to clear an Amazon wall before giving up.
      *
@@ -90,6 +105,40 @@ data class Defaults(
      * open for three minutes waiting for a click that may never come.
      */
     val coShippingPollWallWaitMillis: Long = 45_000,
+
+    /**
+     * Warn when this percentage of active deals has landed in the `Other` category. 0 disables.
+     *
+     * Category rules need gardening as the sources' catalogs shift, and there was a feedback
+     * loop for it — `--recategorize --show-other` — but nothing that said *when* to run it. The
+     * tuning that took `Other` from 73 down to 33 of 612 has since drifted back to 78 of 618
+     * (12.6%) without a single line of output remarking on it, because the per-ingest count is
+     * a share of one 25-item batch and reads as noise.
+     *
+     * 10% is set just under the observed drift so the condition is live rather than theoretical:
+     * an over-broad or missing rule should announce itself, the same way an excluded title or a
+     * failed fetch already does.
+     */
+    val categoryOtherWarnPercent: Int = 10,
+
+    /**
+     * How often the feed's default ordering reshuffles among deals of similar quality, in hours.
+     * 0 turns rotation off and makes the ordering a pure function of the score.
+     *
+     * Exists because a deterministic score gives you an identical page on every visit: most of
+     * its inputs never change (only 14.6% of tracked deals have ever moved on price), and nothing
+     * records what you have already looked at — every active deal is still `state = NEW`, because
+     * `SEEN` is in the enum and the filter but no code path writes it.
+     *
+     * 3 hours is a compromise between two real costs. Reseeding faster means a deal you were
+     * still deciding on is hard to find ten minutes later; slower means several visits in a day
+     * all look the same. (This once lined up with `coShippingEveryNPolls`; that is now 1, so
+     * the two cadences are unrelated and neither should be tuned on account of the other.)
+     *
+     * See `DealScore.rotating` — the offset is bounded so it can reorder comparable deals but
+     * never lift a weak one above a strong one.
+     */
+    val feedRotationHours: Int = 3,
 )
 
 @Serializable

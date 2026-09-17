@@ -19,11 +19,35 @@ import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.jsonPrimitive
 import java.math.BigDecimal
 
+/** VTEX's sort parameter for "largest advertised discount first". */
+internal const val BEST_DISCOUNT_ORDER = "OrderByBestDiscountDESC"
+
+/**
+ * One thing to fetch: a category to walk, or a keyword to search.
+ *
+ * The order is per category rather than per provider because the right choice depends on
+ * how broad the category is — see [VtexSource.targetsOf].
+ *
+ * Search shares this type rather than having its own, because everything downstream — paging,
+ * parsing, dedupe, logging — is identical; only the URL differs. `term` and `path` are mutually
+ * exclusive: a search has no category and vice versa.
+ */
+internal data class CategoryTarget(val path: String, val order: String?, val term: String? = null) {
+    val isSearch: Boolean get() = term != null
+
+    /** For the fetch log, so each kind of walk is distinguishable in the output. */
+    val label: String get() = when {
+        term != null -> "ft=$term"
+        order == null -> path
+        else -> "$path (by discount)"
+    }
+}
+
 /**
  * VTEX catalog adapter. Serves Exito, Carulla, and any other VTEX-hosted retailer
  * purely through config.
  *
- * Two traps this works around, both found by probing the live APIs:
+ * Three traps this works around, all found by probing the live APIs:
  *
  *  1. **Responses are enormous** — roughly 19MB per 50 products, most of which is
  *     marketing metadata. Pages are kept small and only the handful of fields
@@ -32,44 +56,54 @@ import java.math.BigDecimal
  *     returns HTTP 206 with an unfiltered product list, so a copy-pasted slug
  *     produces plausible but wrong data. [validateCategories] checks configured
  *     slugs against the store's own category tree and warns loudly.
+ *  3. **The default product order is best-sellers, not deals.** Measured against Exito:
+ *     an unordered request returns results identical to `O=OrderByTopSaleDESC`, and that
+ *     order is stable — so polling one hourly re-fetched the same products indefinitely.
+ *     Since best-sellers are mostly at full price, this filled the feed with popular
+ *     groceries at 0% off while an actual 40%-off meat promotion sat unreachable. See
+ *     `bestDiscountCategories` in `config/sources.yaml`.
  */
 class VtexSource : DealSource {
     override val type = "vtex"
 
     override suspend fun fetch(cfg: ProviderConfig, app: AppConfig, http: PoliteHttp): List<RawDeal> {
         val base = cfg.requireBaseUrl().trimEnd('/')
-        val queries = buildQueries(cfg)
-        if (queries.isEmpty()) {
+        val targets = targetsOf(cfg)
+        if (targets.isEmpty()) {
             println("[${cfg.id}] no categories or searches configured; nothing to fetch")
             return emptyList()
         }
 
-        val categories = queries.filter { it.kind == VtexQuery.Kind.CATEGORY }.map { it.value }
+        // Only real categories are validated against the store's tree; a search term is not a
+        // slug and would always look "unknown".
+        val categories = targets.filterNot { it.isSearch }.map { it.path }
         if (categories.isNotEmpty()) validateCategories(cfg, base, categories, http)
 
         val pageSize = cfg.int("pageSize", 24).coerceIn(1, 50)
 
         val all = LinkedHashMap<String, RawDeal>()
-        for (query in queries) {
-            // Searches are capped shallower than category browses by default. A category is
-            // a catalog we want broad coverage of; a search exists to answer "is the thing
-            // I want on sale", and relevance drops off fast -- 850 hits for "nevera no
-            // frost" are mostly not fridges by the third page.
-            val maxPages = when (query.kind) {
-                VtexQuery.Kind.CATEGORY -> cfg.int("maxPagesPerCategory", 3)
-                VtexQuery.Kind.SEARCH -> cfg.int("maxPagesPerSearch", 2)
+        for (target in targets) {
+            // Searches are capped shallower than category browses by default. A category is a
+            // catalog we want broad coverage of; a search exists to answer "is the thing I want
+            // on sale", and relevance drops off fast -- 850 hits for "nevera no frost" are
+            // mostly not fridges by the third page.
+            val maxPages = when {
+                target.isSearch -> cfg.int("maxPagesPerSearch", 2)
+                else -> cfg.int("maxPagesPerCategory", 3)
             }.coerceAtLeast(1)
+
 
             var page = 0
             var fetched = 0
             while (page < maxPages) {
                 val from = page * pageSize
-                val url = query.url(base, from, from + pageSize - 1)
+                val to = from + pageSize - 1
+                val url = searchUrl(base, target, from, to)
 
                 val result = try {
                     http.get(url, mapOf("Accept" to "application/json"))
                 } catch (e: Exception) {
-                    println("[${cfg.id}] ${query.label} page $page failed: ${e.message}")
+                    println("[${cfg.id}] ${target.label} page $page failed: ${e.message}")
                     break
                 }
                 if (result.notModified) break
@@ -77,14 +111,14 @@ class VtexSource : DealSource {
                 // `status == 200` check here would reject every successful page.
                 val body = result.body
                 if (body == null || !result.ok) {
-                    println("[${cfg.id}] ${query.label} page $page -> HTTP ${result.status}")
+                    println("[${cfg.id}] ${target.label} page $page -> HTTP ${result.status}")
                     break
                 }
 
                 val products = try {
                     json.decodeFromString<List<VtexProduct>>(body)
                 } catch (e: Exception) {
-                    println("[${cfg.id}] ${query.label} page $page unparseable: ${e.message}")
+                    println("[${cfg.id}] ${target.label} page $page unparseable: ${e.message}")
                     break
                 }
                 if (products.isEmpty()) break
@@ -96,7 +130,7 @@ class VtexSource : DealSource {
                 if (products.size < pageSize) break
                 page++
             }
-            println("[${cfg.id}] ${query.label} -> $fetched products")
+            println("[${cfg.id}] ${target.label} -> $fetched products")
         }
 
         val available = all.values.filter { it.available }
@@ -105,17 +139,53 @@ class VtexSource : DealSource {
     }
 
     /**
-     * Expands config into the paged requests to make.
+     * What to fetch: the categories to walk, the order to walk each in, and the terms to search.
      *
-     * `searches` is populated by [com.luis.dealstracker.ingest.IngestService] from the
-     * active watches as well as from config, which is what lets a watch go looking for a
-     * fridge that no configured category would ever have surfaced. The key is the same one
-     * `SlickdealsSource` reads, so one mechanism drives keyword hunting on every source
-     * that supports it.
+     * Two lists rather than one provider-wide `order` setting, because the right ordering
+     * depends on how broad the category is and both readings are needed in the same store:
+     *
+     *  - `categories` keeps VTEX's default (best-seller) order. Correct for a broad
+     *    category, where sorting by discount surfaces marketplace listings with inflated
+     *    list prices — Exito's `tecnologia` leads with a 95%-off webcam, and the top-level
+     *    `mercado` with 92%-off sweets.
+     *  - `bestDiscountCategories` sorts by advertised discount. Correct for a narrow,
+     *    single-purpose category, where the same sort returns the store's genuine
+     *    promotions: `mercado/pollo-carne-y-pescado` leads with picanha and New York strip
+     *    at 40% off, which is exactly what the default order could never reach.
+     *
+     * Deduplication happens on `externalId` in [fetch], so listing a category in both is
+     * harmless rather than a source of duplicate rows.
+     *
+     * `searches` is a third kind of target, and is populated by
+     * [com.luis.dealstracker.ingest.IngestService] from the active watches as well as from
+     * config — which is what lets a watch go looking for a fridge that no configured category
+     * would ever have surfaced. It reads the same key `SlickdealsSource` does, so one mechanism
+     * drives keyword hunting on every source that supports it.
      */
-    internal fun buildQueries(cfg: ProviderConfig): List<VtexQuery> =
-        cfg.list("categories").map { VtexQuery(VtexQuery.Kind.CATEGORY, it) } +
-            cfg.list("searches").map { VtexQuery(VtexQuery.Kind.SEARCH, it) }
+    internal fun targetsOf(cfg: ProviderConfig): List<CategoryTarget> =
+        cfg.list("categories").map { CategoryTarget(it, null) } +
+            cfg.list("bestDiscountCategories").map { CategoryTarget(it, BEST_DISCOUNT_ORDER) } +
+            cfg.list("searches").map { CategoryTarget(path = "", order = null, term = it) }
+
+    /**
+     * The product-search URL for one page of one target.
+     *
+     * Split out so the ordering parameter is testable without a network call — an omitted
+     * `O=` is what silently pinned every poll to the same best-selling products.
+     *
+     * A category is a path segment; a keyword goes in `ft`. Note `encodeQueryValue` rather than
+     * `URLEncoder` directly: olimpica.com answers HTTP 400 to `ft=smart+tv` and 206 to
+     * `ft=smart%20tv`, and watch terms are routinely multi-word.
+     */
+    internal fun searchUrl(base: String, target: CategoryTarget, from: Int, to: Int): String {
+        val root = "$base/api/catalog_system/pub/products/search"
+        val range = "_from=$from&_to=$to"
+        return if (target.isSearch) {
+            "$root?ft=${encodeQueryValue(target.term!!)}&$range"
+        } else {
+            "$root/${normalizePath(target.path)}?$range" + (target.order?.let { "&O=$it" } ?: "")
+        }
+    }
 
     /**
      * Warns when a configured category slug is absent from the store's own tree.
@@ -130,8 +200,14 @@ class VtexSource : DealSource {
         categories: List<String>,
         http: PoliteHttp,
     ) {
+        // Depth has to reach the deepest configured slug. This was hardcoded to 1, which
+        // was right while every configured category was top-level -- but Exito nests its
+        // grocery categories under `mercado/...`, and a depth-1 tree carries no children,
+        // so every nested slug would be reported as unknown. A warning that fires on
+        // correct config gets ignored, which is worse than having no warning at all.
+        val depth = categories.maxOfOrNull { segments(it).size }?.coerceAtLeast(1) ?: return
         val result = try {
-            http.get("$base/api/catalog_system/pub/category/tree/1", mapOf("Accept" to "application/json"))
+            http.get("$base/api/catalog_system/pub/category/tree/$depth", mapOf("Accept" to "application/json"))
         } catch (e: Exception) {
             println("[${cfg.id}] could not verify category slugs: ${e.message}")
             return
@@ -144,16 +220,67 @@ class VtexSource : DealSource {
             return
         }
 
-        val known = tree.mapNotNull { it.url?.trimEnd('/')?.substringAfterLast('/') }.toSet()
-        val unknown = categories.filter { it !in known }
-        if (unknown.isNotEmpty()) {
-            println(
-                "[${cfg.id}] WARNING: categories $unknown are not in this store's tree. " +
-                    "VTEX returns unfiltered results for unknown slugs, so these will " +
-                    "produce arbitrary products. Known top-level slugs: ${known.sorted()}",
-            )
+        val known = knownPaths(tree)
+        // An empty tree means the request degraded, not that every slug is wrong. Warning
+        // about all of them would be noise that trains the reader to skip the warning.
+        if (known.isEmpty()) {
+            println("[${cfg.id}] category tree came back empty; skipping slug validation")
+            return
+        }
+
+        val unknown = categories.filter { normalizePath(it) !in known }
+        if (unknown.isEmpty()) return
+
+        println(
+            "[${cfg.id}] WARNING: categories $unknown are not in this store's tree. " +
+                "VTEX returns unfiltered results for unknown slugs, so these will " +
+                "produce arbitrary products.",
+        )
+        // Names the siblings rather than dumping the whole tree, which runs to hundreds of
+        // paths once nested categories are configured. Near-misses are what this catches in
+        // practice: Exito's meat category is `pollo-carne-y-pescado` and Carulla's is
+        // `pollo-carnes-y-pescado`, and that one letter yields plausible junk.
+        unknown.forEach { slug ->
+            val parent = normalizePath(slug).substringBeforeLast('/', "")
+            val siblings = known.filter { it.substringBeforeLast('/', "") == parent }.sorted()
+            println("[${cfg.id}]   '$slug' — available under '${parent.ifEmpty { "/" }}': ${siblings.take(25)}")
         }
     }
+
+    /**
+     * Every category path in the tree, as `mercado/pollo-carne-y-pescado`.
+     *
+     * Recursive rather than top-level-only, because a nested slug is valid only if its
+     * whole parent chain is in the tree, and because the requested depth now varies with
+     * what is configured.
+     */
+    internal fun knownPaths(tree: List<VtexCategory>): Set<String> = buildSet {
+        fun visit(nodes: List<VtexCategory>) {
+            nodes.forEach { node ->
+                node.url?.let { categoryPath(it) }?.let { add(it) }
+                visit(node.children.orEmpty())
+            }
+        }
+        visit(tree)
+    }
+
+    /**
+     * The category path from a tree node's `url`.
+     *
+     * The host has to be discarded rather than trusted: these urls carry the store's
+     * INTERNAL VTEX hostname (`tienda.exito.com`, `secure.carulla.com`), exactly as
+     * `VtexProduct.link` does, so only the path is meaningful. Comparing whole urls
+     * against configured slugs would therefore never match.
+     */
+    internal fun categoryPath(url: String): String? {
+        val path = if (url.contains("://")) url.substringAfter("://").substringAfter('/', "") else url
+        return normalizePath(path).takeIf { it.isNotBlank() }
+    }
+
+    private fun normalizePath(path: String): String = path.trim('/')
+
+    private fun segments(path: String): List<String> =
+        normalizePath(path).split('/').filter { it.isNotBlank() }
 
     /**
      * Picks the cheapest in-stock offer across the product's SKUs.
@@ -166,14 +293,29 @@ class VtexSource : DealSource {
         data class Offer(val price: BigDecimal, val listPrice: BigDecimal?, val qty: Int)
 
         val offers = product.items.flatMap { item ->
+            // VTEX quotes weighed goods PER UNIT, and `unitMultiplier` is the pack size. A 2kg
+            // pork belly came back as Price 25050 against a shelf price of $50,100, and its
+            // ListPrice 33400 against $66,800 -- both exactly half, because the API figure is
+            // per kg. It cuts the other way too: 0.5kg cuts would be stored at double.
+            //
+            // Applied to the list price as well as the price. Scaling one and not the other
+            // would invent a discount out of the pack size, which is worse than either error
+            // alone -- and the discount floor decides what gets promoted.
+            val multiplier = item.unitMultiplier
+                ?.takeIf { it > 0 && it.isFinite() }
+                ?.toBigDecimal()
+                ?: BigDecimal.ONE
+
             item.sellers.mapNotNull { seller ->
                 val o = seller.commertialOffer ?: return@mapNotNull null
-                val price = o.Price?.takeIf { it.signum() > 0 }?.asMoney() ?: return@mapNotNull null
+                val price = o.Price?.takeIf { it.signum() > 0 }
+                    ?.multiply(multiplier)?.asMoney() ?: return@mapNotNull null
                 Offer(
                     price = price,
                     // Ignore a list price that isn't above the sale price: it carries
-                    // no discount information and would compute as 0%.
-                    listPrice = o.ListPrice?.asMoney()?.takeIf { it > price },
+                    // no discount information and would compute as 0%. Compared after
+                    // scaling, since both sides must be in the same units.
+                    listPrice = o.ListPrice?.multiply(multiplier)?.asMoney()?.takeIf { it > price },
                     qty = o.AvailableQuantity ?: 0,
                 )
             }
@@ -218,31 +360,17 @@ class VtexSource : DealSource {
     }
 }
 
-/**
- * One paged catalog request — a category browse or a keyword search.
- *
- * Both hit the same `products/search` endpoint, which is why they share the paging loop:
- * a category is a path segment, a keyword is the `ft` parameter. Verified against
- * exito.com on 2026-09-07 — `?ft=nevera+no+frost` answers 206 and pages cleanly with
- * `_from`/`_to`, with zero overlap between consecutive pages.
- */
-internal data class VtexQuery(val kind: Kind, val value: String) {
-    enum class Kind { CATEGORY, SEARCH }
-
-    val label: String get() = if (kind == Kind.SEARCH) "ft=$value" else value
-
-    fun url(base: String, from: Int, to: Int): String {
-        val root = "$base/api/catalog_system/pub/products/search"
-        val range = "_from=$from&_to=$to"
-        return when (kind) {
-            Kind.CATEGORY -> "$root/$value?$range"
-            Kind.SEARCH -> "$root?ft=${encodeQueryValue(value)}&$range"
-        }
-    }
-}
-
 @Serializable
-data class VtexCategory(val id: Int? = null, val name: String? = null, val url: String? = null)
+data class VtexCategory(
+    val id: Int? = null,
+    val name: String? = null,
+    val url: String? = null,
+    /**
+     * Populated only when the tree is requested at a depth above 1, which is why
+     * `VtexSource.validateCategories` derives the depth from the configured slugs.
+     */
+    val children: List<VtexCategory>? = null,
+)
 
 @Serializable
 data class VtexProduct(
@@ -262,6 +390,16 @@ data class VtexItem(
     val ean: String? = null,
     val images: List<VtexImage>? = null,
     val sellers: List<VtexSeller> = emptyList(),
+    /**
+     * How many [measurementUnit] the pack contains. The offer's `Price` is **per unit**, so
+     * the shelf price is `Price * unitMultiplier`.
+     *
+     * Only meaningfully different from 1 for weighed goods, but it goes both ways: a 2kg pork
+     * belly priced per kg was understated by half, while 0.5kg cuts are overstated by double.
+     * Defaults to 1 so any item without the field behaves as before.
+     */
+    val unitMultiplier: Double? = null,
+    val measurementUnit: String? = null,
 )
 
 @Serializable

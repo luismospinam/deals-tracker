@@ -32,6 +32,14 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/**
+ * How often the poller checks whether its next cycle is due.
+ *
+ * Short on purpose. This is not the poll interval -- it is the granularity with which an
+ * overdue poll is noticed, which is what makes the loop survive the machine sleeping.
+ */
+private const val POLL_TICK_MILLIS = 60_000L
+
 fun main(args: Array<String>) {
     val projectDir = File(System.getProperty("user.dir"))
     val app = AppConfig.load(projectDir)
@@ -69,7 +77,7 @@ fun main(args: Array<String>) {
         throw e
     }
 
-    val repo = DealRepository(Db.dataSource)
+    val repo = DealRepository(Db.dataSource, app.defaults.feedRotationHours)
     val watches = WatchRepository(Db.dataSource)
     val http = PoliteHttp(app.defaults.userAgent, app.defaults.perHostDelayMillis)
     val categorizer = Categorizer.load(projectDir)
@@ -158,6 +166,9 @@ fun main(args: Array<String>) {
                 runCatching { ingest.run(provider) }
                     .onFailure { println("[${provider.id}] FAILED: ${it.message}") }
             }
+            // `runAll` does this itself; this path drives providers one at a time, so the
+            // drift check would otherwise never fire for a --fetch-once run.
+            ingest.reportCategoryDrift()
         }
         http.close()
         return
@@ -171,7 +182,32 @@ fun main(args: Array<String>) {
         val intervalMillis = app.defaults.pollIntervalMinutes * 60_000
         val everyN = app.defaults.coShippingEveryNPolls
         var cycle = 0
+        // First cycle is due immediately; every later one is scheduled off wall-clock time.
+        var dueAt = System.currentTimeMillis()
+
         while (true) {
+            // A wall-clock deadline checked on a short tick, NOT one delay() spanning the
+            // whole interval. A single long delay does not survive the laptop sleeping: six
+            // hours of wall clock produced exactly one poll cycle, while Hikari logged the
+            // missing time as "clock leap detected" with deltas up to 1h27m. Verification
+            // was never broken -- the loop meant to drive it simply was not ticking.
+            //
+            // Sleeping in short hops instead means a machine that wakes up finds the poll
+            // already overdue and runs it at once, rather than waiting out the remainder of
+            // a timer that stopped advancing.
+            while (System.currentTimeMillis() < dueAt) {
+                delay(POLL_TICK_MILLIS)
+            }
+            // Measured from the start of the work, so a slow cycle does not push the next
+            // one progressively later. An overrun simply makes the next cycle due at once.
+            val overdueBy = System.currentTimeMillis() - dueAt
+            dueAt = System.currentTimeMillis() + intervalMillis
+            if (overdueBy > intervalMillis) {
+                // Worth saying out loud: it means the process was suspended, and it is the
+                // signal that distinguishes "asleep" from "broken" in the log.
+                println("[poller] cycle was overdue by ${overdueBy / 60_000}m — machine likely slept")
+            }
+
             runCatching { ingest.runAll() }
                 .onFailure { println("[poller] cycle failed: ${it.message}") }
 
@@ -188,7 +224,6 @@ fun main(args: Array<String>) {
             if (everyN > 0 && cycle % everyN == 0) {
                 verifyPeriodically(repo, app)
             }
-            delay(intervalMillis)
         }
     }
 
