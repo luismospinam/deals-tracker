@@ -66,11 +66,16 @@ categories:
       - "\\b(sticker|gift tag|greeting card|wrapping paper)s?\\b"
 
   - name: "TV & Video"
-    sourcePatterns: ["televisor", "video proyector", "audio y video", "accesorios audio y video"]
+    sourcePatterns: ["televisor", "video proyector", "audio y video", "accesorios audio y video", "smart tv"]
     titlePatterns:
       - "\\b(\\d{2}\" |television|smart tv|oled|qled|4k tv|projector)s?\\b"
       - "\\b(fire tv (stick|cube)|roku|chromecast|apple tv|streaming (device|stick))s?\\b"
       - "\\b(gimbal|stabilizer|gopro|dslr|mirrorless|action camera|tripod)s?\\b"
+      # Spanish, for rows that arrive from a keyword search with no category path of their
+      # own. Accents are folded before matching, so "televisión" is covered too.
+      # Deliberately NOT a bare "tv": that also matches "Soporte TV", "Tv Box" and
+      # "Google Tv", which are accessories and streaming sticks rather than televisions.
+      - "\\b(televisor|television|pantalla led|videoproyector|videobeam)e?s?\\b"
 
   - name: "Audio"
     # Musical instruments live here too -- too few to justify their own bucket.
@@ -91,11 +96,29 @@ categories:
       - "cocinas"
       - "preparacion de alimentos"
       - "preparacion de bebidas"
+      # Homecenter and Falabella name the product line rather than a department -- their
+      # category slugs are "neveras y nevecones", "lavadoras", "neveras no frost". Without
+      # these, 98% of a Homecenter fetch landed in Other, which also made every row invisible
+      # to a watch pinned to a category.
+      - "nevera"
+      - "nevecon"
+      - "lavadora"
+      - "lavavajilla"
+      - "secadora"
+      - "horno"
+      - "estufa"
+      - "microonda"
     titlePatterns:
       - "\\b(refrigerator|freezer|washer|dryer|dishwasher|air conditioner|heater)s?\\b"
       - "\\b(microwave|air fryer|blender|coffee maker|espresso machine|toaster|kettle)s?\\b"
       - "\\b(vacuum|roomba|steam mop|dehumidifier|humidifier|water heater)s?\\b"
       - "\\b(ceiling fan|tower fan|box fan|shaved ice|ice maker|ice machine|rice cooker)s?\\b"
+      # Spanish equivalents, for rows that arrive with no category path of their own -- a
+      # keyword search result rather than a category listing. Accents are folded before
+      # matching, so "nevecon" also matches "nevecón".
+      - "\\b(nevera|nevecon|refrigerador|congelador)a?e?s?\\b"
+      - "\\b(lavadora|secadora|lavavajillas|lavaplatos)s?\\b"
+      - "\\b(microondas|licuadora|freidora de aire|cafetera|estufa|campana extractora)s?\\b"
 
   - name: "Beauty & Health"
     # Before Tools: an "LED face mask" must not be read as an LED light.
@@ -154,6 +177,28 @@ categories:
       - "\\b(bras?|rash guard|belt|sundress|coat|flannel|leggings|shorts|pants|skirt)s?\\b"
       - "\\b(gloves|hat|cap|scarf|tie|watch strap|jewelry|earrings|necklace|ring)s?\\b"
       - "\\b(women'?s|men'?s|kids'?) \\w+"
+
+  # Before Tools & Outdoor and Home & Kitchen, both of which would otherwise claim these:
+  # Homecenter files taps under "griferias de bano y cocina", which Home & Kitchen's "cocina"
+  # matches, and bathroom fittings under paths Tools & Outdoor's "ferreteria" can reach.
+  # Needed at all because two of the nine sources are home-improvement retailers whose
+  # catalogues are heavily bathroom and plumbing -- without this bucket every toilet, basin and
+  # tap lands in "Other", which also hides them from any watch pinned to a category.
+  - name: "Bathroom & Plumbing"
+    sourcePatterns:
+      - "bano"
+      - "sanitario"
+      - "griferia"
+      - "lavamanos"
+      - "ducha"
+      - "plomeria"
+    titlePatterns:
+      # "papel sanitario" is toilet paper, not a toilet. Groceries is matched earlier in this
+      # file so it usually wins anyway, but the lookbehind makes it explicit rather than
+      # dependent on ordering.
+      - "\\b(inodoro|(?<!papel )(?<!gel )sanitario)e?s?\\b"
+      - "\\b(lavamanos|grifer[ií]a|orinal|bid[eé]|sif[oó]n|cisterna|combo sanitario)s?\\b"
+      - "\\b(toilet|washbasin|faucet|shower ?head|bathtub|vanity)s?\\b"
 
   - name: "Tools & Outdoor"
     sourcePatterns: ["ferreteria", "herramientas", "jardin", "deportes", "vehiculos", "movilidad electrica"]

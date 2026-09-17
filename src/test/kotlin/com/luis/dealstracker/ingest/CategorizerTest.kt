@@ -166,4 +166,41 @@ class CategorizerTest {
         )
         assertEquals("Good", c.categorize(null, "a widget"))
     }
+
+    // --- Bathroom & Plumbing ---
+
+    /**
+     * Added because two of the nine sources are home-improvement retailers whose catalogues are
+     * heavily bathroom and plumbing. Without the bucket every toilet landed in "Other", which
+     * also hid them from any watch pinned to a category.
+     */
+    @Test
+    fun `classifies toilets and basins as bathroom, from either the path or the title`() {
+        // Real Homecenter and Easy category slugs, as the adapters flatten them.
+        assertEquals("Bathroom & Plumbing", of("Sanitario Laguna Blanco", "sanitarios y combos sanitarios"))
+        assertEquals("Bathroom & Plumbing", of("Lavamanos Marsella", "banos"))
+        // Real titles, with no category path at all -- a keyword-search result.
+        assertEquals("Bathroom & Plumbing", of("Sanitario Acuacer 2 Piezas Blanco"))
+        assertEquals("Bathroom & Plumbing", of("Inodoro One Piece Milán blanco"))
+        assertEquals("Bathroom & Plumbing", of("Combo sanitario Laguna blanco Corona"))
+    }
+
+    /**
+     * Ordering, and it is load-bearing. Homecenter files taps under
+     * "griferias de bano y cocina", which Home & Kitchen's "cocina" pattern matches; and
+     * bathroom fittings sit under paths Tools & Outdoor's "ferreteria" can reach. Bathroom is
+     * declared before both so it wins.
+     */
+    @Test
+    fun `bathroom beats Home & Kitchen and Tools & Outdoor on a shared path`() {
+        assertEquals("Bathroom & Plumbing", of("Grifería Lavamanos Push", "griferias de bano y cocina"))
+        assertEquals("Bathroom & Plumbing", of("Sifón para lavamanos", "plomeria"))
+    }
+
+    /** "papel sanitario" is toilet paper, and "gel sanitario" is hand gel. Neither is a toilet. */
+    @Test
+    fun `does not read toilet paper or hand gel as a bathroom fixture`() {
+        assertTrue(of("Papel sanitario Familia 12 rollos") != "Bathroom & Plumbing")
+        assertTrue(of("Gel sanitario antibacterial 500ml") != "Bathroom & Plumbing")
+    }
 }

@@ -3,6 +3,8 @@ package com.luis.dealstracker.web
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.FeedFilter
+import com.luis.dealstracker.db.WatchDraft
+import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.ingest.Categorizer
 import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.model.CoShipping
@@ -20,7 +22,9 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.html.respondHtml
 import io.ktor.server.response.header
+import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -39,6 +43,7 @@ import java.time.ZoneId
 
 fun Application.routes(
     repo: DealRepository,
+    watches: WatchRepository,
     ingest: IngestService,
     app: AppConfig,
     categorizer: Categorizer,
@@ -55,9 +60,7 @@ fun Application.routes(
             val filter = feedFilterFrom(params)
 
             val page = repo.feedPage(filter)
-            // Sources come from config plus whatever is already in the DB, so a
-            // provider added to sources.yaml appears in the dropdown immediately.
-            val sources = (app.providers.map { it.id } + repo.knownSources()).distinct().sorted()
+            val sources = sourceNames(repo, app)
 
             call.respondHtml {
                 page("Deals Tracker") {
@@ -207,6 +210,92 @@ fun Application.routes(
             respondRow(id, repo, note)
         }
 
+        // --- watches ---
+
+        get("/watches") {
+            val all = watches.all()
+            val counts = watches.matchCounts()
+            call.respondHtml {
+                page("Watches") {
+                    watchesPage(all, counts, sourceNames(repo, app), categorizer.categoryNames)
+                }
+            }
+        }
+
+        get("/watches/{id}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val watch = watches.findById(id)
+                ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
+
+            val (candidates, matches, dealsById) = withContext(Dispatchers.IO) {
+                val candidates = watches.candidates(watch)
+                val matches = watches.matches(id)
+                // Titles for the alert list. Looked up in one pass rather than per row.
+                val deals = matches.mapNotNull { repo.findById(it.dealId) }.associateBy { it.id }
+                Triple(candidates, matches, deals)
+            }
+
+            // Both tables sort independently, so each has its own parameter. An unknown column
+            // falls back to the default rather than erroring, so a stale link still renders.
+            val params = call.request.queryParameters
+            val matchingSort = watchSortFrom(params, WatchSort.MATCHING_PARAM)
+            val alertsSort = watchSortFrom(params, WatchSort.ALERTS_PARAM)
+            val matchingPage = watchPageFrom(params)
+
+            call.respondHtml {
+                page(watch.name) {
+                    watchDetail(
+                        watch, candidates, matches, dealsById,
+                        sourceNames(repo, app), categorizer.categoryNames,
+                        matchingSort, alertsSort, matchingPage,
+                    )
+                }
+            }
+        }
+
+        post("/watches") {
+            val draft = watchDraftFrom(call.receiveParameters())
+                ?: return@post call.respondText("a watch needs a name and terms", status = HttpStatusCode.BadRequest)
+            watches.create(draft)
+            call.respondRedirect("/watches")
+        }
+
+        post("/watches/{id}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val draft = watchDraftFrom(call.receiveParameters())
+                ?: return@post call.respondText("a watch needs a name and terms", status = HttpStatusCode.BadRequest)
+            if (!watches.update(id, draft)) {
+                return@post call.respondText("not found", status = HttpStatusCode.NotFound)
+            }
+            call.respondRedirect("/watches/$id")
+        }
+
+        post("/watches/{id}/enabled") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val value = call.request.queryParameters["value"]?.toBooleanStrictOrNull()
+                ?: return@post call.respondText("bad value", status = HttpStatusCode.BadRequest)
+
+            watches.setEnabled(id, value)
+            val updated = watches.findById(id)
+                ?: return@post call.respondText("", status = HttpStatusCode.OK)
+            call.respondText(
+                watchRowFragment(updated, watches.matchCounts()[id]),
+                ContentType.Text.Html,
+            )
+        }
+
+        post("/watches/{id}/delete") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            watches.delete(id)
+            // Empty body with an outerHTML swap removes the row, the same convention
+            // respondRow uses when a deal vanishes mid-request.
+            call.respondText("", ContentType.Text.Html)
+        }
+
         post("/refresh") {
             // Fire and forget: a full poll takes far longer than a request should.
             scope.launch(Dispatchers.IO) {
@@ -234,6 +323,40 @@ private suspend fun io.ktor.util.pipeline.PipelineContext<Unit, io.ktor.server.a
     } else {
         call.respondText(rowFragment(updated, note), ContentType.Text.Html)
     }
+}
+
+/**
+ * Sources for a dropdown: config plus whatever is already stored, so a provider added to
+ * sources.yaml appears immediately, and one removed from it still lists its stored deals.
+ */
+private fun sourceNames(repo: DealRepository, app: AppConfig): List<String> =
+    (app.providers.map { it.id } + repo.knownSources()).distinct().sorted()
+
+/**
+ * Builds a [WatchDraft] from the form, or null when the two required fields are missing.
+ *
+ * Blank optional fields become null rather than empty strings or zeros, following the rule
+ * the rest of the app holds to: blank means unknown, never zero. A `maxPrice` of 0 would
+ * silently match nothing, and an empty `excludeTerms` string would be parsed as a term.
+ */
+internal fun watchDraftFrom(params: Parameters): WatchDraft? {
+    val name = params["name"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val terms = params["terms"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return WatchDraft(
+        name = name,
+        terms = terms,
+        excludeTerms = params["excludeTerms"]?.trim()?.takeIf { it.isNotEmpty() },
+        categoryGroup = params["categoryGroup"]?.trim()?.takeIf { it.isNotEmpty() },
+        sources = listOfNotNull(params["source"]?.trim()?.takeIf { it.isNotEmpty() }),
+        minPrice = params["minPrice"]?.takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+        maxPrice = params["maxPrice"]?.takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+        currency = params["currency"]?.trim()?.takeIf { it.isNotEmpty() } ?: "COP",
+        // Coerced rather than rejected: a 0-day window would make every rule dead, and a
+        // silently useless watch is worse than a clamped one.
+        lookbackDays = params["lookbackDays"]?.toIntOrNull()?.coerceIn(1, 365) ?: 30,
+        crossSiteMinSpread = params["crossSiteMinSpread"]?.takeIf { it.isNotBlank() }
+            ?.toBigDecimalOrNull()?.coerceAtLeast(BigDecimal.ZERO) ?: BigDecimal("15.00"),
+    )
 }
 
 /**

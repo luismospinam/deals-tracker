@@ -1,0 +1,460 @@
+{
+ "props": {
+  "pageProps": {
+   "searchProps": {
+    "searchData": {
+     "pagination": {
+      "count": 220,
+      "perPage": 40,
+      "currentPage": 1
+     },
+     "results": [
+      {
+       "productId": "793947",
+       "merchantCategoryId": "0316010403",
+       "skuId": "793947",
+       "position": "XLP-3",
+       "isPrimeEligible": false,
+       "displayName": "Nevera Electrolux Bottom Freezer 166 Litros Black Erb163hb",
+       "brand": "Electrolux",
+       "model": "ERB163HB",
+       "media": {
+        "id": "793947",
+        "type": "SKU",
+        "onImageHover": "ZOOM"
+       },
+       "badges": [
+        {
+         "type": "DISCOUNT",
+         "value": "-20%"
+        }
+       ],
+       "events": [
+        {
+         "description": "Envio gratis",
+         "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/bltddf552d90076cf52/6615a63e1952f0c89dfc1666/Badge_FreeShiping_New.svg"
+        }
+       ],
+       "prices": [
+        {
+         "label": "",
+         "type": "INTERNET",
+         "symbol": "$",
+         "price": "1.074.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 1074900
+        },
+        {
+         "label": "Normal",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "1.349.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 1349900
+        }
+       ],
+       "totalReviews": "8",
+       "rating": "4.375",
+       "variants": [],
+       "multiPurposeIcon": {},
+       "bankBadge": {
+        "type": "BANK_PROMOTION",
+        "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/blt343782decdb9b2d0/670ebf9cdeba255611a0e6b5/Mas_vendido.svg"
+       },
+       "highlights": [
+        {
+         "key": "Modelo",
+         "value": "ERB163HB"
+        },
+        {
+         "key": "Tipo",
+         "value": "Nevera convencional o frost"
+        },
+        {
+         "key": "Ancho",
+         "value": "50 cm"
+        },
+        {
+         "key": "Alto",
+         "value": "142.2 cm"
+        },
+        {
+         "key": "Capacidad",
+         "value": "166 litros"
+        }
+       ],
+       "accumulativePoints": [],
+       "isPromoted": false,
+       "isInternational": "",
+       "installments": {},
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/793947/public",
+        "https://media.falabella.com/sodimacCO/793947_01/public",
+        "https://media.falabella.com/sodimacCO/793947_02/public",
+        "https://media.falabella.com/sodimacCO/793947_03/public",
+        "https://media.falabella.com/sodimacCO/793947_04/public",
+        "https://media.falabella.com/sodimacCO/793947_05/public"
+       ]
+      },
+      {
+       "productId": "546859",
+       "merchantCategoryId": "0316010406",
+       "skuId": "546859",
+       "position": "XLP-1",
+       "isPrimeEligible": false,
+       "displayName": "Nevecón Side by Side 647 Litros RS23T5B00S9/CO Gris",
+       "brand": "Samsung",
+       "model": "RS23T5B00S9/CO",
+       "media": {
+        "id": "546859",
+        "type": "SKU",
+        "onImageHover": "ZOOM"
+       },
+       "badges": [
+        {
+         "type": "DISCOUNT",
+         "value": "-32%"
+        }
+       ],
+       "events": [
+        {
+         "description": "Envio gratis",
+         "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/bltddf552d90076cf52/6615a63e1952f0c89dfc1666/Badge_FreeShiping_New.svg"
+        }
+       ],
+       "prices": [
+        {
+         "label": "",
+         "type": "INTERNET",
+         "symbol": "$",
+         "price": "3.859.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 3859900
+        },
+        {
+         "label": "Normal",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "5.699.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 5699900
+        }
+       ],
+       "totalReviews": "62",
+       "rating": "4.5645",
+       "variants": [],
+       "multiPurposeIcon": {
+        "description": "Por compras superiores a $1.699.900 en productos de refrigeracion , Ahorra $150.000 pagando con tu CMR.(28Jul-30 sep)",
+        "iconUrl": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/bltaf8e69ce2a676b4c/66cf7fd17d07b09853425937/Ahorra_mas.svg"
+       },
+       "bankBadge": {
+        "type": "BANK_PROMOTION",
+        "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/blt343782decdb9b2d0/670ebf9cdeba255611a0e6b5/Mas_vendido.svg"
+       },
+       "highlights": [
+        {
+         "key": "Modelo",
+         "value": "RS23T5B00S9/CO"
+        },
+        {
+         "key": "Tipo",
+         "value": "Nevecones side by side"
+        },
+        {
+         "key": "Ancho",
+         "value": "91.2 cm"
+        },
+        {
+         "key": "Alto",
+         "value": "178 cm"
+        },
+        {
+         "key": "Capacidad",
+         "value": "647 litros"
+        }
+       ],
+       "accumulativePoints": [],
+       "isPromoted": true,
+       "auctionedId": "m4dbzAoQBqoB-n5Rfp27BFIxgfd5sxIQAZka0BJgf4GJeGNHubosABoQBjxVbRCPdYejJDUH8MU0HiIKCgY1NDY4NTkQATDrXEgBUJjQ7ouINGC8sw5yEAAAAAAAAAAAAAAAAAAAAAB4AoUBAADgQA",
+       "isInternational": "",
+       "installments": {},
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/546859/public",
+        "https://media.falabella.com/sodimacCO/546859_01/public",
+        "https://media.falabella.com/sodimacCO/546859_02/public",
+        "https://media.falabella.com/sodimacCO/546859_03/public",
+        "https://media.falabella.com/sodimacCO/546859_13/public",
+        "https://media.falabella.com/sodimacCO/546859_26/public"
+       ]
+      },
+      {
+       "productId": "553971",
+       "merchantCategoryId": "0316010404",
+       "skuId": "553971",
+       "position": "XLP-21",
+       "isPrimeEligible": false,
+       "displayName": "Nevera No Frost 317 Litros Lumina CR 317 Titanio",
+       "brand": "Challenger",
+       "model": "LUMINA CR 317",
+       "media": {
+        "id": "553971",
+        "type": "SKU",
+        "onImageHover": "ZOOM"
+       },
+       "badges": [],
+       "events": [
+        {
+         "description": "Envio gratis",
+         "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/bltddf552d90076cf52/6615a63e1952f0c89dfc1666/Badge_FreeShiping_New.svg"
+        }
+       ],
+       "prices": [
+        {
+         "label": "",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "1.899.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 1899900
+        }
+       ],
+       "totalReviews": "47",
+       "rating": "3.7234",
+       "variants": [],
+       "multiPurposeIcon": {
+        "description": "Por compras superiores a $1.699.900 en productos de refrigeracion , Ahorra $150.000 pagando con tu CMR.(28Jul-30 sep)",
+        "iconUrl": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/bltaf8e69ce2a676b4c/66cf7fd17d07b09853425937/Ahorra_mas.svg"
+       },
+       "highlights": [
+        {
+         "key": "Modelo",
+         "value": "LUMINA CR 317"
+        },
+        {
+         "key": "Tipo",
+         "value": "Nevera congelador superior o arriba"
+        },
+        {
+         "key": "Ancho",
+         "value": "60 cm"
+        },
+        {
+         "key": "Alto",
+         "value": "179 cm"
+        },
+        {
+         "key": "Capacidad",
+         "value": "317 litros"
+        }
+       ],
+       "accumulativePoints": [],
+       "isPromoted": false,
+       "isInternational": "",
+       "installments": {},
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/553971/public",
+        "https://media.falabella.com/sodimacCO/553971_01/public",
+        "https://media.falabella.com/sodimacCO/553971_02/public",
+        "https://media.falabella.com/sodimacCO/553971_10/public",
+        "https://media.falabella.com/sodimacCO/553971_11/public",
+        "https://media.falabella.com/sodimacCO/553971_12/public"
+       ]
+      },
+      {
+       "productId": "644777",
+       "merchantCategoryId": "0316011104",
+       "skuId": "3026801",
+       "position": "XLP-2",
+       "isPrimeEligible": false,
+       "displayName": "Set X 2 Maquinas Fabricadoras de Hielo de 90 kg",
+       "brand": "Artiq",
+       "model": "MAQ0061",
+       "media": {
+        "id": "3026801",
+        "type": "SKU",
+        "onImageHover": "ZOOM"
+       },
+       "badges": [
+        {
+         "type": "DISCOUNT",
+         "value": "-26%"
+        },
+        {
+         "type": "DISCOUNT",
+         "value": "-26%"
+        }
+       ],
+       "events": [
+        {
+         "description": "Productos al por Mayor",
+         "value": ""
+        }
+       ],
+       "prices": [
+        {
+         "label": "",
+         "type": "INTERNET",
+         "symbol": "$",
+         "price": "7.690.900",
+         "unit": "Set",
+         "priceWithoutFormatting": 7690900
+        },
+        {
+         "label": "Normal",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "10.504.900",
+         "unit": "Set",
+         "priceWithoutFormatting": 10504900
+        }
+       ],
+       "totalReviews": "4",
+       "rating": "4",
+       "variants": [
+        {
+         "type": "SIZE",
+         "options": [
+          {
+           "label": "Set X 2 Und",
+           "value": "Set X 2 Und",
+           "badges": [
+            {
+             "type": "DISCOUNT",
+             "value": "-26%"
+            }
+           ],
+           "targetId": "3026801",
+           "selected": true,
+           "name": "Set X 2 Maquinas Fabricadoras de Hielo de 90 kg",
+           "availability": {
+            "homeDelivery": false,
+            "clickAndCollect": false,
+            "eventStock": true
+           },
+           "prices": [
+            {
+             "label": "",
+             "type": "INTERNET",
+             "symbol": "$",
+             "price": "7.690.900",
+             "unit": "Set",
+             "priceWithoutFormatting": 7690900
+            },
+            {
+             "label": "Normal",
+             "type": "NORMAL",
+             "symbol": "$",
+             "price": "10.504.900",
+             "unit": "Set",
+             "priceWithoutFormatting": 10504900
+            }
+           ],
+           "mediaUrls": [
+            "https://media.falabella.com/sodimacCO/3026801/public",
+            "https://media.falabella.com/sodimacCO/3026801_01/public",
+            "https://media.falabella.com/sodimacCO/3026801_02/public",
+            "https://media.falabella.com/sodimacCO/3026801_03/public",
+            "https://media.falabella.com/sodimacCO/3026801_04/public",
+            "https://media.falabella.com/sodimacCO/3026801_05/public"
+           ],
+           "installments": {}
+          },
+          {
+           "label": "Unidad",
+           "value": "Unidad",
+           "badges": [
+            {
+             "type": "DISCOUNT",
+             "value": "-40%"
+            }
+           ],
+           "targetId": "644777",
+           "selected": false,
+           "name": "Máquina Fabricadora De Hielo Industrial Capacidad 180 Libras Diaria Hielera",
+           "availability": {
+            "homeDelivery": false,
+            "clickAndCollect": false,
+            "eventStock": true
+           },
+           "prices": [
+            {
+             "label": "",
+             "type": "INTERNET",
+             "symbol": "$",
+             "price": "4.539.900",
+             "unit": "Und",
+             "priceWithoutFormatting": 4539900
+            },
+            {
+             "label": "Normal",
+             "type": "NORMAL",
+             "symbol": "$",
+             "price": "7.664.900",
+             "unit": "Und",
+             "priceWithoutFormatting": 7664900
+            }
+           ],
+           "mediaUrls": [
+            "https://media.falabella.com/sodimacCO/644777/public",
+            "https://media.falabella.com/sodimacCO/644777_01/public",
+            "https://media.falabella.com/sodimacCO/644777_1/public",
+            "https://media.falabella.com/sodimacCO/644777_11/public",
+            "https://media.falabella.com/sodimacCO/644777_12/public",
+            "https://media.falabella.com/sodimacCO/644777_13/public"
+           ],
+           "installments": {}
+          }
+         ]
+        }
+       ],
+       "multiPurposeIcon": {},
+       "priceBadge": {
+        "type": "PRICE_BBVA",
+        "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/blte34c4d409339197a/6307d2c57cb46356cd3a6d45/Badge_P_AlPorMayor.svg"
+       },
+       "bankBadge": {
+        "type": "BANK_PROMOTION",
+        "value": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/blta50bfe58dcc3de2e/635c3e7ccf87d95f7d46fa9b/BANK_PADRE.svg"
+       },
+       "highlights": [
+        {
+         "key": "Modelo",
+         "value": "MAQ0061"
+        },
+        {
+         "key": "Tipo",
+         "value": "Refrigeradores industrial"
+        },
+        {
+         "key": "Ancho",
+         "value": "56 cm"
+        },
+        {
+         "key": "Alto",
+         "value": "84 cm"
+        },
+        {
+         "key": "Capacidad",
+         "value": "90 litros"
+        }
+       ],
+       "accumulativePoints": [],
+       "isPromoted": true,
+       "auctionedId": "zrvO8woQBqoB-n5Rfp27BFIxgfd5sxIQAZyu7tVWc9G7T4sy5ztMdxoQBk3iFDPJdb6GJHp2OEYJxiIKCgY2NDQ3NzcQATDd3AtIAVCY0O6LiDRg1PgnchAAAAAAAAAAAAAAAAAAAAAAeAKFAQAA4EA",
+       "isInternational": "",
+       "installments": {},
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/3026801/public",
+        "https://media.falabella.com/sodimacCO/3026801_01/public",
+        "https://media.falabella.com/sodimacCO/3026801_02/public",
+        "https://media.falabella.com/sodimacCO/3026801_03/public",
+        "https://media.falabella.com/sodimacCO/3026801_04/public",
+        "https://media.falabella.com/sodimacCO/3026801_05/public"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

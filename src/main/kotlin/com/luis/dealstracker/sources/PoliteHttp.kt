@@ -5,10 +5,14 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
+import io.ktor.http.contentType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -95,6 +99,55 @@ class PoliteHttp(
             }
         }
         throw lastError ?: IllegalStateException("GET $url failed after $maxRetries attempts")
+    }
+
+    /**
+     * POSTs a JSON body, with the same per-host throttle and backoff as [get].
+     *
+     * Added for Algolia-backed stores, whose search API takes the query in a POST body.
+     * Deliberately routed through this class rather than a bare client, so a new adapter
+     * cannot accidentally opt out of the politeness this app applies everywhere else — the
+     * rate limit is the whole point of the type.
+     *
+     * No conditional-request caching here: ETags are keyed by URL, and every request to an
+     * Algolia index hits the same URL with a different body, so a cached ETag would be
+     * matched against the wrong query and return 304 for a request never made.
+     */
+    suspend fun postJson(
+        url: String,
+        body: String,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): Result {
+        throttle(Url(url).host)
+
+        var attempt = 0
+        var lastError: Exception? = null
+        while (attempt < maxRetries) {
+            try {
+                val response: HttpResponse = client.post(url) {
+                    header("User-Agent", userAgent)
+                    header("Accept-Language", "es-CO,es;q=0.9,en;q=0.8")
+                    extraHeaders.forEach { (k, v) -> header(k, v) }
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }
+
+                if (response.status.value == 429 || response.status.value >= 500) {
+                    attempt++
+                    if (attempt >= maxRetries) return Result(null, response.status.value, false)
+                    delay(backoffMillis(attempt))
+                    continue
+                }
+
+                return Result(response.bodyAsText(), response.status.value, notModified = false)
+            } catch (e: Exception) {
+                lastError = e
+                attempt++
+                if (attempt >= maxRetries) break
+                delay(backoffMillis(attempt))
+            }
+        }
+        throw lastError ?: IllegalStateException("POST $url failed after $maxRetries attempts")
     }
 
     private fun backoffMillis(attempt: Int): Long = perHostDelayMillis * (1L shl attempt)

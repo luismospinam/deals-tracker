@@ -6,6 +6,7 @@ import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.model.asMoney
 import com.luis.dealstracker.sources.DealSource
 import com.luis.dealstracker.sources.PoliteHttp
+import com.luis.dealstracker.sources.encodeQueryValue
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -37,30 +38,38 @@ class VtexSource : DealSource {
 
     override suspend fun fetch(cfg: ProviderConfig, app: AppConfig, http: PoliteHttp): List<RawDeal> {
         val base = cfg.requireBaseUrl().trimEnd('/')
-        val categories = cfg.list("categories")
-        if (categories.isEmpty()) {
-            println("[${cfg.id}] no categories configured; nothing to fetch")
+        val queries = buildQueries(cfg)
+        if (queries.isEmpty()) {
+            println("[${cfg.id}] no categories or searches configured; nothing to fetch")
             return emptyList()
         }
 
-        validateCategories(cfg, base, categories, http)
+        val categories = queries.filter { it.kind == VtexQuery.Kind.CATEGORY }.map { it.value }
+        if (categories.isNotEmpty()) validateCategories(cfg, base, categories, http)
 
         val pageSize = cfg.int("pageSize", 24).coerceIn(1, 50)
-        val maxPages = cfg.int("maxPagesPerCategory", 3).coerceAtLeast(1)
 
         val all = LinkedHashMap<String, RawDeal>()
-        for (category in categories) {
+        for (query in queries) {
+            // Searches are capped shallower than category browses by default. A category is
+            // a catalog we want broad coverage of; a search exists to answer "is the thing
+            // I want on sale", and relevance drops off fast -- 850 hits for "nevera no
+            // frost" are mostly not fridges by the third page.
+            val maxPages = when (query.kind) {
+                VtexQuery.Kind.CATEGORY -> cfg.int("maxPagesPerCategory", 3)
+                VtexQuery.Kind.SEARCH -> cfg.int("maxPagesPerSearch", 2)
+            }.coerceAtLeast(1)
+
             var page = 0
             var fetched = 0
             while (page < maxPages) {
                 val from = page * pageSize
-                val to = from + pageSize - 1
-                val url = "$base/api/catalog_system/pub/products/search/$category?_from=$from&_to=$to"
+                val url = query.url(base, from, from + pageSize - 1)
 
                 val result = try {
                     http.get(url, mapOf("Accept" to "application/json"))
                 } catch (e: Exception) {
-                    println("[${cfg.id}] $category page $page failed: ${e.message}")
+                    println("[${cfg.id}] ${query.label} page $page failed: ${e.message}")
                     break
                 }
                 if (result.notModified) break
@@ -68,14 +77,14 @@ class VtexSource : DealSource {
                 // `status == 200` check here would reject every successful page.
                 val body = result.body
                 if (body == null || !result.ok) {
-                    println("[${cfg.id}] $category page $page -> HTTP ${result.status}")
+                    println("[${cfg.id}] ${query.label} page $page -> HTTP ${result.status}")
                     break
                 }
 
                 val products = try {
                     json.decodeFromString<List<VtexProduct>>(body)
                 } catch (e: Exception) {
-                    println("[${cfg.id}] $category page $page unparseable: ${e.message}")
+                    println("[${cfg.id}] ${query.label} page $page unparseable: ${e.message}")
                     break
                 }
                 if (products.isEmpty()) break
@@ -87,13 +96,26 @@ class VtexSource : DealSource {
                 if (products.size < pageSize) break
                 page++
             }
-            println("[${cfg.id}] $category -> $fetched products")
+            println("[${cfg.id}] ${query.label} -> $fetched products")
         }
 
         val available = all.values.filter { it.available }
         println("[${cfg.id}] ${all.size} unique products, ${available.size} in stock")
         return available
     }
+
+    /**
+     * Expands config into the paged requests to make.
+     *
+     * `searches` is populated by [com.luis.dealstracker.ingest.IngestService] from the
+     * active watches as well as from config, which is what lets a watch go looking for a
+     * fridge that no configured category would ever have surfaced. The key is the same one
+     * `SlickdealsSource` reads, so one mechanism drives keyword hunting on every source
+     * that supports it.
+     */
+    internal fun buildQueries(cfg: ProviderConfig): List<VtexQuery> =
+        cfg.list("categories").map { VtexQuery(VtexQuery.Kind.CATEGORY, it) } +
+            cfg.list("searches").map { VtexQuery(VtexQuery.Kind.SEARCH, it) }
 
     /**
      * Warns when a configured category slug is absent from the store's own tree.
@@ -176,6 +198,12 @@ class VtexSource : DealSource {
             listPrice = best.listPrice,
             merchant = base.removePrefix("https://").removePrefix("www."),
             asin = null,
+            brand = product.brand?.takeIf { it.isNotBlank() },
+            // Taken from the cheapest SKU's own barcode rather than the product, since a
+            // VTEX product groups variants and each has its own. Passed through unvalidated:
+            // Exito publishes internal refs here too, and ProductIdentity's check digit is
+            // what separates them.
+            gtin = product.items.firstNotNullOfOrNull { it.ean?.takeIf { e -> e.isNotBlank() } },
             // "/Tecnología/Televisores/" -> "Tecnología > Televisores"
             category = product.categories?.firstOrNull()
                 ?.trim('/')?.split('/')?.joinToString(" > ")?.takeIf { it.isNotBlank() },
@@ -187,6 +215,29 @@ class VtexSource : DealSource {
     companion object {
         // VTEX payloads carry hundreds of fields we do not use.
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    }
+}
+
+/**
+ * One paged catalog request — a category browse or a keyword search.
+ *
+ * Both hit the same `products/search` endpoint, which is why they share the paging loop:
+ * a category is a path segment, a keyword is the `ft` parameter. Verified against
+ * exito.com on 2026-09-07 — `?ft=nevera+no+frost` answers 206 and pages cleanly with
+ * `_from`/`_to`, with zero overlap between consecutive pages.
+ */
+internal data class VtexQuery(val kind: Kind, val value: String) {
+    enum class Kind { CATEGORY, SEARCH }
+
+    val label: String get() = if (kind == Kind.SEARCH) "ft=$value" else value
+
+    fun url(base: String, from: Int, to: Int): String {
+        val root = "$base/api/catalog_system/pub/products/search"
+        val range = "_from=$from&_to=$to"
+        return when (kind) {
+            Kind.CATEGORY -> "$root/$value?$range"
+            Kind.SEARCH -> "$root?ft=${encodeQueryValue(value)}&$range"
+        }
     }
 }
 
@@ -207,6 +258,8 @@ data class VtexProduct(
 @Serializable
 data class VtexItem(
     val itemId: String? = null,
+    /** SKU barcode. Real GS1 codes and internal refs both arrive here; see ProductIdentity. */
+    val ean: String? = null,
     val images: List<VtexImage>? = null,
     val sellers: List<VtexSeller> = emptyList(),
 )

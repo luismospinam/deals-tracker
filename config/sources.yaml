@@ -163,6 +163,199 @@ providers:
     listOptions:
       categories: ["tecnologia", "electrodomesticos", "despensa"]
 
+  - id: easy
+    type: vtex
+    # Cencosud's Colombian home-improvement chain, and the only one of the five retailers
+    # asked for (Homecenter, Makro, Easy, Falabella, Corona) that needs no new code.
+    # Verified 2026-09-08 on the live API: VTEX account `easycolombia`, HTTP 206 on
+    # _from/_to, working /category/tree/1, real commertialOffer prices, and real GS1 EANs
+    # (7800155560700, 7702437018230) so it feeds cross-site product matching properly.
+    # `https://www.easy.com.co/{linkText}/p` resolves without the internal-hostname trap
+    # documented in VtexSource.
+    #
+    # Slugs below were read from its OWN tree, not copied from Exito -- Carulla proved they
+    # do not transfer between VTEX stores. VtexSource re-validates on startup and warns.
+    #
+    # Worth knowing when reading the feed: this is a hardware store, so "nevera" here means
+    # cooler boxes and picnic hampers far more often than refrigerators. That is not a
+    # misconfiguration; it is why a watch has a minimum price.
+    enabled: true
+    baseUrl: "https://www.easy.com.co"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      pageSize: "24"
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories: ["electrodomesticos", "tecnologia", "cocinas", "televisores-y-audio", "banos"]
+
+  - id: olimpica
+    type: vtex
+    # Found the way the next retailer should be found: a Google search for a model code
+    # (RS57DG4000B4CO) listed merchants we do not poll. Rather than scrape Google -- whose
+    # robots.txt disallows /search, and whose data has no price history -- the merchants it
+    # names get added here as first-class sources.
+    #
+    # Verified 2026-09-08: plain VTEX, HTTP 206 on _from/_to, and `?ft=RS57DG4000B4CO`
+    # returns that Samsung with ean 8806095746456 -- the same GTIN already held from Carulla,
+    # so it clusters into the cross-site comparison with no extra work.
+    #
+    # Slugs read from its own /category/tree/1, not guessed. Note it files appliances and
+    # electronics together under one top-level category.
+    enabled: true
+    baseUrl: "https://www.olimpica.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      pageSize: "24"
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories: ["electrodomesticos-y-tecnologia", "hogar-cocina"]
+
+  - id: homecenter
+    type: falabella-next
+    # Sodimac Colombia. NOT VTEX -- /api/catalog_system/... answers 404. It runs the same
+    # falabella-b2c-ui Next.js build as falabella.com.co, so one adapter serves both and the
+    # only differences are the two options below.
+    #
+    # SEARCH IS DELIBERATELY OFF. robots.txt disallows "*/search?" and "/homecenter-co/search/"
+    # for generic agents, while category pages are allowed. `searchEnabled` defaults to false
+    # so this fails safe: without it, the watch terms IngestService injects into `searches`
+    # would silently start hitting disallowed URLs. Homecenter is therefore matched by watches
+    # on what its category crawl brings back, not by keyword.
+    enabled: true
+    baseUrl: "https://www.homecenter.com.co"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      # Path segment after the host, and where the results sit inside __NEXT_DATA__.
+      storePath: "homecenter-co"
+      resultsPath: "searchProps.searchData"
+      # Each page is a 1.6MB HTML fetch, so keep the budget small. 40 products per page.
+      maxPagesPerCategory: "2"
+    listOptions:
+      # Category ids are opaque, so the id and its slug are kept together in one string --
+      # they cannot then drift apart. Copy a path straight out of a category URL to add one.
+      # Verified 2026-09-08 against the live site.
+      categories:
+        - "category/cat10850/neveras-y-nevecones"
+        - "category/cat4710026/neveras-no-frost"
+        - "category/cat450001/lavadoras"
+        - "category/cat870002/electrodomesticos-de-cocina"
+        - "category/cat740116/televisores-y-smart-tv"
+        - "category/cat40446128/sanitarios-y-combos-sanitarios"
+        - "category/cat90039/combos-sanitarios"
+
+  - id: falabella
+    type: falabella-next
+    # Same platform and same adapter as Homecenter. Two differences: results sit directly on
+    # pageProps (no resultsPath), and its robots.txt allows search -- `User-agent: *` gets an
+    # empty `Disallow:` -- so watch terms can drive real keyword queries here.
+    #
+    # Read the merchant column: Falabella's marketplace includes third-party sellers, and one
+    # of them is Homecenter itself. A "Falabella is cheaper than Homecenter" gap where the
+    # Falabella seller IS Homecenter is not an independent comparison. The adapter records
+    # sellerName as the merchant so this is visible rather than hidden.
+    enabled: true
+    baseUrl: "https://www.falabella.com.co"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      storePath: "falabella-co"
+      searchEnabled: "true"
+      # ~2MB per page and 48-56 products, so one page per term goes a long way.
+      maxPagesPerSearch: "1"
+      maxPagesPerCategory: "2"
+    listOptions:
+      # Seed terms; every enabled watch's terms are merged in on top of these.
+      searches:
+        - "nevera"
+      categories: []
+
+  - id: fullhogar
+    type: shopify
+    # The nicest source here: every Shopify store exposes /collections/<handle>/products.json
+    # as documented, stable, first-party JSON. No HTML, no embedded island, no private BFF.
+    #
+    # Handles read from its own /collections.json (109 of them), not guessed.
+    #
+    # Note many rows come back out of stock; the adapter keeps only `available` ones, since
+    # advertising a price you cannot buy would also plant a phantom rival in the cross-site
+    # comparison. It publishes no barcode, so identity is brand plus the title's model code.
+    enabled: true
+    baseUrl: "https://www.fullhogar.com.co"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      # Shopify allows up to 250. A page is one request either way, and a smaller window is
+      # gentler on a small retailer.
+      pageSize: "50"
+      maxPagesPerCollection: "2"
+    listOptions:
+      collections: ["neveras", "nevecones", "refrigeracion", "televisores", "lavadoras"]
+
+  - id: grupomansion
+    type: prestashop
+    # Added because a Google search for a model code found it selling a Samsung side-by-side
+    # at 2,999,000 while the cheapest source here had it at 3,299,900 -- the gap that showed
+    # "cheaper elsewhere" only ever meant "cheaper among the sources we poll".
+    #
+    # Unlike vtex/shopify this reads a THEME's product grid, not an API, so the selectors are
+    # options rather than constants and a different PrestaShop store may need them adjusted.
+    # The default theme is generous, though: each tile carries an unformatted integer price in
+    # `content`, the was-price, the manufacturer reference (the model code), and the EAN
+    # appended to the URL slug -- which is what makes it join existing GTIN clusters.
+    #
+    # Category paths are "<id>-<slug>", taken from the site's own nav.
+    enabled: true
+    baseUrl: "https://www.grupomansion.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories:
+        - "15-refrigeracion"
+        - "14-lavadoras-y-secadoras"
+        - "10-audio-y-video"
+        - "12-cocina"
+
+  - id: alkomprar
+    type: algolia
+    # Alkosto's sister brand. NOT VTEX (404 on catalog_system) -- its storefront search runs on
+    # Algolia, and the front end ships the app id and a SEARCH-ONLY key in the page, which is how
+    # every Algolia site works. Both verified 2026-09-15 before use: the key's ACL is exactly
+    # ["search"], and an addObject attempt is refused 403. Public config, not a secret, so it
+    # belongs here rather than in local.properties.
+    #
+    # Best data of any source after Shopify: one POST returns price, was-price, an explicit stock
+    # flag, brand, category path, images -- and the EAN as the product code, so these rows join
+    # existing GTIN clusters immediately. It has the MABE MSL480LMLPS0 at 2,549,900, under the
+    # 2,999,000 that a Google search turned up at Grupo Mansion.
+    #
+    # Browsed by category facet, NOT keyword: robots.txt disallows /search/ and *?q=. Those rules
+    # govern the storefront rather than the Algolia host, but honouring the site's evident intent
+    # is the same call made for Homecenter. Facet values below came from the index's own facet
+    # list, so they are its categories rather than guesses.
+    enabled: true
+    baseUrl: "https://www.alkomprar.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      algoliaAppId: "QX5IPS1B1Q"
+      algoliaSearchKey: "7a8800d62203ee3a9ff1cdf74f99b268"
+      algoliaIndex: "alkomprarIndexAlgoliaPRD"
+      categoryFacet: "allcategories_string_mv"
+      pageSize: "20"
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories:
+        - "neveras-no-frost"
+        - "nevera-dos-puertas"
+        - "televisores-grandes"
+        - "televisores-led"
+        - "lavadoras-carga-superior"
+
   - id: mercadolibre-co
     type: mercadolibre
     # DISABLED: blocked by MercadoLibre, not by a bug here.

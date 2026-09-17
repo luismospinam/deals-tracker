@@ -11,9 +11,16 @@ wrapper script; use the wrapper, never the underlying command.
     ./dt run                                  start the app (web UI + hourly poller)
     ./dt test                                 run the suite
     ./dt run --args="--fetch-once"            one-off fetch of every enabled source
+    ./dt run --args="--check-watches"         evaluate watches now, notify on new lows
+    ./dt run --args="--check-watches --dry-run"   print what would fire, write nothing
 
-The web UI is on `localhost:8080` (`defaults.httpPort` in `config/sources.yaml`; there is
-no environment override). CSS lives at `src/main/resources/static/app.css` and is served
+The web UI is on `localhost:8080` (`defaults.httpPort` in `config/sources.yaml`). To run a
+second copy alongside the usual one — a worktree, or a branch under test — set
+`DEALS_HTTP_PORT` rather than editing the committed config:
+
+    DEALS_HTTP_PORT=8081 ./dt run
+
+CSS lives at `src/main/resources/static/app.css` and is served
 from disk, so style-only edits need just a browser refresh — but bump `CSS_VERSION` in
 `web/Views.kt` when you change it, or browsers will serve the cached stylesheet. Kotlin
 changes need a restart.

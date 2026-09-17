@@ -1,0 +1,118 @@
+{
+ "_comment": "Trimmed from a real POST to qx5ips1b1q-dsn.algolia.net/1/indexes/alkomprarIndexAlgoliaPRD/query with filters=allcategories_string_mv:neveras-no-frost, captured 2026-09-15. Only the fields the adapter reads are kept; each live hit carries 66.",
+ "nbHits": 170,
+ "nbPages": 9,
+ "hitsPerPage": 20,
+ "page": 0,
+ "hits": [
+  {
+   "code_string": "7704353474749",
+   "name_text_es": "Nevecón HACEB Side by Side 529 Litros Sin Escarcha Manija Externa Panel Digital Inverter Negro",
+   "brand_string_mv": [
+    "HACEB"
+   ],
+   "url_es_string": "/nevecon-haceb-side-by-side-529-litros-sin-escarcha-manija/p/7704353474749",
+   "discountprice_double": 2999900.0,
+   "baseprice_cop_string": 4145900.0,
+   "pricevalue_cop_double": 4145900.0,
+   "lowestprice_double": 2999900.0,
+   "instockflag_boolean": true,
+   "isVariablePrice_boolean": false,
+   "categoryName_text_es_mv": [
+    "Electrodomésticos",
+    "Refrigeración",
+    "Nevecones"
+   ],
+   "allcategories_string_mv": [
+    "marcas",
+    "haceb",
+    "neveras-no-frost",
+    "ofertas-medios-pago",
+    "neveras-nevecones-haceb",
+    "nevecones-en-promocion",
+    "kasados",
+    "ofertas-credito-facil-codensa",
+    "ofertas",
+    "nevecon-haceb",
+    "recien-casados",
+    "BI_ELHO",
+    "BI_163",
+    "BI_0582",
+    "ofertas-alkomprar"
+   ],
+   "img-310wx310h_string": "https://cdn.dam.alkomprar.com/products/7704353474749/7704353474749-001.webp/nevecon-haceb-side-by-side-529-litros-sin-escarcha-manija-externa-panel-digital-inverter-negro?w=310",
+   "img-750wx750h_string": "https://cdn.dam.alkomprar.com/products/7704353474749/7704353474749-001.webp/nevecon-haceb-side-by-side-529-litros-sin-escarcha-manija-externa-panel-digital-inverter-negro?w=750"
+  },
+  {
+   "code_string": "7704353462326",
+   "name_text_es": "Nevera HACEB No frost Congelador Superior 391 litros N404 Manija Externa Dispensador de Agua Gris Titanio",
+   "brand_string_mv": [
+    "HACEB"
+   ],
+   "url_es_string": "/nevera-haceb-no-frost-congelador-superior-391-litros-n404/p/7704353462326",
+   "discountprice_double": 2049900.0,
+   "baseprice_cop_string": 2974900.0,
+   "pricevalue_cop_double": 2974900.0,
+   "lowestprice_double": 2049900.0,
+   "instockflag_boolean": true,
+   "isVariablePrice_boolean": false,
+   "categoryName_text_es_mv": [
+    "Electrodomésticos",
+    "Refrigeración",
+    "Neveras"
+   ],
+   "allcategories_string_mv": [
+    "neveras-no-frost",
+    "marcas",
+    "haceb",
+    "ofertas-medios-pago",
+    "nevera-haceb",
+    "nevera-dos-puertas",
+    "kasados",
+    "ofertas",
+    "electrodomesticos-a-fija",
+    "recien-casados",
+    "BI_ELHO",
+    "BI_163",
+    "BI_0583",
+    "ofertas-alkomprar"
+   ],
+   "img-310wx310h_string": "https://cdn.dam.alkomprar.com/products/7704353462326/7704353462326-001.webp/nevera-haceb-no-frost-congelador-superior-391-litros-n404-manija-externa-dispensador-agua-gris-titanio?w=310",
+   "img-750wx750h_string": "https://cdn.dam.alkomprar.com/products/7704353462326/7704353462326-001.webp/nevera-haceb-no-frost-congelador-superior-391-litros-n404-manija-externa-dispensador-agua-gris-titanio?w=750"
+  },
+  {
+   "code_string": "757638435765",
+   "name_text_es": "Nevecón MABE Side by Side 439 Litros MSL480LMLPS0 Black Steel",
+   "brand_string_mv": [
+    "MABE"
+   ],
+   "url_es_string": "/nevecon-mabe-side-by-side-439-litros-msl480lmlps0-black/p/757638435765",
+   "discountprice_double": 2549900.0,
+   "baseprice_cop_string": 4402900.0,
+   "pricevalue_cop_double": 4402900.0,
+   "lowestprice_double": 2549900.0,
+   "instockflag_boolean": true,
+   "isVariablePrice_boolean": false,
+   "categoryName_text_es_mv": [
+    "Electrodomésticos",
+    "Refrigeración",
+    "Nevecones"
+   ],
+   "allcategories_string_mv": [
+    "mabe",
+    "neveras-nevecones-mabe",
+    "neveras-no-frost",
+    "nevecones-en-promocion",
+    "kasados",
+    "ofertas",
+    "recien-casados",
+    "BI_ELHO",
+    "BI_163",
+    "BI_0582",
+    "ofertas-alkomprar"
+   ],
+   "img-310wx310h_string": "https://cdn.dam.alkomprar.com/products/757638435765/757638435765-001.webp/nevecon-mabe-side-by-side-439-litros-msl480lmlps0-black-steel?w=310",
+   "img-750wx750h_string": "https://cdn.dam.alkomprar.com/products/757638435765/757638435765-001.webp/nevecon-mabe-side-by-side-439-litros-msl480lmlps0-black-steel?w=750"
+  }
+ ]
+}

@@ -1,0 +1,169 @@
+{
+ "products": [
+  {
+   "id": 8286483775663,
+   "title": "Nevera LG No Frost 217 Litros VT22BPY Gris",
+   "handle": "nevera-lg-no-frost-217-litros-vt22bpy-gris",
+   "body_html": "<p>Nevera LG No Frost 217 Litros VT22BPY Gris con tecnología <span>LinearCooling que conserva tus alimentos frescos hasta por 7 días más, reduciendo las fluctuaciones de temperatura</span><span></span></p>\n<ul class=\"tab-details__keyFeatures--list\">\n<li class=\"tab-details__keyFeatures--item\">Diseño elegante que se adapta a tu espacio</li>\n<li class=\"tab-details__keyFeatures--item\">Múltiples salidas de aire (<strong>Multi Air Flow</strong>): Enfriamiento uniforme en cada rincón</li>\n<li class=\"tab-details__keyFeatures--item\">\n<strong>Filtro de carbono</strong>: reduce los olores con doble sistema de filtrado</li>\n<li class=\"tab-details__keyFeatures--item\">Bandeja de vidrio templado: resistente para utensilios pesados y fácil de limpiar</li>\n<li class=\"tab-details__keyFeatures--item\">Mayor ahorro / Compresor Smart Inverter: consume solo la energía que necesitas según tu uso</li>\n<li class=\"tab-details__keyFeatures--item\">Ofrece hasta <strong>10 años de garantía en el compresor</strong>\n</li>\n</ul>",
+   "published_at": "2025-11-07T08:21:34-05:00",
+   "created_at": "2025-08-14T11:18:28-05:00",
+   "updated_at": "2026-09-08T19:49:46-05:00",
+   "vendor": "LG",
+   "product_type": "",
+   "tags": [],
+   "variants": [
+    {
+     "id": 45907690979503,
+     "title": "217",
+     "option1": "217",
+     "option2": null,
+     "option3": null,
+     "sku": "309127",
+     "requires_shipping": true,
+     "taxable": true,
+     "featured_image": null,
+     "available": true,
+     "price": "1599900.00",
+     "grams": 0,
+     "compare_at_price": "1819900.00",
+     "position": 1,
+     "product_id": 8286483775663,
+     "created_at": "2025-09-23T12:49:54-05:00",
+     "updated_at": "2026-09-08T19:49:46-05:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 41629872292015,
+     "created_at": "2025-08-14T11:16:08-05:00",
+     "position": 1,
+     "updated_at": "2025-08-14T11:16:10-05:00",
+     "product_id": 8286483775663,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0647/4963/3711/files/VT22BPY-9.jpg?v=1755188170",
+     "width": 1200,
+     "height": 780
+    }
+   ],
+   "options": [
+    {
+     "name": "Capacidad (Litros)",
+     "position": 1,
+     "values": [
+      "217"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 7876225204399,
+   "title": "Nevera Haceb Titanio No Frost 243 Litros 243 SE MI TI R2",
+   "handle": "nevera-haceb-titanio-no-frost-243-litros",
+   "body_html": "<p><span>La Nevera Haceb Titanio No Frost 243 Litros esta diseñada para alargar la vida de tus alimentos, única con sistema de conservación Himalaya de 5 componentes.</span></p>\n<p><span> Cuenta con iluminación tipo LED de gran alcance para mayor visual y menos sombras, amplio espacio interior con distribución modular, para que ordenar sea un placer y un novedoso fabricador de hielo que te entrega hielos grandes y fáciles de sacar, disfruta tus bebidas frías por más tiempo.</span></p>",
+   "published_at": "2025-02-11T11:57:34-05:00",
+   "created_at": "2024-04-28T15:57:04-05:00",
+   "updated_at": "2026-09-08T19:49:46-05:00",
+   "vendor": "Haceb",
+   "product_type": "",
+   "tags": [],
+   "variants": [
+    {
+     "id": 43679014944943,
+     "title": "243",
+     "option1": "243",
+     "option2": null,
+     "option3": null,
+     "sku": "302145",
+     "requires_shipping": true,
+     "taxable": true,
+     "featured_image": null,
+     "available": false,
+     "price": "1699900.00",
+     "grams": 0,
+     "compare_at_price": "1939900.00",
+     "position": 1,
+     "product_id": 7876225204399,
+     "created_at": "2024-04-28T15:57:06-05:00",
+     "updated_at": "2026-09-08T19:49:46-05:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 37947549712559,
+     "created_at": "2024-04-28T15:54:54-05:00",
+     "position": 1,
+     "updated_at": "2024-04-28T15:54:55-05:00",
+     "product_id": 7876225204399,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0647/4963/3711/files/243SEMITIR2-10.jpg?v=1714337695",
+     "width": 1200,
+     "height": 780
+    }
+   ],
+   "options": [
+    {
+     "name": "Capacidad (Litros)",
+     "position": 1,
+     "values": [
+      "243"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 8047057830063,
+   "title": "Nevera Samsung No Frost 236 litros Brutos RT22FARADS8/CO",
+   "handle": "nevera-samsung-no-frost-236-litros-brutos-rt22farads8-co-gris",
+   "body_html": "<p>La Nevera Samsung RT22FARADS8/CO<span> cuenta con una mayor frescura en sus espacios debido a que tiene múltiples salidas de aire que proporcionan un enfriamiento más uniforme, garantizando que llegue aire frio a todos los compartimientos.</span></p>\n<p><span>Además tiene un Compresor Digital Inverter con 20 años de garantía, que nos da ahorro de energía y brinda mayor durabilidad. Así mismo cuenta con amplios espacios que permiten que tus alimentos estén mejor organizados. </span></p>\n<p><span>SpaceMax que se traduce en paredes más delgadas y mayor espacio interior</span></p>\n<p><span>All Around Cooling que logra una mejor congelación para tener alimentos más frescos, sin importar la ubicación en la nevera</span></p>\n<ul>\n<li><span>Luz Led eficiente: ahorro en el consumo de energía</span></li>\n<li><span>Desodorizante integrado para evitar malos olores</span></li>\n<li><span>Aislamiento de ciclopentano para conservar temperatura<br><br></span></li>\n</ul>\n<!---->",
+   "published_at": "2025-12-23T16:29:33-05:00",
+   "created_at": "2024-07-31T10:26:52-05:00",
+   "updated_at": "2026-09-08T19:49:46-05:00",
+   "vendor": "Samsung",
+   "product_type": "",
+   "tags": [],
+   "variants": [
+    {
+     "id": 46947102228655,
+     "title": "236",
+     "option1": "236",
+     "option2": null,
+     "option3": null,
+     "sku": "301911",
+     "requires_shipping": true,
+     "taxable": true,
+     "featured_image": null,
+     "available": true,
+     "price": "1713900.00",
+     "grams": 0,
+     "compare_at_price": "1949900.00",
+     "position": 1,
+     "product_id": 8047057830063,
+     "created_at": "2026-05-21T19:25:22-05:00",
+     "updated_at": "2026-09-08T19:49:46-05:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 38747618967727,
+     "created_at": "2024-07-31T10:23:48-05:00",
+     "position": 1,
+     "updated_at": "2024-07-31T10:23:49-05:00",
+     "product_id": 8047057830063,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0647/4963/3711/files/RT22FARADS8-7.jpg?v=1722439429",
+     "width": 1200,
+     "height": 780
+    }
+   ],
+   "options": [
+    {
+     "name": "Capacidad (Litros)",
+     "position": 1,
+     "values": [
+      "236"
+     ]
+    }
+   ]
+  }
+ ]
+}

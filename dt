@@ -12,6 +12,8 @@
 #   ./dt test                                 run the test suite
 #   ./dt run --args="--fetch-once"            one-off fetch of every enabled source
 #   ./dt run --args="--fetch-once --source=exito"
+#   ./dt run --args="--check-watches"         evaluate watches now, notify on new lows
+#   ./dt run --args="--check-watches --dry-run"
 #   ./dt run --args="--purge-old --dry-run"
 set -euo pipefail
 

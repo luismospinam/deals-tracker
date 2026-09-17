@@ -1,0 +1,239 @@
+{
+ "props": {
+  "pageProps": {
+   "pagination": {
+    "count": 1146,
+    "perPage": 48,
+    "totalPerPage": 56,
+    "currentPage": 1
+   },
+   "results": [
+    {
+     "productId": "136275849",
+     "skuId": "136275851",
+     "topSpecifications": [],
+     "displayName": "Nevera Congelador Inferior Frost 173L Compacta Negra ERB163HB",
+     "productType": "REGULAR",
+     "viewTemplate": "NORMAL",
+     "url": "https://www.falabella.com.co/falabella-co/product/136275849/nevera-electrolux-congelador-inferior-frost-173l-compacta-negra-erb163hb",
+     "brand": "ELECTROLUX",
+     "media": {
+      "id": "136275851",
+      "type": "PRODUCT",
+      "onImageHover": "FETCH_SECOND_IMAGE"
+     },
+     "mediaUrls": [
+      "https://media.falabella.com.co/falabellaCO/136275851_01/public",
+      "https://media.falabella.com.co/falabellaCO/136275851_02/public",
+      "https://media.falabella.com.co/falabellaCO/136275851_03/public",
+      "https://media.falabella.com.co/falabellaCO/136275851_04/public",
+      "https://media.falabella.com.co/falabellaCO/136275851_05/public"
+     ],
+     "measurements": {},
+     "discountBadge": {
+      "label": "-47%",
+      "styles": {
+       "backgroundColor": "#EB0029",
+       "textColor": "#ffffff"
+      }
+     },
+     "badges": [],
+     "multipurposeBadges": [
+      {
+       "position": 1,
+       "label": "Entregado por FALABELLA",
+       "styles": {
+        "backgroundColor": "#FFFFFFFF",
+        "textColor": "#3DAE2B"
+       }
+      }
+     ],
+     "meatStickers": [
+      {
+       "label": "Envío <b>gratis</b>",
+       "type": "free_shipping",
+       "styles": {
+        "backgroundColor": "#F1F1F1",
+        "textColor": "#008000"
+       }
+      }
+     ],
+     "prices": [
+      {
+       "label": "",
+       "icons": "cmr-icon",
+       "symbol": "$ ",
+       "crossed": false,
+       "type": "cmrPrice",
+       "price": [
+        "969.900"
+       ]
+      },
+      {
+       "label": "",
+       "icons": "",
+       "symbol": "$ ",
+       "crossed": false,
+       "type": "eventPrice",
+       "price": [
+        "999.900"
+       ]
+      },
+      {
+       "label": "",
+       "icons": "",
+       "symbol": "$ ",
+       "crossed": true,
+       "type": "normalPrice",
+       "price": [
+        "1.829.900"
+       ]
+      }
+     ],
+     "totalReviews": "51",
+     "rating": "4.098",
+     "availability": {
+      "homeDeliveryShipping": "",
+      "pickUpFromStoreShipping": "",
+      "internationalShipping": "",
+      "primeShipping": "",
+      "expressShipping": ""
+     },
+     "variants": [
+      {
+       "type": "COLOR",
+       "options": []
+      },
+      {
+       "type": "SIZES",
+       "options": []
+      }
+     ],
+     "sellerId": "SCA5913",
+     "sellerName": "Electrolux Group",
+     "offeringId": "136275851",
+     "isBestSeller": false,
+     "isSponsored": false,
+     "mabaya_ad_info": "PXD7_goQBqoB_LOgdE6HBBXwXZxLOBIQAZntoQoWfyO7CNsTAKQghxoQAZhmZH4lfrCefnmf42NAwyINCgkxMzYyNzU4NDkQATDT2WpIAVDr4_CLiDRgo-kCchAAAAAAAAAAAAAAAAAAAAAAeAKFAQAAIEE",
+     "adIdentifier": "PXD7_goQBqoB_LOgdE6HBBXwXZxLOBIQAZntoQoWfyO7CNsTAKQghxoQAZhmZH4lfrCefnmf42NAwyINCgkxMzYyNzU4NDkQATDT2WpIAVDr4_CLiDRgo-kCchAAAAAAAAAAAAAAAAAAAAAAeAKFAQAAIEE",
+     "GSCCategoryId": "G14020306",
+     "promotions": [],
+     "installmentsWithoutInterest": [],
+     "isFrequentProduct": false,
+     "isVerifiedSeller": true
+    },
+    {
+     "productId": "20279215",
+     "skuId": "20279215",
+     "topSpecifications": [],
+     "displayName": "Nevecón Side by Side 769 lt Netos GS77SPP",
+     "productType": "REGULAR",
+     "viewTemplate": "NORMAL",
+     "url": "https://www.falabella.com.co/falabella-co/product/20279215/Nevecon-Side-by-Side-LG-769-lt-Netos-GS77SPP",
+     "brand": "LG",
+     "media": {
+      "id": "20279215",
+      "type": "PRODUCT",
+      "onImageHover": "FETCH_SECOND_IMAGE"
+     },
+     "mediaUrls": [
+      "https://media.falabella.com.co/falabellaCO/20279215_1/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_2/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_3/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_31/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_4/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_5/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_51/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_6/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_7/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_8/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_9/public",
+      "https://media.falabella.com.co/falabellaCO/20279215_a/public"
+     ],
+     "measurements": {},
+     "discountBadge": {
+      "label": "-43%",
+      "styles": {
+       "backgroundColor": "#EB0029",
+       "textColor": "#ffffff"
+      }
+     },
+     "badges": [],
+     "multipurposeBadges": [
+      {
+       "position": 1,
+       "label": "Envío Programado",
+       "styles": {
+        "backgroundColor": "#333333",
+        "textColor": "#FFFFFF"
+       }
+      }
+     ],
+     "meatStickers": [
+      {
+       "label": "Llega mañana",
+       "type": "next_day",
+       "styles": {
+        "backgroundColor": "#F1F1F1",
+        "textColor": "#008000"
+       }
+      }
+     ],
+     "prices": [
+      {
+       "label": "",
+       "icons": "",
+       "symbol": "$ ",
+       "crossed": false,
+       "type": "internetPrice",
+       "price": [
+        "6.269.900"
+       ]
+      },
+      {
+       "label": "",
+       "icons": "",
+       "symbol": "$ ",
+       "crossed": true,
+       "type": "normalPrice",
+       "price": [
+        "10.999.900"
+       ]
+      }
+     ],
+     "totalReviews": "9",
+     "rating": "2.5556",
+     "availability": {
+      "homeDeliveryShipping": "",
+      "pickUpFromStoreShipping": "",
+      "internationalShipping": "",
+      "primeShipping": "",
+      "expressShipping": ""
+     },
+     "variants": [
+      {
+       "type": "COLOR",
+       "options": []
+      },
+      {
+       "type": "SIZES",
+       "options": []
+      }
+     ],
+     "sellerId": "FALABELLA_COLOMBIA",
+     "sellerName": "Falabella",
+     "offeringId": "20279215",
+     "isBestSeller": false,
+     "isSponsored": true,
+     "providerName": "topsort",
+     "mabaya_ad_info": "QBfaEQoQBqoB_LOgdE6HBBXwXZxLOBIQAaBZYpZgcOOBmLUqwU9GnhoQAZhmZVTicFKBvWGLi_z6PCIMCggyMDI3OTIxNRABMJ_jakgBUOvj8IuINGDA_BVyEAAAAAAAAAAAAAAAAAAAAAB4AoUBAAAgQQ",
+     "adIdentifier": "QBfaEQoQBqoB_LOgdE6HBBXwXZxLOBIQAaBZYpZgcOOBmLUqwU9GnhoQAZhmZVTicFKBvWGLi_z6PCIMCggyMDI3OTIxNRABMJ_jakgBUOvj8IuINGDA_BVyEAAAAAAAAAAAAAAAAAAAAAB4AoUBAAAgQQ",
+     "GSCCategoryId": "G14020306",
+     "promotions": [],
+     "installmentsWithoutInterest": [],
+     "isFrequentProduct": false
+    }
+   ]
+  }
+ }
+}

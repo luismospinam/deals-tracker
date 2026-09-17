@@ -3,13 +3,19 @@ package com.luis.dealstracker
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.Db
+import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.ingest.Categorizer
+import com.luis.dealstracker.ingest.WatchService
 import com.luis.dealstracker.verify.AmazonVerifier
 import com.luis.dealstracker.verify.CoShippingConfig
 import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.sources.SourceRegistry
+import com.luis.dealstracker.sources.algolia.AlgoliaSource
+import com.luis.dealstracker.sources.falabella.FalabellaNextSource
 import com.luis.dealstracker.sources.mercadolibre.MercadoLibreSource
+import com.luis.dealstracker.sources.prestashop.PrestashopSource
+import com.luis.dealstracker.sources.shopify.ShopifySource
 import com.luis.dealstracker.sources.slickdeals.SlickdealsSource
 import com.luis.dealstracker.sources.vtex.VtexSource
 import com.luis.dealstracker.web.routes
@@ -34,6 +40,13 @@ fun main(args: Array<String>) {
         listOf(
             SlickdealsSource(),
             VtexSource(),
+            // Serves homecenter.com.co and falabella.com.co: same Next.js build, same product
+            // record shape, so the two stores differ only in config.
+            FalabellaNextSource(),
+            // Both are platform adapters, so the next retailer on either is config only.
+            ShopifySource(),
+            PrestashopSource(),
+            AlgoliaSource(),
             MercadoLibreSource(),
             // Rappi has no adapter: services.rappi.com.co does not resolve and its
             // robots.txt disallows /api, /api-services and /base-api. The provider is
@@ -57,9 +70,18 @@ fun main(args: Array<String>) {
     }
 
     val repo = DealRepository(Db.dataSource)
+    val watches = WatchRepository(Db.dataSource)
     val http = PoliteHttp(app.defaults.userAgent, app.defaults.perHostDelayMillis)
     val categorizer = Categorizer.load(projectDir)
-    val ingest = IngestService(repo, registry, app, http, categorizer)
+    // Watch terms are injected rather than fetched by ingest, so a watch can steer what the
+    // adapters go looking for without ingest knowing where watches are stored.
+    val ingest = IngestService(repo, registry, app, http, categorizer) { watches.activeSearchTerms() }
+    // Env override on top of defaults.httpPort, so a second copy can run alongside the usual
+    // one -- a worktree or a branch under test -- without editing committed config and having
+    // to remember to put it back. Resolved here rather than at the server, because a
+    // notification needs the same value to link back to a watch.
+    val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
+    val watchService = WatchService(watches, baseUrl = "http://localhost:$port")
 
     val fetchOnce = args.contains("--fetch-once")
     val onlySource = args.firstOrNull { it.startsWith("--source=") }?.substringAfter("=")
@@ -85,6 +107,17 @@ fun main(args: Array<String>) {
             println("\n${summarize(outcome)}")
             repo.coShippingStats().forEach { (k, v) -> println("  ${k.padEnd(18)} $v") }
         }
+        http.close()
+        return
+    }
+
+    // Evaluates every watch now rather than waiting for the next hourly poll. `--dry-run`
+    // prints what would be announced without writing the ledger or showing a banner, which
+    // is how you tune a watch's floor and exclusions without being notified twenty times.
+    if (args.contains("--check-watches")) {
+        val reports = watchService.runAll(dryRun = args.contains("--dry-run"))
+        if (reports.isEmpty()) println("no enabled watches. Add one at http://localhost:$port/watches")
+        reports.forEach { println(it.summary()) }
         http.close()
         return
     }
@@ -142,6 +175,13 @@ fun main(args: Array<String>) {
             runCatching { ingest.runAll() }
                 .onFailure { println("[poller] cycle failed: ${it.message}") }
 
+            // Every cycle, not every Nth: a watch is only as fresh as the observations it
+            // scores, and unlike the browser-based shipping verifier this costs one query
+            // per watch and no network at all. Wrapped because a broken watch must never
+            // stop deals being fetched.
+            runCatching { watchService.runAll() }
+                .onFailure { println("[watch] evaluation failed: ${it.message}") }
+
             // Counted even when the fetch failed: a failed fetch does not make the
             // already-stored backlog any less worth verifying.
             cycle++
@@ -152,9 +192,9 @@ fun main(args: Array<String>) {
         }
     }
 
-    println("[web] http://localhost:${app.defaults.httpPort}")
-    embeddedServer(Netty, port = app.defaults.httpPort) {
-        routes(repo, ingest, app, categorizer, scope)
+    println("[web] http://localhost:$port")
+    embeddedServer(Netty, port = port) {
+        routes(repo, watches, ingest, app, categorizer, scope)
     }.start(wait = true)
 }
 

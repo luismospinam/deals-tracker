@@ -34,6 +34,12 @@ class IngestService(
     private val app: AppConfig,
     private val http: PoliteHttp,
     private val categorizer: Categorizer = Categorizer(emptyList()),
+    /**
+     * Search terms contributed by the active watches, or null when the watchlist is not in
+     * play. A lambda rather than a `WatchRepository` so ingest keeps no opinion about where
+     * watches live, and so tests can drive it without a database.
+     */
+    private val watchTerms: () -> List<String>? = { null },
 ) {
 
     suspend fun runAll(): List<IngestReport> =
@@ -51,7 +57,7 @@ class IngestService(
         val runId = repo.startRun(provider.id)
         try {
             val source = registry.forType(provider.type)
-            val fetched = source.fetch(provider, app, http)
+            val fetched = source.fetch(withWatchTerms(provider), app, http)
             val deals = applyAgeLimit(provider, applyExclusions(provider, fetched))
             val report = ingest(provider, deals)
             repo.finishRun(runId, report.fetched, report.newDeals, null)
@@ -62,6 +68,30 @@ class IngestService(
             repo.finishRun(runId, 0, 0, message)
             throw e
         }
+    }
+
+    /**
+     * Adds the active watches' terms to a provider's configured `searches`.
+     *
+     * This is the half of a watch that steers fetching rather than filtering it: without
+     * it, a fridge would only ever be found if someone had configured an appliance category
+     * on every site. With it, "nevera" becomes a real query against any source that can
+     * search — `VtexSource` via `?ft=`, `SlickdealsSource` via `q=`.
+     *
+     * Merged rather than replaced, so config-declared sweeps (Slickdeals' "amazon" and
+     * "apple") survive. Adapters that cannot keyword-search simply never read the key and
+     * are matched on whatever their category crawl returns, which is why Homecenter still
+     * works despite robots.txt disallowing its search URLs.
+     *
+     * Returns the provider untouched when there are no watches, so the copy is not made on
+     * a system nobody is using yet.
+     */
+    internal fun withWatchTerms(provider: ProviderConfig): ProviderConfig {
+        val terms = watchTerms() ?: return provider
+        val merged = (provider.list("searches") + terms).distinct()
+        if (merged.isEmpty()) return provider
+        println("[${provider.id}] searching for ${merged.size} term(s): ${merged.take(6)}")
+        return provider.copy(listOptions = provider.listOptions + ("searches" to merged))
     }
 
     /**

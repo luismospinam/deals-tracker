@@ -1,0 +1,20 @@
+-- Accent-insensitive title matching for watches.
+--
+-- WHY: the two retailers that share the VTEX platform also disagree about accents, and they
+-- disagree on the exact word that matters most for a fridge hunt. The same Electrolux
+-- side-by-side is
+--     "Nevecon Side By Side ELECTROLUX ..."   at exito.com
+--     "Nevecón 529 Lts Inverter Side By ..."  at carulla.com
+-- ILIKE is accent-sensitive, so no single watch term can match both, and the cross-site
+-- comparison silently loses the pair it most needed -- two listings of one product at two
+-- retailers is precisely the case the feature exists to find.
+--
+-- This is the same disagreement `Categorizer` already works around in Kotlin for category
+-- paths ("Tecnología" vs "Tecnologia"). Watch matching happens in SQL, so it needs the
+-- database's own equivalent.
+--
+-- Not indexed. `unaccent()` is STABLE rather than IMMUTABLE, so it cannot go in an
+-- expression index without an IMMUTABLE wrapper, and at this volume (~2,400 active deals)
+-- the scan is not worth that complexity. The trigram clause alongside it still uses
+-- deals_title_trgm_idx. Revisit if the deal count grows by an order of magnitude.
+CREATE EXTENSION IF NOT EXISTS unaccent;

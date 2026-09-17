@@ -39,8 +39,38 @@ Tests (no database or network needed — they run against captured fixtures):
 | `slickdeals` | `rss-slickdeals` | working, filtered to Amazon-only |
 | `exito` | `vtex` | working |
 | `carulla` | `vtex` | working |
+| `easy` | `vtex` | working — Cencosud home improvement, config-only |
+| `olimpica` | `vtex` | working — config-only |
+| `fullhogar` | `shopify` | working — public `products.json` |
+| `grupomansion` | `prestashop` | working — theme grid; selectors are config |
+| `alkomprar` | `algolia` | working — public search key; **100% GTIN coverage** |
+| `homecenter` | `falabella-next` | working — Sodimac; **category crawl only**, robots disallows its search |
+| `falabella` | `falabella-next` | working — keyword search allowed |
 | `mercadolibre-co` | `mercadolibre` | **disabled** — search API policy-blocked |
 | `rappi-medellin` | `rappi` | **disabled** — no adapter |
+| Makro | — | **deferred** — RSC payload, store-scoped, see BLOCKERS.md |
+| Corona | — | **blocked** — publishes no list price at all, see BLOCKERS.md |
+
+Ten sources across eight independent owners, which is what makes the cross-site comparison
+mean anything: Grupo Éxito (Éxito, Carulla), Falabella (Falabella, Homecenter), Cencosud
+(Easy), Olímpica, Fullhogar, Grupo Mansión, Alkomprar, and Amazon via Slickdeals.
+
+### "Cheaper elsewhere" means "cheaper among these nine"
+
+It has never meant "cheapest in Colombia", and it cannot. The limit is worth knowing because
+it is easy to forget: a Google search for `RS57DG4000B4CO` turned up **Grupo Mansión at
+2,999,000** while the cheapest tracked source had it at 3,299,900. That is how Olímpica,
+Fullhogar, Grupo Mansión and Alkomprar came to be added — Google as a *discovery* tool for which
+retailers matter, then each one added as a first-class source.
+
+**Google itself is deliberately not a source.** Its `robots.txt` disallows `/search`, and this
+app respects robots elsewhere (Homecenter's search is off for exactly that reason; Rappi and
+Corona are shelved over it). A paid SERP API would be legitimate but gives strictly worse data
+than a direct fetch: a price snapshot with no dependable list price, no stock truth, and no
+history — and `LOWEST_IN_WINDOW` is built from history that can only be accumulated by polling.
+
+So when a watch fires, the wording names the rival it actually measured against rather than
+claiming a market-wide best price.
 
 See **[BLOCKERS.md](BLOCKERS.md)** for why the two disabled sources are blocked, the
 evidence behind each conclusion, reproduction commands, and the V2 notes for tackling
@@ -51,10 +81,17 @@ them with a headless browser.
 Adapters model a *protocol*, not a site, so most changes are config-only in
 `config/sources.yaml`:
 
-- another VTEX retailer → new block with `type: vtex`
+- another VTEX retailer → new block with `type: vtex` (Éxito, Carulla, Easy, Olímpica)
+- another Shopify store → new block with `type: shopify` and its collection handles
+- another PrestaShop store → `type: prestashop`, plus selector overrides if its theme differs
+- another Algolia-backed store → `type: algolia` with its app id, public search key and index
+- another Falabella-group store → `type: falabella-next`
 - another Slickdeals feed → new block with `type: rss-slickdeals`
 - another MercadoLibre country → change `siteId`
 - turn any provider off → `enabled: false`
+
+Four of the ten sources arrived as config alone. That is the whole return on modelling a
+protocol rather than a site.
 
 A genuinely new platform needs a new `DealSource` implementation plus one line in
 the registry in `App.kt`. Everything downstream is provider-agnostic.
@@ -131,9 +168,154 @@ Design decisions worth not undoing:
 - **Slickdeals' `category` is a forum name** ("Hot Deals" on nearly every row), so
   generic values are suppressed via `GENERIC_CATEGORIES`.
 
+## Watches — hunting one thing over weeks
+
+The feed answers "what is discounted?". A **watch** answers the question you actually have:
+*I want a fridge, keep looking and tell me when a good one turns up.* Manage them at
+`/watches`; they live in Postgres, so adding one needs no restart.
+
+A watch does two jobs, and the second is what makes it more than a saved search:
+
+1. **It steers fetching.** Its terms are handed to every adapter that can search — VTEX via
+   `?ft=`, Slickdeals via `q=` — so a fridge gets found even though nobody configured an
+   appliance category on every site. Config-declared searches are merged, not replaced.
+2. **It scores everything ingested**, on every source. Sources that cannot keyword-search
+   (Homecenter's robots.txt disallows its search URLs) are covered by this half alone.
+
+Two rules fire alerts, and both are deliberately hard to satisfy:
+
+| Rule | Fires when |
+|---|---|
+| `LOWEST_IN_WINDOW` | the price beats the cheapest price *previously recorded* for anything the watch matches, across all sources, inside `lookback_days` |
+| `CROSS_SITE_SPREAD` | the same product — same validated GTIN, or brand + model code — is at least `cross_site_min_spread`% cheaper here than at another retailer |
+
+```bash
+./dt run --args="--check-watches"              # evaluate now instead of waiting an hour
+./dt run --args="--check-watches --dry-run"    # print what would fire, write nothing
+```
+
+Alerts arrive as a macOS notification, one per watch per cycle rather than one per deal.
+
+### Set a minimum price. This is not optional.
+
+Searching `nevera` on Éxito returns **fridge magnets, organiser trays, clamps and cooler
+bags** — ranked above actual fridges. Measured on the real feed:
+
+| Watch config | Candidates | Alerts |
+|---|---|---|
+| `nevera \| refrigerador`, no floor | 110 | **74, every one junk** |
+| `+ min price 800.000, category Appliances` | 37 | 2 |
+| `+ exclude "dispensador \| organizador \| portatil \| plegable"` | 34 | 0 |
+
+Every one of those 74 "beat the floor" — a 15.900 fridge magnet beats a 949.900 floor
+trivially. Without a floor the feature is pure noise on day one.
+
+### Things that are easy to get wrong here
+
+- **`min_price` is tested against the highest price the listing has ever *actually* reached**,
+  not today's price. Testing today's price throws away exactly the deal you wanted: a fridge
+  marked down from 1.09M to 849k falls below an 800k junk floor and disappears. It is
+  deliberately **not** compared against `list_price` either — that let an 8-bottle wine
+  cooler selling at 529.900 clear a 1.000.000 fridge floor on the strength of a self-declared
+  1.399.900 "before" price. `max_price` is your budget, so that one *does* test the current
+  price.
+- **A watch is silent on its first run, by design.** The floor is built only from
+  observations recorded *before* the one being judged, so with one observation per listing
+  there is nothing to beat. "The cheapest of forty fridges" is a minimum, not news. This is
+  the same trap `Deal.isAtLowestEver` fell into, where `price <= minPriceEver` was trivially
+  true and put "lowest yet" on every row.
+- **A brand-new listing with no history of its own still fires**, because the floor comes
+  from the other candidates. That is the most valuable alert there is.
+- **Term matching is accent-insensitive** (`unaccent`, V9). Éxito writes `Nevecon`, Carulla
+  writes `Nevecón`, and the same Electrolux side-by-side is listed at both — the exact pair
+  the cross-site rule exists to find. Note also that **`nevecón` is a different word from
+  `nevera`**: 14 active listings matched neither `ILIKE` nor trigram until the term was added.
+- **Alerts are announced once.** The `watch_matches` ledger re-announces only on a *lower*
+  price, so a standing bargain does not banner every hour. A failed send leaves
+  `notified_at` null so the next cycle retries.
+
+## Cross-site product identity
+
+The strongest evidence a price is good is a different retailer charging more for the same
+item — a discount percentage is only a claim about the seller's own past price.
+
+Establishing "same item" rests on published codes, never on titles looking alike:
+
+1. **GTIN/EAN**, when it passes its GS1 check digit. Colombian appliances really do carry
+   them (`7705191041773`, Challenger; `7909569417232`, Electrolux).
+2. **Brand + model code**, from a published `model` field where there is one (Homecenter) or
+   lifted from the title otherwise (`RMA247FXCG`, `CR290`, Haceb's bare `9003541`).
+
+**Both are stored for every deal, and two listings match if they share either.** That is not
+redundancy — it is the only reason the six sources can be compared at all, because they
+disagree about which identifier they publish:
+
+| | publishes |
+|---|---|
+| Éxito, Carulla, Easy | real GS1 barcodes |
+| Falabella, Homecenter | no barcode; brand + model only |
+| Slickdeals | neither |
+
+With one key per listing, the same MABE side-by-side carried `gtin:…` at Éxito and `mdl:…` at
+Homecenter and never matched itself. Measured before the fix: 119 multi-source clusters
+existed and **not one** joined a Falabella-group store to an Éxito-group store — which is
+exactly the comparison worth having, since one inside a single group is weak evidence. See
+`V10__model_key`.
+
+Two normalisations that each fixed a real miss:
+
+- **Barcodes are left-padded to GTIN-14.** Éxito publishes the same fridge as
+  `757638435765` (UPC-12) *and* `0757638435765` (EAN-13). Unpadded, one product had two keys.
+  Padding cannot break the checksum — GS1 anchors the weights at the right — which is why GS1
+  permits it. EAN-8 is a separate scheme and is left alone.
+- **A published model is run through the same extractor as a title.** Homecenter sends
+  `RS23T5B00S9/CO` where another retailer's title yields `RS23T5B00S9`. One canonicalisation
+  path means those are one key.
+
+Coverage on the live feed is 82–87% for the barcode-publishing retailers, and 0% for
+Slickdeals. A known miss: Homecenter's `LUMINA CR 317` yields no code, because a spaced model
+cannot be told from marketing words. Missing a match is the safe failure — a wrong one sends
+you shopping for the wrong appliance.
+
+**The check digit is the whole point, not a nicety.** Éxito publishes real GS1 codes and its
+own internal references *in the same `ean` field* — `14636` and `IZ20000899908` alongside
+valid ones. Both fail the checksum, so no heuristic about Éxito is needed.
+
+Two things this deliberately refuses to do:
+
+- **Cluster on title similarity.** A wrong "cheaper elsewhere" sends you shopping for the
+  wrong appliance, which is worse than silence. Near-matches can be shown; they never alert.
+- **Cluster on null.** Most groceries and every Slickdeals row have no usable key. NULL never
+  matches NULL — hence the partial index in `V8__product_identity`.
+- **Compare two listings at one retailer.** That is a duplicate, not a comparison.
+
+A real result from the live feed:
+
+```
+CROSS_SITE_SPREAD $2,587,455  Nevecon Side By Side ELECTROLUX 528 LITROS ERSA53K3
+    16.0% cheaper than carulla at $3,079,900 (same gtin:7909569417232)
+```
+
+### Éxito vs Carulla is weaker evidence than either vs Easy
+
+They are the same corporate group on the same VTEX backend, and it shows. The largest gap
+found so far — 42% on a MABE side-by-side — is the same product id (`3246410`) and GTIN at
+both, where **Carulla's price is exactly Éxito's list price**:
+
+| | price | list price |
+|---|---|---|
+| exito | 2,553,682 | 4,402,900 |
+| carulla | 4,402,900 | — |
+
+The saving is real and worth acting on, but the *signal* is not two independent retailers
+disagreeing — it is one banner running a promotion the other is not, so it restates the
+discount rather than corroborating it. A gap involving **Easy** (Cencosud, a different
+company) is the genuinely independent comparison. Worth remembering before treating a big
+number as proof.
+
 ## Categories
 
-The **Category** dropdown filters across every source, using 13 broad English buckets
+The **Category** dropdown filters across every source, using 14 broad English buckets
 (plus `Other`) defined in `config/categories.yaml`.
 
 A normalized bucket is necessary because the sources categorise incompatibly:
@@ -160,6 +342,11 @@ forced by a real misclassification, so don't reshuffle casually:
 - *Books* before *Audio* — **"Player Piano: A Novel (eBook)"** matched Audio's `piano`.
 - *TV & Video* before *Audio* — a "Soporte Para Televisor" sits under Éxito's
   "Accesorios audio y video", which *Audio* would otherwise claim.
+- *Bathroom & Plumbing* before *Tools & Outdoor* and *Home & Kitchen* — Homecenter files taps
+  under "griferias de bano y cocina", which *Home & Kitchen*'s `cocina` matches, and bathroom
+  fittings sit under paths *Tools & Outdoor*'s `ferreteria` reaches. The bucket exists because
+  two of the nine sources are home-improvement retailers: without it every toilet, basin and
+  tap landed in `Other`, which also hid them from a watch pinned to a category.
 
 Every ingest logs the category spread, so an over-broad or missing rule shows up as a
 suspicious `Other` count rather than passing unnoticed.
@@ -400,6 +587,80 @@ ever checked once.
 
 Things learned by probing the live APIs that are easy to get wrong:
 
+- **`%20`, not `+`, for a space in a query.** `URLEncoder` does *form* encoding, where a space
+  is `+`. olimpica.com answers **HTTP 400** to `ft=smart+tv` and 206 to `ft=smart%20tv`, while
+  exito.com tolerates both — so a watch term like "smart tv" silently returned nothing on one
+  source. Shared `encodeQueryValue` now handles it for every adapter.
+- **Two opposite money conventions, one codebase.** Shopify sends `"1645900.00"` where the dot
+  is a **decimal point**; Falabella and PrestaShop send `"1.829.900"` where dots **group
+  thousands**. The strings look alike, and applying the wrong parser is a factor-of-100 error.
+  Each adapter has a test pinning its own convention against the other's.
+- **Shopify is the easiest source here.** `/collections/<handle>/products.json` is documented,
+  first-party and stable, with `price`, `compare_at_price`, `sku` and `available`. `barcode` is
+  absent from the public feed, so identity falls to brand + model. Roughly two thirds of a
+  collection comes back out of stock, and unbuyable rows are dropped — otherwise they would
+  plant a phantom cheaper rival in the cross-site comparison.
+- **PrestaShop is read from the theme, not an API — the one adapter here that is.** Its
+  *product* pages carry lovely JSON-LD with `gtin13` and `offers.price`, but a *category* page
+  emits only an `ItemList` of names and URLs with **no prices**, so that route would cost one
+  request per product against a small retailer. The default theme's grid has everything
+  instead: an unformatted integer in `span.product-price[content]`, the was-price, the
+  manufacturer reference as its own field, and the EAN appended to the URL slug. Because themes
+  vary, the selectors are `options` rather than constants.
+- **Grupo Mansión publishes no brand in its grid**, so those rows join the comparison on GTIN
+  alone. Left null rather than guessed from the title: a wrong brand makes a wrong identity
+  key, whereas a missing one only costs a match.
+
+- **An Algolia search key in a page is meant to be public — but check it anyway.** Alkomprar
+  ships its app id and API key to every browser, as every Algolia site does. Before using it,
+  `GET /1/keys/<key>` confirmed the ACL is exactly `["search"]` and an `addObject` attempt was
+  refused 403. Worth the two requests: the same-looking string could have been an admin key
+  leaked by mistake, and that would be somebody else's incident, not a source.
+- **Alkomprar publishes the EAN as its product code**, so `code_string` is both the id and the
+  identity key — 100% GTIN coverage, the best of any source here, and it clusters with Éxito,
+  Easy, Olímpica and Grupo Mansión on the first fetch.
+- **It is browsed by category facet, not keyword.** Its robots.txt disallows `/search/` and
+  `*?q=`. Those rules govern the storefront rather than the Algolia host, but honouring the
+  site's evident intent is the same call made for Homecenter. An empty `query` plus a
+  `allcategories_string_mv` filter is a category browse and returns the same rows its own
+  category pages show.
+- **`PoliteHttp` gained a `postJson`** for this, rather than the adapter reaching for a bare
+  HTTP client: Algolia takes the query in a POST body, and an adapter that bypassed the shared
+  layer would silently opt out of the per-host throttle and backoff that keep this tool's
+  footprint small. It skips ETag caching deliberately — ETags are keyed by URL, and every query
+  to an index shares one URL with a different body.
+- **`cmrPrice` is not the price.** Falabella publishes several prices per product, and
+  `cmrPrice` — the price with its own store credit card — is usually the lowest and appears on
+  32 of 56 real rows. Reading it as the sale price would not merely be inaccurate: it would
+  make Falabella win every cross-site comparison it takes part in. The adapter excludes it and
+  reads `eventPrice`, then `internetPrice`. There is a test whose only job is this.
+- **Homecenter and Falabella are one adapter, not two.** Same `falabella-b2c-ui` Next.js
+  build, same product record shape. They differ in exactly two config values: where the
+  results sit in `__NEXT_DATA__` (`props.pageProps.results` vs
+  `props.pageProps.searchProps.searchData.results`) and how a product URL is formed.
+- **Homecenter must not be keyword-searched.** Its robots.txt disallows `*/search?` while
+  allowing category pages. Since a watch injects its terms into every provider's `searches`,
+  the adapter gates search behind `searchEnabled`, defaulting to **off** — so forgetting the
+  flag fails safe rather than quietly hitting disallowed URLs.
+- **Neither publishes a category on the product.** A category *listing* implies one by
+  construction, and the adapter attaches it. Without that, 98% of a Homecenter fetch landed in
+  `Other`, which also made every row invisible to a watch pinned to a category.
+- **Homecenter publishes no product URL.** `/{store}/product/{skuId}/` 302s to the canonical
+  slug, which is what the adapter builds. Falabella does publish an absolute `url`.
+- **`skuId` is the id, not `productId`.** They genuinely differ (`136275849` vs `136275851` on
+  one real row), and the URL is built from the sku.
+- **Read the merchant column on these two.** Both carry marketplace sellers, and one of
+  Falabella's is Homecenter itself — so a "Falabella is cheaper than Homecenter" gap may be
+  the same seller twice. The adapter stores `sellerName` so this is visible.
+- **Don't chase the underlying BFF.** `/s/browse/v1/search/co` and `/s/browse/v1/listing/co`
+  exist and even leak their schemas (`must have required property 'Ntt'`), but every
+  well-formed call returns `404 {"responseType":"Bad Request"}`. Homecenter has no
+  `/s/browse` at all.
+- **Two VTEX false positives.** `www.makro.com.co/api/catalog_system/...` returns **200**
+  (a legacy PHP site answering 200 with its homepage for any path) and
+  `www.falabella.com.co/api/catalog_system/...` returns **200** after redirecting to their
+  jobs site. Check the content type and `%{url_effective}`, not just the status code.
+
 - **Slickdeals merchant detection** rests on the body text (`"<Merchant> has …"`),
   not on links. A deal can name its primary merchant in prose while linking only a
   secondary one, and `data-outclick-typeofoutclick` is `"Post Content Link"` on every
@@ -458,6 +719,9 @@ the one process alive. Logs land in `logs/`.
 ## Secrets
 
 `.env` (Postgres password) and `local.properties` (MercadoLibre client secret) are
-gitignored and `chmod 600`. `.gitignore` exists even though this isn't a git repo yet,
-so that a future `git init` can't commit them. `.env.example` and
-`local.properties.example` show the expected shape.
+gitignored and `chmod 600`. `.env.example` and `local.properties.example` show the expected
+shape.
+
+This is now a git repository, and `.gitignore` predates it — written before `git init` so the
+first `git add .` could never have committed either file. There is **no remote configured**,
+so nothing has ever left this machine; see `SETUP.md` for moving the project to another Mac.

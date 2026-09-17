@@ -144,6 +144,70 @@ If Éxito ever fixes that robots file to clearly disallow `/api/` for `*`, revis
 
 ---
 
+## 4. Makro — deferred, no public catalog API
+
+**Status:** deferred. Probed 2026-09-07.
+
+`www.makro.com.co` is a legacy PHP brochure site. The real storefront is
+`tienda.makro.com.co`, a Next.js App Router front end on **Instaleap**.
+
+- No public JSON API: `/api` answers `{"data":"alive"}`; `/api/graphql`,
+  `/api/products/search` and `/api/catalog/search` all fall through to the SPA. The real
+  `apiBaseUrl` is server-only config.
+- Product data arrives as **React Server Component flight chunks**
+  (`self.__next_f.push`) with `$xx` reference indirection that would have to be resolved.
+  The data *is* all there, including the before/after pair via
+  `promotion[].benefit.unitPrice`, plus `ean`.
+- **Search server-renders zero products**, so only category crawling is possible
+  (`/ca/<slug>/CT_47` returned 100 products).
+- Store-scoped (`storeReference: "08DEL"`, `/selectStore` in robots) — the same
+  address-scoping trap that killed Rappi. It works cookieless today, but that is a default,
+  not a guarantee.
+
+robots.txt is permissive (`/api`, `/search`, `/ca/*` all allowed).
+
+---
+
+## 5. Corona — blocked on data, not just policy
+
+**Status:** blocked. Probed 2026-09-07. `tienda.corona.co` does not resolve;
+`corona.co` is the real storefront.
+
+**SAP Commerce Cloud (Hybris)**, `baseSite=corona-co`, confirmed by DNS: `dev-co.corona.co`
+→ `accstorefront.ckrkw-coronaind1-d1-public.model-t.cc.commerce.ondemand.com`.
+
+Why this is not worth building, in order of severity:
+
+1. **The only server-rendered price is PDP JSON-LD, and it carries no list price and no
+   discount.** That is the one thing a deals tracker exists to compute. It would be one HTTP
+   request per SKU across a multi-thousand-product sitemap to learn nothing about whether a
+   price moved.
+2. Category pages are client-rendered — 2 prices in 518KB of HTML.
+3. `robots.txt` disallows `/search` and `/*?q=`, so keyword search is off-limits for a
+   generic agent. `/productos/**/p/**` is allowed.
+4. The OCC API is not exposed on `corona.co` (`/occ/v2/...` and `/rest/v2/...` fall through
+   to the Next 404 shell). The real API host,
+   `api.ckrkw-coronaind1-p1-public.model-t.cc.commerce.ondemand.com`, completes TLS then
+   **hangs** — mTLS or an IP allowlist.
+
+If Corona ever opens the OCC API, that is the right target; the host pattern and baseSite
+above are the starting point.
+
+---
+
+## Two VTEX false positives worth remembering
+
+A status-code-only VTEX probe lies on both of these, in different ways:
+
+- **`www.makro.com.co/api/catalog_system/pub/products/search/` returns HTTP 200.** The legacy
+  PHP site answers 200 with its homepage HTML for *any* path.
+- **`www.falabella.com.co/api/catalog_system/...` returns HTTP 200** after redirecting to
+  `trabajando.falabella.com.co` (their jobs site).
+
+Check the content type and `%{url_effective}`, not just `%{http_code}`.
+
+---
+
 ## Also worth keeping in mind
 
 - **VTEX does not 404 on unknown categories** — it returns an *unfiltered* product list.

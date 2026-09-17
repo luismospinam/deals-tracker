@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -21,6 +22,53 @@ class VtexSourceTest {
             "missing fixture"
         }.bufferedReader().readText(),
     )
+
+    private fun cfg(categories: List<String> = emptyList(), searches: List<String> = emptyList()) =
+        com.luis.dealstracker.config.ProviderConfig(
+            id = "exito",
+            type = "vtex",
+            baseUrl = "https://www.exito.com",
+            listOptions = mapOf("categories" to categories, "searches" to searches),
+        )
+
+    @Test
+    fun `expands categories and searches into queries`() {
+        val queries = source.buildQueries(cfg(listOf("tecnologia", "mercado"), listOf("nevera")))
+        assertEquals(3, queries.size)
+        assertEquals(listOf("tecnologia", "mercado", "ft=nevera"), queries.map { it.label })
+    }
+
+    @Test
+    fun `a category is a path segment and a search is the ft parameter`() {
+        val base = "https://www.exito.com"
+        val root = "$base/api/catalog_system/pub/products/search"
+
+        val category = source.buildQueries(cfg(categories = listOf("tecnologia"))).single()
+        assertEquals("$root/tecnologia?_from=0&_to=23", category.url(base, 0, 23))
+
+        val search = source.buildQueries(cfg(searches = listOf("nevera"))).single()
+        assertEquals("$root?ft=nevera&_from=24&_to=47", search.url(base, 24, 47))
+    }
+
+    /** Watch terms are free text, so a multi-word or accented term must survive the URL. */
+    @Test
+    fun `encodes multi-word and accented search terms`() {
+        val base = "https://www.exito.com"
+        val urls = source.buildQueries(cfg(searches = listOf("nevera no frost", "televisión")))
+            .map { it.url(base, 0, 1) }
+
+        // %20, not "+": olimpica.com answers HTTP 400 to ft=smart+tv and 206 to ft=smart%20tv.
+        assertTrue(urls[0].contains("ft=nevera%20no%20frost"), urls[0])
+        assertFalse(urls[1].contains("ó"), "accent must be percent-encoded: ${urls[1]}")
+        assertTrue(urls[1].contains("ft=televisi%C3%B3n"), urls[1])
+    }
+
+    @Test
+    fun `captures brand and the sku barcode for cross-site identity`() {
+        val deals = products.mapNotNull { source.toRawDeal(it, "https://www.exito.com", "COP") }
+        val iphone = deals.single { it.title.contains("Iphone 17 Pro Max") }
+        assertEquals("APPLE", iphone.brand)
+    }
 
     @Test
     fun `parses the trimmed real response`() {

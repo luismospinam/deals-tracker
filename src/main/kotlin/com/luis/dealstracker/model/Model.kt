@@ -14,6 +14,18 @@ import java.time.Instant
  */
 fun BigDecimal.asMoney(): BigDecimal = setScale(2, RoundingMode.HALF_UP)
 
+/**
+ * COP has no cents in practice; USD does. Formatting reflects that.
+ *
+ * Lives here rather than in `web` because notifications format prices too, and having
+ * `ingest` reach into the view layer for it would invert the dependency.
+ */
+fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) {
+    "COP" -> "$" + String.format("%,d", amount.toBigInteger())
+    "USD" -> "US$" + String.format("%,.2f", amount)
+    else -> "$currency " + String.format("%,.2f", amount)
+}
+
 enum class DealState { NEW, SEEN, DISMISSED, SAVED }
 
 /** Whether the item can be shipped to Colombia. */
@@ -38,6 +50,24 @@ data class RawDeal(
     /** Retailer actually selling the item, e.g. "amazon". Basis of the Slickdeals merchant filter. */
     val merchant: String? = null,
     val asin: String? = null,
+    /**
+     * Manufacturer, where the source publishes one. Half of the fallback identity key when
+     * no valid GTIN is available — see [com.luis.dealstracker.ingest.ProductIdentity].
+     */
+    val brand: String? = null,
+    /**
+     * Barcode as published, unvalidated. Kept raw on purpose: sources put internal
+     * references in this field too (Exito sends both `7705191041773` and `14636`), and
+     * storing what arrived makes a bad feed diagnosable rather than silently discarded.
+     * Validation happens where the key is derived, not here.
+     */
+    val gtin: String? = null,
+    /**
+     * Manufacturer model code, where the source publishes it as a field of its own rather
+     * than burying it in the title. Homecenter does; Exito and Falabella do not. Preferred
+     * over reading the title when present, being the retailer's own structured value.
+     */
+    val model: String? = null,
     val category: String? = null,
     val imageUrl: String? = null,
     val available: Boolean = true,
@@ -80,6 +110,20 @@ data class Deal(
     val asin: String?,
     val category: String?,
     val imageUrl: String?,
+    /** Barcode as published, unvalidated — see [RawDeal.gtin]. */
+    val gtin: String?,
+    /** Model code lifted from the title at ingest, e.g. `RMA247FXCG`. */
+    val modelCode: String?,
+    /**
+     * Derived cross-site cluster key, or null when nothing reliable was available.
+     * Two listings sharing this are treated as the same product; null never clusters.
+     */
+    val matchKey: String?,
+    /**
+     * Model-tier key, present even when [matchKey] came from a GTIN — the two tiers must be
+     * able to join each other across retailers that publish different identifiers.
+     */
+    val modelKey: String?,
     val currency: String,
     val firstSeenAt: Instant,
     val lastSeenAt: Instant,

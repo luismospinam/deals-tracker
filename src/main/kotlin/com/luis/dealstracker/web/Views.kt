@@ -4,6 +4,7 @@ import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
 import com.luis.dealstracker.model.PriceObservation
+import com.luis.dealstracker.model.formatMoney
 import kotlinx.html.*
 import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
@@ -16,7 +17,7 @@ import java.util.Locale
  * The CSS lives in src/main/resources/static/app.css so it can be edited and reloaded
  * without a Gradle rebuild.
  */
-private const val CSS_VERSION = "14"
+private const val CSS_VERSION = "19"
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
@@ -51,6 +52,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         header {
             h1 { +"Deals Tracker" }
             span("sub") { a(href = "/") { +"feed" } }
+            span("sub") { a(href = "/watches") { +"watches" } }
             // Holds the right rail apart from the nameplate, so the serif sits alone
             // instead of being crowded by the mono labels.
             div("masthead-gap") {}
@@ -58,13 +60,6 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         }
         main { block() }
     }
-}
-
-/** COP has no cents in practice; USD does. Formatting reflects that. */
-fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) {
-    "COP" -> "$" + String.format("%,d", amount.toBigInteger())
-    "USD" -> "US$" + String.format("%,.2f", amount)
-    else -> "$currency " + String.format("%,.2f", amount)
 }
 
 /** The under-a-minute case, which is a complete phrase and so cannot take a suffix. */

@@ -1,5 +1,6 @@
 package com.luis.dealstracker.db
 
+import com.luis.dealstracker.ingest.ProductIdentity
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
@@ -91,11 +92,27 @@ class DealRepository(private val ds: DataSource) {
         coShippingDefault: CoShipping,
         categoryGroup: String?,
     ): UpsertResult {
+        // Derived here rather than in each adapter, so an adapter only has to publish what
+        // the source gave it (brand, gtin, model) and every current and future source gets
+        // cross-site identity for free.
+        //
+        // A published model is still run through modelCode rather than trusted verbatim, so
+        // both routes canonicalise identically. Homecenter sends "RS23T5B00S9/CO" while a
+        // title elsewhere yields "RS23T5B00S9"; without the shared pass those two would be
+        // different keys for one fridge.
+        val modelCode = raw.model?.let { ProductIdentity.modelCode(it, raw.brand) }
+            ?: ProductIdentity.modelCode(raw.title, raw.brand)
+        val matchKey = ProductIdentity.matchKey(raw.gtin, raw.brand, modelCode)
+        // Computed even when a GTIN was found, so a barcode-publishing retailer can still be
+        // compared against one that publishes none. See V10__model_key.
+        val modelKey = ProductIdentity.modelKey(raw.brand, modelCode)
+
         val sql = """
             INSERT INTO deals (source, source_deal_id, title, url, merchant, asin, category,
                                image_url, currency, co_shipping, community_score, posted_at,
-                               category_group, is_active, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
+                               category_group, gtin, model_code, match_key, model_key,
+                               is_active, first_seen_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
             ON CONFLICT (source, source_deal_id) DO UPDATE SET
                 title      = EXCLUDED.title,
                 url        = EXCLUDED.url,
@@ -108,6 +125,16 @@ class DealRepository(private val ds: DataSource) {
                 posted_at  = COALESCE(EXCLUDED.posted_at, deals.posted_at),
                 -- Recomputed each poll so editing categories.yaml takes effect on refresh.
                 category_group = COALESCE(EXCLUDED.category_group, deals.category_group),
+                gtin       = COALESCE(EXCLUDED.gtin, deals.gtin),
+                -- COALESCE in this direction gives both behaviours that matter: a newly
+                -- derived key overwrites (so a retailer fixing a typo'd model code fixes
+                -- the clustering too), while a poll that simply did not publish a code
+                -- leaves the existing key alone. Plain assignment would drop a good key to
+                -- NULL whenever a title got less informative, silently un-clustering a
+                -- product; plain COALESCE-on-null-only would pin the first guess forever.
+                model_code = COALESCE(EXCLUDED.model_code, deals.model_code),
+                match_key  = COALESCE(EXCLUDED.match_key, deals.match_key),
+                model_key  = COALESCE(EXCLUDED.model_key, deals.model_key),
                 is_active  = TRUE,
                 last_seen_at = now()
             RETURNING id, (first_seen_at = last_seen_at) AS is_new
@@ -127,6 +154,10 @@ class DealRepository(private val ds: DataSource) {
             raw.communityScore?.let { st.setInt(11, it) } ?: st.setNull(11, java.sql.Types.INTEGER)
             st.setTimestamp(12, raw.postedAt?.let { Timestamp.from(it) })
             st.setString(13, categoryGroup)
+            st.setString(14, raw.gtin)
+            st.setString(15, modelCode)
+            st.setString(16, matchKey)
+            st.setString(17, modelKey)
             st.executeQuery().use { rs ->
                 rs.next()
                 return UpsertResult(rs.getLong("id"), rs.getBoolean("is_new"))
@@ -754,6 +785,10 @@ class DealRepository(private val ds: DataSource) {
         communityScore = getInt("community_score").takeIf { !wasNull() },
         postedAt = getTimestamp("posted_at")?.toInstant(),
         categoryGroup = getString("category_group"),
+        gtin = getString("gtin"),
+        modelCode = getString("model_code"),
+        matchKey = getString("match_key"),
+        modelKey = getString("model_key"),
         coShippingSource = getString("co_shipping_source"),
         coShippingEvidence = getString("co_shipping_evidence"),
         coShippingImportFree = getBoolean("co_shipping_import_free").takeIf { !wasNull() },
