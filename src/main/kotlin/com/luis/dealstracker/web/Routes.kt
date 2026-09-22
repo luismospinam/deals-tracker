@@ -7,6 +7,7 @@ import com.luis.dealstracker.db.WatchDraft
 import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.ingest.Categorizer
 import com.luis.dealstracker.ingest.IngestService
+import com.luis.dealstracker.ingest.ManualItemService
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.DealState
 import com.luis.dealstracker.verify.AmazonVerifier
@@ -45,6 +46,7 @@ fun Application.routes(
     repo: DealRepository,
     watches: WatchRepository,
     ingest: IngestService,
+    manual: ManualItemService,
     app: AppConfig,
     categorizer: Categorizer,
     scope: CoroutineScope,
@@ -158,8 +160,10 @@ fun Application.routes(
             // than erroring -- same tolerance as `type` and `sort`.
             val brand = call.request.queryParameters["brand"]?.trim()?.takeIf { it.isNotEmpty() }
 
+            val notice = call.request.queryParameters["notice"]?.trim()?.takeIf { it.isNotEmpty() }
+
             call.respondHtml {
-                page("Tracked — Deals Tracker") { trackedPage(deals, sources, selected, sort, brand) }
+                page("Tracked — Deals Tracker") { trackedPage(deals, sources, selected, sort, brand, notice) }
             }
         }
 
@@ -182,6 +186,30 @@ fun Application.routes(
          * would inject the wrong columns. Here the row is simply removed from the DOM, which is
          * also the honest thing to show: the item no longer belongs on this page.
          */
+        /**
+         * Adds an item by URL and fetches it immediately.
+         *
+         * Synchronous on purpose. The add costs a live Amazon request that can take seconds, and the
+         * operator needs to know whether it worked — a fire-and-forget would report success for a URL
+         * that names no product. The result is carried back as a `notice` on the redirect target, so a
+         * reload does not re-submit.
+         */
+        post("/tracked/add") {
+            val params = call.receiveParameters()
+            val url = params["url"]?.trim().orEmpty()
+            if (url.isEmpty()) {
+                return@post call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode("paste a URL first", "UTF-8"))
+            }
+
+            val outcome = manual.add(
+                url = url,
+                brand = params["brand"]?.trim()?.takeIf { it.isNotEmpty() },
+                productType = params["productType"]?.trim()?.takeIf { it.isNotEmpty() },
+            )
+
+            call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode(outcome.message, "UTF-8"))
+        }
+
         post("/tracked/{id}/hide") {
             val id = call.parameters["id"]?.toLongOrNull()
                 ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)

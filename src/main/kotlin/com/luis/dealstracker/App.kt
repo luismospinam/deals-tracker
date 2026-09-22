@@ -3,12 +3,14 @@ package com.luis.dealstracker
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.Db
+import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.ingest.Categorizer
 import com.luis.dealstracker.ingest.WatchService
 import com.luis.dealstracker.verify.AmazonVerifier
 import com.luis.dealstracker.verify.CoShippingConfig
 import com.luis.dealstracker.ingest.IngestService
+import com.luis.dealstracker.ingest.ManualItemService
 import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.sources.SourceRegistry
 import com.luis.dealstracker.sources.algolia.AlgoliaSource
@@ -94,6 +96,11 @@ fun main(args: Array<String>) {
     // notification needs the same value to link back to a watch.
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
     val watchService = WatchService(watches, baseUrl = "http://localhost:$port")
+    // Items tracked by pasted URL. Refreshed every poll alongside the searches: an un-refreshed row
+    // is retired by deactivateStale after 48h and silently vanishes from the tab, which reads as
+    // "the item stopped existing" rather than "the app stopped looking".
+    val manualItems = ManualItemRepository(Db.dataSource)
+    val manualService = ManualItemService(repo, manualItems, app, http, categorizer)
 
     val fetchOnce = args.contains("--fetch-once")
     val onlySource = args.firstOrNull { it.startsWith("--source=") }?.substringAfter("=")
@@ -215,6 +222,11 @@ fun main(args: Array<String>) {
             runCatching { ingest.runAll() }
                 .onFailure { println("[poller] cycle failed: ${it.message}") }
 
+            // After the searches, so a long manual list cannot starve discovery. Wrapped for the
+            // same reason every other phase is: one failing item must not stop the cycle.
+            runCatching { manualService.refreshAll() }
+                .onFailure { println("[manual] refresh failed: ${it.message}") }
+
             // Every cycle, not every Nth: a watch is only as fresh as the observations it
             // scores, and unlike the browser-based shipping verifier this costs one query
             // per watch and no network at all. Wrapped because a broken watch must never
@@ -233,7 +245,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, app, categorizer, scope)
+        routes(repo, watches, ingest, manualService, app, categorizer, scope)
     }.start(wait = true)
 }
 

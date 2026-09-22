@@ -10,6 +10,11 @@ import kotlinx.html.id
 import kotlinx.html.code
 import kotlinx.html.div
 import kotlinx.html.img
+import kotlinx.html.InputType
+import kotlinx.html.details
+import kotlinx.html.form
+import kotlinx.html.input
+import kotlinx.html.summary
 import kotlinx.html.label
 import kotlinx.html.option
 import kotlinx.html.select
@@ -227,6 +232,66 @@ private fun kotlinx.html.TR.sortTh(
 }
 
 /**
+ * "Add an item by URL" — the manual tracking form.
+ *
+ * ## Why this is the more trustworthy of the two routes
+ *
+ * The searches find items by keyword and let Amazon filter by size, which is imprecise by nature:
+ * Amazon's size filter returns a REPRESENTATIVE of the product family, not strictly the matching
+ * child. A size-8 search returned the 8.5 ASIN at $130.26 while size 8 sold for $107.41.
+ *
+ * A pasted URL names an exact ASIN, so the price is the price of the thing actually wanted and the
+ * size is read from that ASIN's own variation entry. When a specific item matters, paste it.
+ *
+ * Brand and type are OPTIONAL and normally left blank: the product page publishes a brand
+ * ("Visit the New Balance Store") and a breadcrumb category, both of which are read automatically.
+ * They exist for the cases where the page says nothing useful, and they win when supplied.
+ *
+ * A plain POST-and-redirect rather than htmx: the add costs a live Amazon fetch and can take
+ * seconds, so a full response with a result message is clearer than a silent swap.
+ */
+private fun MAIN.addItemForm(notice: String?) {
+    details("additem") {
+        summary { +"Track an item by URL" }
+
+        notice?.let { div("additem-notice") { +it } }
+
+        form(classes = "additem-form") {
+            attributes["method"] = "post"
+            attributes["action"] = "/tracked/add"
+
+            div("f wide") {
+                label { +"Amazon URL" }
+                input(type = InputType.text, name = "url") {
+                    required = true
+                    placeholder = "https://www.amazon.com/dp/B074JLDHK3"
+                    title = "Any amazon.com product link — the /dp/<ASIN> part is what matters, and " +
+                        "a ?th=1&psc=1 tail is fine."
+                }
+            }
+            div("f") {
+                label { +"Brand (optional)" }
+                input(type = InputType.text, name = "brand") {
+                    placeholder = "read from the page"
+                    title = "Only needed if the page's byline does not name a brand."
+                }
+            }
+            div("f") {
+                label { +"Type (optional)" }
+                input(type = InputType.text, name = "productType") {
+                    placeholder = "read from the breadcrumb"
+                    title = "Only needed if Amazon's breadcrumb categorises it unhelpfully."
+                }
+            }
+            div("f") {
+                label { +"" }
+                button { +"Add & fetch" }
+            }
+        }
+    }
+}
+
+/**
  * Brand filter, as a dropdown rather than tags.
  *
  * A select is right here where tags are right for product type, and the difference is cardinality:
@@ -375,7 +440,10 @@ internal fun MAIN.trackedPage(
     selected: Set<ProductType> = emptySet(),
     sort: TrackedSort = TrackedSort.PRICE,
     brand: String? = null,
+    notice: String? = null,
 ) {
+    addItemForm(notice)
+
     p("tracked-intro") {
         +"Items tracked by name and size, with the price movement we have recorded. "
         +"This is not a deal feed — nothing here is filtered by discount. "

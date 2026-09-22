@@ -1,0 +1,35 @@
+<!--
+  Trimmed real capture of https://www.amazon.com/dp/B074JLDHK3 (New Balance boxer briefs), fetched
+  2026-09-22 with the project user agent. Kept only what the manual-add parser reads.
+
+  Three facts this pins, each verified against the live page:
+
+   1. The BRAND is not in a dedicated element. `#bylineInfo` holds the prose "Visit the New Balance
+      Store", so the brand is the span between "Visit the" and "Store".
+   2. The CATEGORY is the breadcrumb: Clothing, Shoes & Jewelry > Men > Clothing > Underwear.
+   3. The exact SIZE of this ASIN comes from the variation map, NOT from a search filter -- which
+      is what lets a manually-added item dodge the size-representative problem entirely.
+-->
+<html><head><title>Premium 3-Inch Trunk Boxer Brief by New Balance</title></head><body>
+<div id="wayfinding-breadcrumbs_feature_div"><ul>
+  <li><a class="a-link-normal a-color-tertiary" href="#">Clothing, Shoes &amp; Jewelry</a></li>
+  <li><a class="a-link-normal a-color-tertiary" href="#">Men</a></li>
+  <li><a class="a-link-normal a-color-tertiary" href="#">Clothing</a></li>
+  <li><a class="a-link-normal a-color-tertiary" href="#">Underwear</a></li>
+</ul></div>
+
+<div id="bylineInfo_feature_div"><a id="bylineInfo" class="a-link-normal" href="#">Visit the New Balance Store</a></div>
+
+<span id="productTitle">Premium 3-Inch Trunk Boxer Brief by New Balance</span>
+
+<div id="corePrice_desktop"><span class="a-price"><span class="a-offscreen">$6.33</span></span></div>
+<div id="availability"><span>In Stock</span></div>
+
+<script type="text/javascript">
+var dataToReturn = {
+    "currentAsin" : "B074JLDHK3",
+    "dimensions" : ["size_name","color_name"],
+    "dimensionValuesDisplayData" : {"B074JLDHK3": ["Small", "Black/Black/Black"], "B079SFRPL4": ["Medium", "Blue,Grey and Yellow"], "B074JGSQ1C": ["Medium", "Pigment/Pigment Woodgrain/Black"]}
+};
+</script>
+</body></html>

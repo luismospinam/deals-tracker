@@ -1,5 +1,10 @@
 package com.luis.dealstracker.sources.amazon
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.math.BigDecimal
@@ -53,6 +58,19 @@ internal data class SearchHit(
  * loudly rather than returning an empty list that reads like an empty catalogue.
  */
 internal object AmazonParser {
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /** `dimensionValuesDisplayData`: a flat map of child ASIN -> its dimension labels. */
+    private val SIZE_MAP_RE = Regex(
+        """"dimensionValuesDisplayData"\s*:\s*(\{.*?})\s*(?:,|})""",
+        RegexOption.DOT_MATCHES_ALL,
+    )
+
+    private val DIMENSIONS_RE = Regex(
+        """"dimensions"\s*:\s*(\[[^]]*])""",
+        RegexOption.DOT_MATCHES_ALL,
+    )
 
     /** Amazon's own id format. Same shape `SlickdealsSource` validates against. */
     private val ASIN_RE = Regex("^[A-Z0-9]{10}$")
@@ -180,6 +198,79 @@ internal object AmazonParser {
             currency = priced.second,
             listPrice = listPrice,
         )
+    }
+
+
+    /**
+     * The ASIN in an Amazon product URL, or null when the URL names none.
+     *
+     * Handles the shapes a person actually pastes: `/dp/ASIN`, `/gp/product/ASIN`, a slug before the
+     * `/dp/`, and any trailing query (`?th=1&psc=1`). Anchored on the path segment rather than
+     * searching the whole string, so a ten-character token elsewhere in a tracking payload cannot be
+     * mistaken for the id — a `dib=` parameter is full of them.
+     */
+    fun asinFromUrl(url: String): String? =
+        Regex("""/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})(?:[/?#]|$)""")
+            .find(url.trim())?.groupValues?.get(1)
+
+    /**
+     * The manufacturer, read from the byline.
+     *
+     * There is no dedicated brand element on a product page. `#bylineInfo` holds prose — "Visit the
+     * New Balance Store" — so the brand is what sits between "Visit the" and "Store". Verified
+     * against a live capture where every more obvious route (`brandName` json, a Brand row in the
+     * detail table, an attribute list) was absent.
+     *
+     * Null when the byline says something else, e.g. "Brand: Nike" with no store link. A wrong
+     * brand is worse than none — it produces a wrong identity key — so this does not guess.
+     */
+    fun parseBrand(html: String): String? =
+        Regex("""Visit the ([A-Za-z0-9 &'.\-]{2,30}?) Store""")
+            .find(html)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * The breadcrumb, as the source-published category.
+     *
+     * `Categorizer` prefers a source's own taxonomy to guessing from a title, so handing it
+     * "Clothing, Shoes & Jewelry > Men > Clothing > Underwear" is both cheaper and more reliable
+     * than hoping the title matches a keyword. Joined with `>` to mirror the multi-level paths the
+     * VTEX adapters publish.
+     */
+    fun parseBreadcrumb(html: String): String? =
+        Jsoup.parse(html)
+            .select("#wayfinding-breadcrumbs_feature_div a.a-color-tertiary")
+            .map { it.text().trim() }
+            .filter { it.isNotEmpty() }
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(" > ")
+
+    /**
+     * The size Amazon itself records for the ASIN this page is showing.
+     *
+     * This is the honest size, and the reason a manually-added item sidesteps the problem that
+     * dogs the search path: Amazon's size FILTER returns a representative of the product family,
+     * not strictly the matching child — a size-8 search returned the 8.5 ASIN at \$130.26 while
+     * size 8 sold for \$107.41. Here the ASIN is given, so its own variation entry is definitive.
+     *
+     * Null when the listing has no size dimension at all, which is a real state, not a failure.
+     */
+    fun parseOwnSize(html: String): String? {
+        val current = Regex(""""currentAsin"\s*:\s*"([A-Z0-9]{10})"""")
+            .find(html)?.groupValues?.get(1) ?: return null
+
+        val map = SIZE_MAP_RE.find(html)?.groupValues?.get(1) ?: return null
+        val labels = runCatching {
+            (json.parseToJsonElement(map) as JsonObject)[current]
+                ?.let { (it as? JsonArray)?.map { v -> v.jsonPrimitive.content } }
+        }.getOrNull() ?: return null
+
+        val dimensions = DIMENSIONS_RE.find(html)?.groupValues?.get(1)?.let { arr ->
+            runCatching { json.parseToJsonElement(arr).jsonArray.map { it.jsonPrimitive.content } }
+                .getOrNull()
+        }.orEmpty()
+
+        val index = dimensions.indexOfFirst { it.contains("size", ignoreCase = true) }
+        return labels.getOrNull(if (index >= 0) index else 0)?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     /**
