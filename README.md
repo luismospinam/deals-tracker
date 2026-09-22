@@ -46,6 +46,7 @@ Tests (no database or network needed — they run against captured fixtures):
 | `alkomprar` | `algolia` | working — public search key; **100% GTIN coverage** |
 | `homecenter` | `falabella-next` | working — Sodimac; **category crawl only**, robots disallows its search |
 | `falabella` | `falabella-next` | working — keyword search allowed |
+| `amazon` | `amazon` | working — tracks named items **in your size**; heavily rate-limited |
 | `mercadolibre-co` | `mercadolibre` | **disabled** — search API policy-blocked |
 | `rappi-medellin` | `rappi` | **disabled** — no adapter |
 | Makro | — | **deferred** — RSC payload, store-scoped, see BLOCKERS.md |
@@ -167,6 +168,92 @@ Design decisions worth not undoing:
   shipping states carry a glyph plus text.
 - **Slickdeals' `category` is a forum name** ("Hot Deals" on nearly every row), so
   generic values are suppressed via `GENERIC_CATEGORIES`.
+
+## Tracking Amazon items in one size
+
+Slickdeals only carries what its community posted, so a Nike hoodie you actually want is
+absent unless a stranger submitted it. The `amazon` provider queries amazon.com directly for
+terms you name, and tracks **the child ASIN matching your size**.
+
+Configure it entirely in `config/sources.yaml`:
+
+```yaml
+options:
+  sizeShoes: "8"        # Amazon's own label, exactly
+  sizeTops: "Medium"    # spelled out, NOT "M"
+  sizeBottoms: "Small"
+listOptions:
+  trackSearches: ["nike men running shoes", "adidas men hoodie", ...]
+```
+
+Garment type is inferred from each term (`shoe`/`sneaker` → shoes, `hoodie`/`shirt` → tops,
+`pant`/`jogger` → bottoms), so adding a search does not mean declaring its type.
+
+### Why a size is a whole feature and not a filter
+
+**On Amazon a size is a distinct child ASIN with its own price and stock.** "The price of this
+hoodie" is not a fact; only "the price of this hoodie in Medium" is. Every other adapter here
+deliberately collapses variants to the cheapest one — right for a fridge, wrong for clothing,
+where it faithfully reports the price of a garment that does not fit. So one deal row is one
+child ASIN is one size, the same call `FalabellaNextSource` makes keying on `skuId`.
+
+The size is appended to the title (`… — Medium`) because `deals` has no size column, and two
+sizes of one garment must not read as duplicate rows.
+
+### Things that are easy to get wrong here
+
+Each of these was a real bug caught by a live run, not a hypothetical:
+
+- **Matching is exact — never a prefix.** One Nike listing offers `8`, `8 Wide`, `8 X-Wide`,
+  `8.5` and `8 Women/7 Men`. A `startsWith("8")` matches all five, four of them the wrong shoe.
+- **`M` is not translated to `Medium`.** Amazon spells sizes out. An alias table would be a
+  guess that resolves to a real ASIN of the wrong size — a silent failure at a real price,
+  strictly worse than tracking nothing.
+- **`Accept-Language` must not be sent twice.** Ktor's `header()` *appends*, so `PoliteHttp`'s
+  hardcoded `es-CO` plus a caller's `en-US` sent both and let the server choose. Amazon read
+  the pair as Spanish and served `8,5 mujer/7,5 hombre`, so an exact match on `8.5` found
+  nothing and **33 garments were cached as "size unavailable" when they stock it**. `PoliteHttp`
+  now omits its default when the caller sets one; `SizeMatcher` also reads a decimal comma as a
+  decimal point, so a Spanish page still resolves.
+- **A page with no readable size dimension is a miss, not a one-size item.** Tracking the
+  parent directly stored an adidas hoodie whose own title reads `X-Large` as the Medium being
+  tracked.
+- **Never conclude anything from a page that is not demonstrably a product page.** Amazon's
+  interstitial replaces the listing, so it has no `#productTitle` and no variation payload —
+  indistinguishable from "this size is not made" unless you check. A verdict is only cached
+  when `#productTitle` is present.
+- **Watch terms are deliberately ignored here.** `IngestService` merges every watch's terms
+  into every provider's `searches`; this provider reads **`trackSearches`** instead. Before
+  that, a run searched Amazon for `inodoro` and `televisor` and stored 33 TVs and toilets as
+  `Fashion`, spending most of a scarce request budget on items it cannot size.
+
+### Currency is read per row, not assumed
+
+Amazon served this machine **COP** on some runs (`COP 234,124.82`) and **USD** on others
+(`$49.00`), so neither is a safe constant and the currency is parsed from each price string.
+That makes this a fourth money format: comma groups thousands *and* dot is the decimal, which
+neither existing parser handles — applying one is a factor-of-100 error, and a test pins it.
+
+Because one source can now carry mixed currencies, `WatchEvaluator.crossSiteSpread` **skips
+rivals in a different currency**. It does no conversion, and comparing US$189.99 against
+COP 700,000 would otherwise report a ~100% saving.
+
+### Expect it to be partly refused
+
+Measured with the project's own user agent and no spoofing: two requests returned full markup,
+the **third returned 503**. `robots.txt` permits `/s` and `/dp/` for a generic agent (the
+blanket `Disallow: /` entries there target named AI crawlers), so the approach is to identify
+ourselves, go slowly, and stop when refused.
+
+When plain HTTP is throttled the adapter escalates to the **headed Chrome profile the shipping
+verifier already maintains**, sharing its `VerifySlot` lock so the two can never fight over the
+profile. Sustained use gets that walled too, and then a run tracks few items or none. It
+degrades to *fewer* items rather than wrong ones, and repeated polls accumulate coverage the
+way Slickdeals does — so `maxItemsPerSearch` is deliberately small.
+
+The size → child-ASIN mapping is cached in `build/amazon-size-cache.tsv` (gitignored, safe to
+delete) because it is a fact about the catalogue rather than about price. That makes the steady
+state roughly one request per tracked item.
 
 ## Watches — hunting one thing over weeks
 

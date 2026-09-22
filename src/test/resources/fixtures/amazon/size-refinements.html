@@ -1,0 +1,64 @@
+<!--
+  Amazon's size-refinement rail, as served on 2026-09-21 with the project user agent.
+
+  Trimmed from three real unfiltered search pages — `nike men shoes`, `nike men hoodie` and
+  `nike men pants` — keeping only the size links, because that is all the discovery code reads.
+
+  Three facts this fixture exists to pin:
+
+   1. The refinement PARAMETER DIFFERS BY CATEGORY. Footwear uses `p_n_pt_nav_size_men_shoe`;
+      apparel uses `p_n_pt_nav_size_men_international_size`. Assuming one name finds nothing on
+      the other category.
+   2. The rail's size LABELS are Amazon's short forms — `M`, `2XL` — and are NOT the spelled-out
+      labels the product pages use (`Medium`, `XX-Large`). Both are Amazon's own wording for the
+      same size, in different places.
+   3. A page offers SEVERAL size dimensions at once. Pants carry international size AND waist AND
+      big-and-tall; shoes carry shoe size AND width. Picking the wrong one silently filters by
+      the wrong thing.
+-->
+<html><body>
+<div id="filters">
+  <!-- shoes: p_n_pt_nav_size_men_shoe -->
+  <ul>
+    <li><a aria-label="Apply 4 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285090011">4</a></li>
+    <li><a aria-label="Apply 4.5 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285091011">4.5</a></li>
+    <li><a aria-label="Apply 5 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285092011">5</a></li>
+    <li><a aria-label="Apply 5.5 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285093011">5.5</a></li>
+    <li><a aria-label="Apply 6 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285094011">6</a></li>
+    <li><a aria-label="Apply 6.5 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285095011">6.5</a></li>
+    <li><a aria-label="Apply 7 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285096011">7</a></li>
+    <li><a aria-label="Apply 7.5 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285097011">7.5</a></li>
+    <li><a aria-label="Apply 8 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285098011">8</a></li>
+    <li><a aria-label="Apply 8.5 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_shoe%3A1285099011">8.5</a></li>
+  </ul>
+  <!-- hoodie: p_n_pt_nav_size_men_international_size -->
+  <ul>
+    <li><a aria-label="Apply XS filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475466011">XS</a></li>
+    <li><a aria-label="Apply S filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475467011">S</a></li>
+    <li><a aria-label="Apply M filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475468011">M</a></li>
+    <li><a aria-label="Apply L filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475469011">L</a></li>
+    <li><a aria-label="Apply XL filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475470011">XL</a></li>
+    <li><a aria-label="Apply 2XL filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475471011">2XL</a></li>
+    <li><a aria-label="Apply 3XL filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475472011">3XL</a></li>
+    <li><a aria-label="Apply 4XL filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_international_size%3A2475473011">4XL</a></li>
+  </ul>
+  <!-- pants: p_n_pt_nav_size_men_waist -->
+  <ul>
+    <li><a aria-label="Apply 28 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445343011">28</a></li>
+    <li><a aria-label="Apply 32 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445347011">32</a></li>
+    <li><a aria-label="Apply 33 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445348011">33</a></li>
+    <li><a aria-label="Apply 34 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445349011">34</a></li>
+    <li><a aria-label="Apply 36 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445351011">36</a></li>
+    <li><a aria-label="Apply 38 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445352011">38</a></li>
+    <li><a aria-label="Apply 40 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445353011">40</a></li>
+    <li><a aria-label="Apply 44 filter to narrow results" class="a-link-normal s-navigation-item" href="/s?k=q&amp;rh=n%3A1234%2Cp_n_pt_nav_size_men_waist%3A2445355011">44</a></li>
+  </ul>
+  <!-- shoes: a SECOND dimension (width) that must not be mistaken for size -->
+  <ul>
+    <li><a aria-label="Apply Narrow filter to narrow results" href="/s?k=q&amp;rh=p_n_pt_nav_size_men_shoe_width%3A1285109011">Narrow</a></li>
+    <li><a aria-label="Apply Medium filter to narrow results" href="/s?k=q&amp;rh=p_n_pt_nav_size_men_shoe_width%3A1285110011">Medium</a></li>
+    <li><a aria-label="Apply Wide filter to narrow results" href="/s?k=q&amp;rh=p_n_pt_nav_size_men_shoe_width%3A1285111011">Wide</a></li>
+    <li><a aria-label="Apply X-Wide filter to narrow results" href="/s?k=q&amp;rh=p_n_pt_nav_size_men_shoe_width%3A1285105011">X-Wide</a></li>
+  </ul>
+</div>
+</body></html>

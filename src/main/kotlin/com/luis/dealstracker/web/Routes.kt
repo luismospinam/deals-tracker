@@ -124,6 +124,75 @@ fun Application.routes(
             call.respondBytes(bytes, ContentType.parse(DealsExport.CONTENT_TYPE))
         }
 
+        /**
+         * The tracked-items tab.
+         *
+         * Reads the same rows through the same `feed` query as the page at `/`, filtered to the
+         * providers whose job is tracking named items rather than surfacing offers, and sorted
+         * cheapest-first because that is the question being asked here.
+         *
+         * `onlyPromoted` is deliberately left off: a tracked item is interesting because you
+         * chose it, not because it cleared a discount threshold, and these rows carry no list
+         * price for a threshold to be computed from in the first place.
+         */
+        get("/tracked") {
+            val sources = trackingSources(app)
+            val deals = if (sources.isEmpty()) {
+                emptyList()
+            } else {
+                repo.feed(FeedFilter(sources = sources, sort = "price"))
+            }
+            // Unknown labels are ignored rather than rejected, so a hand-edited or stale URL
+            // degrades to "no filter" instead of a 400.
+            val selected = call.request.queryParameters["type"]
+                ?.split(',')
+                ?.mapNotNull { label ->
+                    ProductType.entries.firstOrNull { it.label.equals(label.trim(), ignoreCase = true) }
+                }
+                ?.toSet()
+                .orEmpty()
+
+            // Unknown values fall back to the default rather than erroring, same as `type`.
+            val sort = TrackedSort.of(call.request.queryParameters["sort"])
+            // A brand that matches nothing simply shows an empty result with a way back, rather
+            // than erroring -- same tolerance as `type` and `sort`.
+            val brand = call.request.queryParameters["brand"]?.trim()?.takeIf { it.isNotEmpty() }
+
+            call.respondHtml {
+                page("Tracked — Deals Tracker") { trackedPage(deals, sources, selected, sort, brand) }
+            }
+        }
+
+        /**
+         * Hides a tracked item: a soft delete via the existing `DISMISSED` state.
+         *
+         * Deliberately NOT a row DELETE. Three reasons, in order of how much they would hurt:
+         *
+         *  - **It would come straight back.** The next poll re-fetches the same search, and
+         *    `upsertDeal` is keyed on `(source, source_deal_id)` — a deleted row is simply inserted
+         *    again, as brand new. Dismissing survives because `upsertDeal` deliberately never
+         *    touches `state` on conflict: "those are Luis's decisions".
+         *  - It would take the item's `price_observations` with it (ON DELETE CASCADE), discarding
+         *    history that is the whole point of the tab and cannot be recovered.
+         *  - It is reversible. The feed's State filter can show dismissed rows, so a mis-click is
+         *    not destructive.
+         *
+         * Distinct from `POST /deal/{id}/state` — which exists and does the same update — because
+         * that one responds with a *feed*-shaped row fragment. Swapped into the tracked table it
+         * would inject the wrong columns. Here the row is simply removed from the DOM, which is
+         * also the honest thing to show: the item no longer belongs on this page.
+         */
+        post("/tracked/{id}/hide") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+
+            withContext(Dispatchers.IO) { repo.updateState(id, DealState.DISMISSED) }
+
+            // Empty body + an outerHTML swap removes the <tr>. No reload, and no stale row left
+            // claiming to be tracked.
+            call.respondText("", ContentType.Text.Html)
+        }
+
         get("/deal/{id}") {
             val id = call.parameters["id"]?.toLongOrNull()
                 ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
@@ -331,6 +400,18 @@ private suspend fun io.ktor.util.pipeline.PipelineContext<Unit, io.ktor.server.a
  */
 private fun sourceNames(repo: DealRepository, app: AppConfig): List<String> =
     (app.providers.map { it.id } + repo.knownSources()).distinct().sorted()
+
+/**
+ * Providers whose rows belong on the tracked tab.
+ *
+ * Derived from the provider's declared intent rather than hardcoding `"amazon"`: a tracking
+ * provider is one configured with `trackSearches`, the key that means "watch these specific
+ * items" as opposed to `searches`, which means "sweep this retailer for offers". A second
+ * tracking provider therefore appears on this tab by adding config, which is the same promise
+ * the adapter layer already makes about adding a retailer.
+ */
+internal fun trackingSources(app: AppConfig): List<String> =
+    app.enabledProviders.filter { it.list("trackSearches").isNotEmpty() }.map { it.id }.sorted()
 
 /**
  * Builds a [WatchDraft] from the form, or null when the two required fields are missing.

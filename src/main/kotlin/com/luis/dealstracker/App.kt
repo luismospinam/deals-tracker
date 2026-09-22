@@ -12,6 +12,7 @@ import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.sources.SourceRegistry
 import com.luis.dealstracker.sources.algolia.AlgoliaSource
+import com.luis.dealstracker.sources.amazon.AmazonSource
 import com.luis.dealstracker.sources.falabella.FalabellaNextSource
 import com.luis.dealstracker.sources.mercadolibre.MercadoLibreSource
 import com.luis.dealstracker.sources.prestashop.PrestashopSource
@@ -56,6 +57,9 @@ fun main(args: Array<String>) {
             PrestashopSource(),
             AlgoliaSource(),
             MercadoLibreSource(),
+            // Queries amazon.com directly for specific items in a specific size, which the
+            // Slickdeals feed cannot do -- it carries whatever the community posted.
+            AmazonSource(),
             // Rappi has no adapter: services.rappi.com.co does not resolve and its
             // robots.txt disallows /api, /api-services and /base-api. The provider is
             // present in sources.yaml with enabled:false so this is a config change,

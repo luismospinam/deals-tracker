@@ -19,7 +19,7 @@ import java.util.Locale
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "20"
+private const val CSS_VERSION = "27"
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
@@ -54,6 +54,12 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         header {
             h1 { +"Deals Tracker" }
             span("sub") { a(href = "/") { +"feed" } }
+            // A separate tab rather than a filter on the feed, because it answers a different
+            // question. The feed asks "what is discounted right now?" and is sorted by deal
+            // quality; tracked items ask "what is this costing me over time?", where a discount
+            // percentage and a community vote are noise and the movement of the price is the
+            // whole point. Same rows underneath, different columns and a different default sort.
+            span("sub") { a(href = "/tracked") { +"tracked" } }
             span("sub") { a(href = "/watches") { +"watches" } }
             // Holds the right rail apart from the nameplate, so the serif sits alone
             // instead of being crowded by the mono labels.

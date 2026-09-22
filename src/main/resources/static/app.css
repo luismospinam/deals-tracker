@@ -1093,3 +1093,161 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   border: 1px solid transparent;
 }
 .pager .at { color: var(--text-faint); }
+
+/* ---------------------------------------------------------------------------
+ * Tracked items (/tracked)
+ *
+ * A price-movement table rather than a deal table, so it reuses `.deals` for the
+ * shared shell and only adds what the feed has no equivalent for: a size column,
+ * and a signed change against our recorded peak.
+ *
+ * Deliberately quiet. The feed shouts because you are scanning hundreds of rows for
+ * something worth a second look; here you already chose every row, so the only thing
+ * that should catch the eye is a price that moved.
+ * ------------------------------------------------------------------------ */
+
+.tracked-intro {
+  color: var(--text-faint);
+  max-width: 62ch;
+  margin: 0 0 10px;
+}
+
+.tracked-count { margin: 0 0 12px; color: var(--text-dim); }
+.tracked-note { color: var(--text-faint); }
+
+.col-size { width: 1%; white-space: nowrap; }
+.col-chg  { width: 1%; white-space: nowrap; text-align: right; }
+
+/* The size is the reason this tab exists, so it reads as a value rather than as prose --
+ * but it is a fact about the row, not an alert, so it stays neutral rather than accented. */
+.size-chip {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* Down is good news for a buyer, so it takes the positive colour. Both directions carry a
+ * glyph as well, because colour is never the only cue in this UI. */
+.chg { font-weight: 700; white-space: nowrap; }
+.chg-down { color: var(--good); }
+.chg-up   { color: var(--bad); }
+
+/* "No movement recorded yet" -- distinct from a measured zero, which is why it is never
+ * rendered as 0%. On the first day every row is in this state. */
+.muted { color: var(--text-faint); }
+
+/* Product-type tags on /tracked.
+ *
+ * Tags rather than a select: with four options the whole choice is visible and costs one click.
+ * Plain links carrying state in the query string, so no JavaScript and the view stays shareable. */
+.typetags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+
+.typetags-label {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 2px;
+}
+
+.typetag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.86rem;
+}
+
+.typetag:hover { border-color: var(--accent-line); color: var(--text); }
+
+/* Selected state carries a border and a wash, not colour alone. */
+.typetag.on {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.typetag-n { color: var(--text-faint); font-size: 0.78rem; }
+.typetag.on .typetag-n { color: var(--accent); }
+
+.typetag.clear { border-style: dashed; color: var(--text-faint); }
+
+/* Tracked tab: Amazon's own list price and advertised discount.
+ *
+ * `.was` and `.disc` already exist for the feed, so both reuse them — the same fact should not
+ * look different in two places. Only the column width is new. */
+.tracked .col-disc { width: 1%; white-space: nowrap; }
+
+/* Tracked tab: shipping / import charges and the landed total.
+ *
+ * Reuses the feed's `.prov`, `.warn-prov` and `.kill-prov` chips so a freight fee looks the same
+ * wherever it appears. Only the column and the total line are new. */
+.tracked .col-extra { width: 1%; white-space: nowrap; }
+
+.extra { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+
+/* The landed cost. Mono like every other number, and quiet: it is a derived total, not a
+ * measurement, so it must not out-shout the price it is derived from. */
+.extra-total {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+/* Tracked tab: sortable headers and the at-lowest badge. */
+.tracked thead a { color: var(--text-faint); border-bottom: 1px solid transparent; }
+.tracked thead a:hover { color: var(--text); text-decoration: none; border-bottom-color: var(--line); }
+.tracked thead a.sorted { color: var(--accent); border-bottom-color: var(--accent); }
+.tracked thead .dir { color: var(--accent); }
+
+.tracked .col-low { width: 1%; white-space: nowrap; }
+
+/* Reuses the feed's "lowest yet" green — verified-good, never magnitude. Carries a glyph AND the
+ * word, so it never depends on colour alone. Earned only when a real decline was observed: see
+ * Deal.isAtLowestEver, which is why a price that never moved cannot show this. */
+.lowbadge {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--good);
+  border: 1px solid rgba(79, 191, 139, 0.45);
+  background: rgba(79, 191, 139, 0.1);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* Tracked tab: brand dropdown.
+ *
+ * A select rather than tags because brands are unbounded — a single captured page had 9, including
+ * one-off marketplace sellers. Tags would wrap the bar and bury the four brands that matter. */
+.brandpick { margin: 0 0 10px; }
+.brandpick label { flex-direction: row; align-items: center; gap: 8px; }
+.brandpick select { min-width: 13rem; }
+
+/* Tracked tab: the hide button.
+ *
+ * Quieter than History, and deliberately not red: this is a soft delete that keeps the row and its
+ * price history, so dressing it as destructive would overstate what it does. It warms toward the
+ * "bad" hue only on hover, where the intent is already committed. */
+.tracked .hide-btn { color: var(--text-faint); }
+.tracked .hide-btn:hover {
+  color: var(--bad);
+  border-color: rgba(217, 86, 110, 0.5);
+}

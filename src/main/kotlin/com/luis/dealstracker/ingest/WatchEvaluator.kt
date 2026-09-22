@@ -93,6 +93,13 @@ object WatchEvaluator {
                 .distinctBy { it.dealId }
                 // A second listing at the same retailer is a duplicate, not a comparison.
                 .filter { it.source != candidate.source }
+                // Two prices in different currencies are not comparable, and this rule does no
+                // conversion. Comparing them numerically would report a US$189.99 item as
+                // ~100% cheaper than a COP 700,000 one -- a spectacular false positive on the
+                // one signal in this app that is meant to be independent evidence. Skipping is
+                // the safe failure the rest of this file already argues for: a missing match
+                // costs nothing, a wrong one sends you shopping for the wrong thing.
+                .filter { it.currency == candidate.currency }
             val elsewhere = rivals.minByOrNull { it.price } ?: return@mapNotNull null
 
             if (elsewhere.price <= candidate.price) return@mapNotNull null

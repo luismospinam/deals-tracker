@@ -34,12 +34,14 @@ class WatchEvaluatorTest {
         priorFloor: String? = null,
         matchKey: String? = null,
         keys: List<String>? = null,
+        currency: String = "COP",
     ) = WatchCandidate(
         dealId = id,
         source = source,
         title = "Nevera $id",
         url = "https://$source.example/deal/$id",
         price = BigDecimal(price),
+        currency = currency,
         priorFloor = priorFloor?.let(::BigDecimal),
         keys = keys ?: listOfNotNull(matchKey),
     )
@@ -199,6 +201,38 @@ class WatchEvaluatorTest {
         assertEquals(listOf(2L), alerts.map { it.dealId }, "falabella is the cheaper of the two")
         assertTrue(alerts[0].evidence.contains("mdl:mabe|msl480lmlps0"), alerts[0].evidence)
         assertTrue(alerts[0].evidence.contains("exito"), alerts[0].evidence)
+    }
+
+    /**
+     * Two prices in different currencies are not comparable, and this rule does no conversion.
+     *
+     * Latent until the `amazon` adapter arrived: every source but Slickdeals was COP, and
+     * Slickdeals publishes neither a brand nor a barcode so it rarely shares an identity key
+     * with a Colombian retailer. Amazon rows carry an ASIN-bearing listing that can share a
+     * model key with one, so an unguarded comparison would announce a US$189.99 item as ~100%
+     * cheaper than the COP 700,000 equivalent.
+     */
+    @Test
+    fun `prices in different currencies are never compared`() {
+        val candidates = listOf(
+            candidate(1, "exito", "700000", keys = listOf("mdl:nike|dv0788"), currency = "COP"),
+            candidate(2, "amazon", "189", keys = listOf("mdl:nike|dv0788"), currency = "USD"),
+        )
+        assertTrue(
+            WatchEvaluator.crossSiteSpread(watch(spread = "1"), candidates).isEmpty(),
+            "a USD price must not be read as undercutting a COP one",
+        )
+    }
+
+    @Test
+    fun `same-currency rivals at different retailers still compare`() {
+        // The guard must not disable the rule for the ordinary case it exists to serve.
+        val candidates = listOf(
+            candidate(1, "exito", "700000", keys = listOf("mdl:nike|dv0788"), currency = "COP"),
+            candidate(2, "amazon", "500000", keys = listOf("mdl:nike|dv0788"), currency = "COP"),
+        )
+        val alerts = WatchEvaluator.crossSiteSpread(watch(spread = "1"), candidates)
+        assertEquals(listOf(2L), alerts.map { it.dealId })
     }
 
     @Test

@@ -441,6 +441,136 @@ providers:
         - "televisores-led"
         - "lavadoras-carga-superior"
 
+  - id: amazon
+    type: amazon
+    # Tracks SPECIFIC items in YOUR size, which is what the slickdeals provider above cannot
+    # do -- that feed carries whatever the community happened to post, so a Nike hoodie only
+    # appears if a stranger submitted it.
+    #
+    # Why this is not just another search sweep: on Amazon a size is a DISTINCT CHILD ASIN
+    # with its own price and stock. Every other adapter here collapses variants to the
+    # cheapest one (see ShopifySource, VtexSource); doing that for clothing would faithfully
+    # report the price of a garment that does not fit. So one deal row = one child ASIN =
+    # one size.
+    #
+    # robots.txt was checked before writing this (2026-09-17): `User-agent: *` gets no rule
+    # against /s or /dp/, only against sub-paths like /dp/shipping/. The blanket
+    # `Disallow: /` entries in that file target named AI crawlers (ClaudeBot, GPTBot and so
+    # on), which this is not -- it sends the project's own descriptive user agent.
+    #
+    # THE REQUEST BUDGET IS THE REAL CONSTRAINT. Measured the same day with that user agent:
+    # two requests returned full markup, the THIRD returned 503 "Sorry! Something went
+    # wrong!". The adapter escalates to the headed Chrome profile the shipping verifier
+    # already maintains (sharing its VerifySlot lock), but a discovery run is still
+    # request-heavy and will often be partly refused. It degrades to fewer items, never wrong
+    # ones, and repeated polls accumulate coverage the way slickdeals does.
+    enabled: true
+    baseUrl: "https://www.amazon.com"
+    # Nominal only -- the real currency is read off each price string. Amazon served COP to
+    # this machine (`COP 234,124.82`) while the slickdeals rows here are USD, so neither is a
+    # safe constant. See AmazonMoney.
+    currency: COP
+    # Same as slickdeals: Amazon items may or may not reach Colombia, and the existing
+    # verifier picks these rows up automatically because they carry an ASIN.
+    coShippingDefault: UNKNOWN
+    options:
+      # SIZES, IN AMAZON'S OWN WORDING. Not abbreviations.
+      #
+      # Amazon spells letter sizes out -- the adidas pullover checked on 2026-09-17 offers
+      # ["Small","Medium","Large","X-Large","XX-Large","3X-Large"], so "M" matches nothing.
+      # There is deliberately no alias table: guessing "M" -> "Medium" would resolve to a
+      # real ASIN of the wrong size, and a wrong size is worse than tracking nothing.
+      #
+      # Matching is EXACT, never a prefix. One Nike Air Force 1 listing offers "8",
+      # "8 Wide", "8 X-Wide", "8.5" and "8 Women/7 Men" -- a prefix match on "8" hits all
+      # five, four of which are the wrong shoe.
+      # Amazon's SHORT labels, as used in its own search-filter rail: 8 / M / S.
+      #
+      # NOT the spelled-out forms (`Medium`, `Small`). Both are Amazon's own wording for the same
+      # size, but in different places: the product page's variation data says "Medium" while the
+      # left-hand refinement rail says "M", and it is the rail this now reads. A mismatch is
+      # reported by name at the end of a run, never guessed around.
+      sizeShoes: "8"
+      sizeTops: "M"
+      sizeBottoms: "S"
+
+      # Distinct items to keep per search term.
+      #
+      # 20, raised from 8. Sizing no longer costs a request per item -- Amazon filters server-side
+      # -- and a size-filtered page yields ~45 usable tiles, so 8 was throwing most of a page away.
+      # Counts DISTINCT items: the same ASIN found under two terms consumes one slot, not two.
+      maxItemsPerSearch: "20"
+
+      # Result pages to walk per search term.
+      #
+      # Paging is a plain `&page=N` parameter. The results UI loads more on scroll, which makes it
+      # look like there is no URL to fetch, but Amazon still ships a numbered pager whose links are
+      # ordinary URLs -- those are what this follows.
+      #
+      # Verified against the live site 2026-09-21: pages 1-3 each returned 48 tiles, the `rh` size
+      # filter stayed applied on every one, and the overlap between pages was ZERO (130 distinct
+      # items across three). So depth genuinely multiplies coverage rather than re-reading rows.
+      #
+      # 2, not 3. Each extra page is another request against a host that refuses intermittently,
+      # and refusals -- not code -- are the binding constraint. Two pages already offer ~90 usable
+      # tiles per search, comfortably past maxItemsPerSearch. Raise it if the logs stay clean.
+      maxPagesPerSearch: "2"
+
+      # Escalate to the trusted headed Chrome profile when plain HTTP is throttled. Set to
+      # false to stay HTTP-only, which is quieter but will resolve very few items.
+      allowBrowserFallback: "true"
+
+      # Selectors are config, not constants -- same call PrestashopSource makes, and for the
+      # same reason: this reads a rendered storefront rather than a documented API, and
+      # Amazon reorganises its markup. Defaults are verified against the captures in
+      # src/test/resources/fixtures/amazon/. Override here if a fetch starts reporting
+      # "0 usable results" from a non-zero tile count.
+      #   resultTileSelector, resultTitleSelector, resultBrandSelector,
+      #   resultPriceSelector, resultImageSelector, productTitleSelector,
+      #   productPriceSelector, productAvailabilitySelector
+    listOptions:
+      # NOTE the key is `trackSearches`, not `searches`, and that is deliberate.
+      #
+      # IngestService merges every enabled watch's terms into every provider's `searches`.
+      # That is right for a general retailer and wrong here: the first live run searched
+      # amazon.com for `inodoro`, `televisor` and `nevera` because watches for a toilet, a TV
+      # and a fridge were enabled, spending 9 of 15 search requests -- against a source that
+      # starts refusing on the third -- on items this provider cannot size. Reading a key
+      # injection does not touch means opting out is structural rather than a flag to
+      # remember. Watches still reach Amazon through the slickdeals provider, as before.
+      #
+      # Garment type is inferred from the term (shoe/sneaker -> shoes, hoodie/shirt -> tops,
+      # pant/jogger -> bottoms), so adding a search does not mean also declaring its type.
+      # Each term costs one search request plus up to maxItemsPerSearch product fetches on
+      # the first run, and far fewer afterwards.
+      trackSearches:
+        - "nike men running shoes"
+        - "adidas men shoes"
+        - "nike men hoodie"
+        - "adidas men hoodie"
+        - "nike men pants"
+        - "adidas men pants"
+        # Shirts take sizeTops, same as hoodies -- `shirt` is in Garment's TOP_WORDS, and both
+        # resolve to Amazon's `international_size` rail. Worth knowing they compete for the same
+        # per-search budget rather than adding a new size dimension.
+        - "nike men shirt"
+        - "adidas men shirt"
+        # New Balance. Needs no code and no new size values: the garment type is inferred from the
+        # term, and the size refinement id is discovered from each search's own page, so a brand is
+        # purely three more lines here.
+        #
+        # Note "new balance men shoes" carries `shoe`, so it takes sizeShoes; the other two carry
+        # `shirt` and `pant` and take sizeTops / sizeBottoms.
+        - "new balance men shoes"
+        - "new balance men shirt"
+        - "new balance men pants"
+        # Boxers, all three brands. Underwear uses the SAME `international_size` rail as shirts and
+        # pants -- verified on a live boxer search, where S is node 2475467011, identical to pants --
+        # so this needs no new size value, just the term and a `boxer` noun in Garment/ProductType.
+        - "nike men boxer"
+        - "adidas men boxer"
+        - "new balance men boxer"
+
   - id: mercadolibre-co
     type: mercadolibre
     # DISABLED: blocked by MercadoLibre, not by a bug here.

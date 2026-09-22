@@ -68,7 +68,18 @@ class PoliteHttp(
             try {
                 val response: HttpResponse = client.get(url) {
                     header("User-Agent", userAgent)
-                    header("Accept-Language", "es-CO,es;q=0.9,en;q=0.8")
+                    // Only when the caller has not asked for something else.
+                    //
+                    // `header()` APPENDS rather than replaces, so setting this unconditionally
+                    // and letting `extraHeaders` add to it sent BOTH values -- and the server
+                    // picks, not us. amazon.com read the pair as Spanish and served
+                    // `<html lang="es-us">` with Spanish size labels (`8,5 mujer/7,5 hombre`),
+                    // so the Amazon adapter's exact match on `8` found nothing and cached 33
+                    // items as "does not stock this size". Verified both ways against the live
+                    // site: duplicated header -> es-us, single en-US header -> en-us.
+                    if (!extraHeaders.keys.any { it.equals("Accept-Language", ignoreCase = true) }) {
+                        header("Accept-Language", "es-CO,es;q=0.9,en;q=0.8")
+                    }
                     etags[url]?.let { header("If-None-Match", it) }
                     lastModified[url]?.let { header("If-Modified-Since", it) }
                     extraHeaders.forEach { (k, v) -> header(k, v) }

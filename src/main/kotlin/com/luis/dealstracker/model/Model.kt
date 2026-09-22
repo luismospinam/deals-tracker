@@ -110,6 +110,16 @@ data class Deal(
     val asin: String?,
     val category: String?,
     val imageUrl: String?,
+    /**
+     * Manufacturer as the source published it, or null where it publishes none.
+     *
+     * Stored as well as used for identity keys since V12. It was previously consumed by
+     * `upsertDeal` to derive `model_key` and then discarded, so the fact was known at ingest and
+     * unavailable afterwards — which left no honest way to filter by brand.
+     *
+     * Null is a real value: a PrestaShop grid publishes no brand, and Slickdeals none either.
+     */
+    val brand: String?,
     /** Barcode as published, unvalidated — see [RawDeal.gtin]. */
     val gtin: String?,
     /** Model code lifted from the title at ingest, e.g. `RMA247FXCG`. */

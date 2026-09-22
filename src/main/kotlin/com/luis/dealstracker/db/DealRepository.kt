@@ -119,9 +119,9 @@ class DealRepository(
         val sql = """
             INSERT INTO deals (source, source_deal_id, title, url, merchant, asin, category,
                                image_url, currency, co_shipping, community_score, posted_at,
-                               category_group, gtin, model_code, match_key, model_key,
+                               category_group, gtin, model_code, match_key, model_key, brand,
                                is_active, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
             ON CONFLICT (source, source_deal_id) DO UPDATE SET
                 title      = EXCLUDED.title,
                 url        = EXCLUDED.url,
@@ -144,6 +144,10 @@ class DealRepository(
                 model_code = COALESCE(EXCLUDED.model_code, deals.model_code),
                 match_key  = COALESCE(EXCLUDED.match_key, deals.match_key),
                 model_key  = COALESCE(EXCLUDED.model_key, deals.model_key),
+                -- Same direction as model_code above: a source that publishes a brand overwrites
+                -- (including correcting the folded form V12's backfill recovered from model_key),
+                -- while a poll that publishes none leaves the stored value alone.
+                brand      = COALESCE(EXCLUDED.brand, deals.brand),
                 is_active  = TRUE,
                 last_seen_at = now()
             RETURNING id, (first_seen_at = last_seen_at) AS is_new
@@ -167,6 +171,9 @@ class DealRepository(
             st.setString(15, modelCode)
             st.setString(16, matchKey)
             st.setString(17, modelKey)
+            // Trimmed and blank-to-null: a tile occasionally yields an empty brand element, and
+            // "" would show up in the dropdown as a nameless option.
+            st.setString(18, raw.brand?.trim()?.takeIf { it.isNotEmpty() })
             st.executeQuery().use { rs ->
                 rs.next()
                 return UpsertResult(rs.getLong("id"), rs.getBoolean("is_new"))
@@ -832,6 +839,7 @@ class DealRepository(
         communityScore = getInt("community_score").takeIf { !wasNull() },
         postedAt = getTimestamp("posted_at")?.toInstant(),
         categoryGroup = getString("category_group"),
+        brand = getString("brand"),
         gtin = getString("gtin"),
         modelCode = getString("model_code"),
         matchKey = getString("match_key"),

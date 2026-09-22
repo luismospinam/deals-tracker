@@ -180,6 +180,19 @@ categories:
       - "\\b(backpack|handbag|purse|wallet|sunglasses|watch band|sport loop|luggage|suitcase)s?\\b"
       - "\\b(bras?|rash guard|belt|sundress|coat|flannel|leggings|shorts|pants|skirt)s?\\b"
       - "\\b(gloves|hat|cap|scarf|tie|watch strap|jewelry|earrings|necklace|ring)s?\\b"
+      # Sportswear brands, the way Audio lists bose|sonos|jbl. Added for the `amazon`
+      # provider, which tracks Nike and adidas clothing directly: without these, a title
+      # like "Nike Air Max Excee" matches no noun above and lands in Other -- which would
+      # also hide it from a watch pinned to a category.
+      #
+      # Safe despite Tools & Outdoor's "deportes" path patterns, because Fashion is BEFORE
+      # Tools & Outdoor in this file and the first match wins.
+      - "\\b(nike|adidas|puma|reebok|under armour|new balance|asics|jordan)\\b"
+      # Athletic vocabulary the nouns above miss. "running shoe" was covered by `shoes`,
+      # but joggers, crewnecks and windbreakers were not, and the Amazon captures are full
+      # of them.
+      - "\\b(joggers|sweatpants|sweatshirt|crewneck|windbreaker|pullover|tracksuit)s?\\b"
+      - "\\b(trainers|cleats|slides|flip.?flops|running shoe|dri.?fit|air max|air force|ultraboost)s?\\b"
       - "\\b(women'?s|men'?s|kids'?) \\w+"
 
   # Before Tools & Outdoor and Home & Kitchen, both of which would otherwise claim these:

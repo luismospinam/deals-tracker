@@ -61,6 +61,7 @@ class DealsExportTest {
         communityScore = communityScore,
         postedAt = postedAt,
         categoryGroup = "TV & Video",
+        brand = null,
         gtin = "7705191041773",
         modelCode = "CR290",
         matchKey = "gtin:7705191041773",

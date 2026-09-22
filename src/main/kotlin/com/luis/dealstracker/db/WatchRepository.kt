@@ -191,7 +191,7 @@ class WatchRepository(private val ds: DataSource) {
         }
 
         val sql = """
-            SELECT d.id, d.source, d.title, d.url, d.match_key, d.model_key, po.price, prior.floor AS prior_floor
+            SELECT d.id, d.source, d.title, d.url, d.currency, d.match_key, d.model_key, po.price, prior.floor AS prior_floor
             FROM deals d
             JOIN LATERAL (
                 SELECT price, observed_at FROM price_observations
@@ -235,6 +235,10 @@ class WatchRepository(private val ds: DataSource) {
                                     title = rs.getString("title"),
                                     url = rs.getString("url"),
                                     price = rs.getBigDecimal("price"),
+                                    // Read from the deal, not the watch: one source can now
+                                    // carry mixed currencies, so the watch's own currency is
+                                    // a display preference rather than a fact about the row.
+                                    currency = rs.getString("currency"),
                                     priorFloor = rs.getBigDecimal("prior_floor"),
                                     // Both tiers, deduped: a listing often carries a GTIN
                                     // key and a model key, and either may be the one that

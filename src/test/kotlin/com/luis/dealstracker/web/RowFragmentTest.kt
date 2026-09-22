@@ -43,6 +43,7 @@ class RowFragmentTest {
         communityScore = 12,
         postedAt = now,
         categoryGroup = "Computers",
+        brand = null,
         gtin = null,
         modelCode = null,
         matchKey = null,

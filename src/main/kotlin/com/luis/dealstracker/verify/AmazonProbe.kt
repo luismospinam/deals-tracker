@@ -24,31 +24,9 @@ object ProbeConfig {
     val outDir = File("build/amazon-probe")
 }
 
-/**
- * Markers for Amazon's anti-automation pages. A hit is a **stop condition**: back off and
- * report it, never work around it.
- *
- * The "continue shopping" entry is the one that actually fired in practice, and its absence
- * from the original list is instructive — the first version of this checked only for CAPTCHA
- * phrasings, so the real wall sailed through undetected and the page merely looked empty.
- * Left unattended, a batch would have recorded hundreds of deals as "no verdict" while
- * reporting success.
- */
-internal fun botWallMarkers(html: String): List<String> = listOf(
-    "Click the button below to continue shopping",
-    // NOT a bare "Continue shopping". That phrase occurs in the hidden markup of ordinary
-    // product pages, so it flagged pages that were loading perfectly well -- and because
-    // the help banner this tool injects contains the phrase itself, the clear-check then
-    // matched its own banner and could never succeed. Deals that plainly shipped to
-    // Colombia were recorded as blocked and backed off. The full sentence above is the
-    // actual interstitial's wording and is specific enough to stand alone.
-    "Enter the characters you see below",
-    "Type the characters you see in this image",
-    "api-services-support@amazon.com",
-    "Robot Check",
-    "/errors/validateCaptcha",
-    "Sorry, we just need to make sure you're not a robot",
-).filter { html.contains(it, ignoreCase = true) }
+// botWallMarkers now lives in AmazonWall.kt -- same package, so callers are unaffected. It
+// was moved because four production files and the Amazon adapter depend on it, and this file
+// is a throwaway explorer that may be deleted.
 
 fun main(args: Array<String>) {
     val asin = args.firstOrNull { !it.startsWith("--") } ?: "B09C5RG6KV"

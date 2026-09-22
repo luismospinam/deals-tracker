@@ -2,6 +2,7 @@ package com.luis.dealstracker.verify
 
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.model.CoShipping
+import com.luis.dealstracker.notify.Notifier
 import com.microsoft.playwright.BrowserContext
 import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
@@ -284,13 +285,21 @@ class AmazonVerifier(
             )
         }
         // Desktop notification, so it is noticed even when the window is not focused.
-        runCatching {
-            ProcessBuilder(
-                "osascript", "-e",
-                """display notification "Click 'Continue shopping' in the Chrome window" """ +
-                    """with title "Deals Tracker: Amazon needs a human" sound name "Ping"""",
-            ).start()
-        }
+        //
+        // Routed through `Notifier` rather than calling `osascript` directly, which is what this
+        // did. The difference is what happens when the banner is CLICKED: an AppleScript
+        // notification carries no click action, so macOS falls back to opening the app that sent
+        // it -- Script Editor. That is exactly the confusing outcome `Notifier` documents and
+        // solves by preferring `terminal-notifier`, which is installed here.
+        //
+        // No `openUrl`: the thing to act on is the Chrome window already on screen, not a page in
+        // this app. Grouped so repeated prompts replace one another instead of stacking up a
+        // column of identical banners during a long batch.
+        Notifier.notify(
+            title = "Deals Tracker: Amazon needs a human",
+            message = "Click 'Continue shopping' in the Chrome window",
+            group = "amazon-wall",
+        )
     }
 
     /**

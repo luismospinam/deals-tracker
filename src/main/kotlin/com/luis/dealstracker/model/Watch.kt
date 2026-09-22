@@ -64,6 +64,16 @@ data class WatchCandidate(
     /** The retailer's own page. Carried here so listing candidates costs no extra queries. */
     val url: String,
     val price: BigDecimal,
+    /**
+     * The currency [price] is quoted in.
+     *
+     * Carried because the cross-site rule compares two listings' prices numerically, and
+     * until now nothing stopped it comparing 189.99 USD against 700,000 COP and announcing a
+     * ~100% saving. That was latent while every source but Slickdeals was COP and Slickdeals
+     * rarely clustered with them; the Amazon adapter stores COP prices for rows that may share
+     * an identity key with a Colombian retailer, which makes the collision realistic.
+     */
+    val currency: String,
     val priorFloor: BigDecimal?,
     /**
      * Every identity key this listing carries — a GTIN key, a brand+model key, or both.

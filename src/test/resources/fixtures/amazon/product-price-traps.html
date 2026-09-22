@@ -1,0 +1,52 @@
+<!--
+  Price-extraction hazards, all taken from real amazon.com product pages captured 2026-09-21
+  with the project user agent.
+
+  The structures below are reproduced as served; only surrounding bulk was removed.
+
+  1. A price inside `a.a-link-normal` — a link to a DIFFERENT product in a carousel. On the real
+     capture of B08MJKRC51 this sat 64KB EARLIER in the document than the buy box, so a selector
+     ending in a bare `span.a-price` matched it first. That is what stored a Nike Revolution 8 at
+     $9,500 and an adidas hoodie at $3,750.
+
+  2. An EMPTY `#corePrice_desktop`. This is the real buy-box container id — note the adapter
+     originally looked for `#corePrice_feature_div`, which does not exist on these pages — and it
+     is populated by AJAX, so a plain HTTP fetch finds it present but empty.
+
+  3. The buy-box price as it appears when it IS populated, inside `#corePrice_desktop`.
+
+  A correct parser takes 3, never 1, and reports nothing rather than guessing when only 2 exists.
+-->
+<html>
+  <head><title>Amazon.com: adidas Men's Essentials Fleece Hoodie</title></head>
+  <body>
+    <span id="productTitle">adidas Men's Essentials Fleece Hoodie</span>
+
+    <!-- HAZARD 1: a carousel entry. Its price belongs to another product, and it is a link. -->
+    <div class="a-section aok-relative">
+      <a class="a-link-normal a-text-normal" href="#" role="link">
+        <div class="a-row">
+          <span class="a-price" data-a-size="m" data-a-color="base">
+            <span class="a-offscreen">$44.99</span>
+            <span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">44</span></span>
+          </span>
+        </div>
+      </a>
+    </div>
+
+    <!-- HAZARD 2: the real container, empty until AJAX fills it. -->
+    <div id="corePrice_desktop"></div>
+
+    <!-- The buy box, populated. This is the only price that may be read. -->
+    <div id="buybox">
+      <div class="priceToPay">
+        <span class="a-price" data-a-color="base">
+          <span class="a-offscreen">$35.99</span>
+          <span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">35</span></span>
+        </span>
+      </div>
+    </div>
+
+    <div id="availability"><span>In Stock</span></div>
+  </body>
+</html>

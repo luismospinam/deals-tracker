@@ -15,6 +15,48 @@ import kotlin.test.assertTrue
  */
 class BotWallMarkerTest {
 
+    /**
+     * Amazon's 503 refusal reaches us in two forms, and only one carried a marker we matched.
+     *
+     * Over HTTP the page includes `api-services-support@amazon.com` inside an HTML **comment**.
+     * Rendered in a browser, `page.content()` returns the parsed DOM and that comment is gone — so
+     * a 2,316-byte refusal matched nothing, was accepted as a valid results page with zero
+     * results, and made the Amazon adapter blame its own selector while Amazon was saying no.
+     * Both captured from the live site on 2026-09-21.
+     */
+    @Test
+    fun `the 503 refusal is detected whether or not its html comment survived parsing`() {
+        val overHttp = """
+            <!-- To discuss automated access to Amazon data please contact
+                 api-services-support@amazon.com. -->
+            <html><head><title>Sorry! Something went wrong!</title></head>
+            <body><a href="/dogsofamazon/ref=cs_503_link">dogs</a></body></html>
+        """.trimIndent()
+
+        // The same page as a browser hands it back: no comment, so the old markers all miss.
+        val viaBrowser = """
+            <html><head><title>Sorry! Something went wrong!</title></head>
+            <body><img src="/dogsofamazon.jpg"><a href="/dogsofamazon/ref=cs_503_link">dogs</a></body></html>
+        """.trimIndent()
+
+        assertTrue(botWallMarkers(overHttp).isNotEmpty(), "the HTTP form must be detected")
+        assertTrue(
+            botWallMarkers(viaBrowser).isNotEmpty(),
+            "the browser-rendered form must be detected too — this is the case that was missed",
+        )
+    }
+
+    /** The new markers must not fire on an ordinary page, or every fetch reads as blocked. */
+    @Test
+    fun `a real search results page is not mistaken for a refusal`() {
+        val real = """
+            <html><head><title>Amazon.com : nike men shoes</title></head>
+            <body><div data-component-type="s-search-result" data-asin="B0CZNT94BG">
+            <span class="a-offscreen">COP 261,422.72</span></div></body></html>
+        """.trimIndent()
+        assertEquals(emptyList(), botWallMarkers(real))
+    }
+
     @Test
     fun `a real interstitial is still detected`() {
         val wall = """
