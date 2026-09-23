@@ -9,7 +9,9 @@
    2. The CATEGORY is the breadcrumb: Clothing, Shoes & Jewelry > Men > Clothing > Underwear.
    3. The exact SIZE of this ASIN comes from the variation map, NOT from a search filter -- which
       is what lets a manually-added item dodge the size-representative problem entirely.
-   4. The PRICE lives in `.apex-pricetopay-value`, whose own `.a-offscreen` span is EMPTY -- the
+   4. The IMAGE is in `#imgTagWrapperId img[src]`. `#landingImage` -- the obvious candidate -- is
+      ABSENT on these pages, verified across four real captures.
+   5. The PRICE lives in `.apex-pricetopay-value`, whose own `.a-offscreen` span is EMPTY -- the
       digits are in `.a-price-whole` / `.a-price-fraction`. An earlier version of this fixture
       kept the first offscreen price on the page instead, which was the "$6.33 per count"
       per-unit figure, so it encoded the very bug it was meant to guard against.
@@ -23,6 +25,8 @@
 </ul></div>
 
 <div id="bylineInfo_feature_div"><a id="bylineInfo" class="a-link-normal" href="#">Visit the New Balance Store</a></div>
+
+<div role="button" tabindex="0" id="imgTagWrapperId" class="imgTagWrapper"><img alt="Premium 3-Inch Trunk Boxer Brief by New Balance | 3 Pack Athletic Underwear, Soft Brushed Fabric with Moisture Wicking Technology and Comfortable Jacquard Waistband" src="https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX342_SY445_QL70_ML2_.jpg" data-mb-pv-slot-index="0" data-old-hires="https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SL1000_.jpg" onload="if(this.width/this.height &gt; 0.77){this.className += ' a-stretch-horizontal'}else{this.className += ' a-stretch-vertical'};this.onload='';markFeatureRenderForImageBlock();setCSMReq('af');if(typeof addlongPoleTag === 'function'){ addlongPoleTag('af','desktop-image-atf-marker');};setCSMReq('cf');logContentLoadedMarker(0);" data-a-image-name="landingImage" class="a-dynamic-image media-block-image-tag" id="landingImage" data-a-dynamic-image="{&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX342_.jpg&quot;:[342,342],&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX385_.jpg&quot;:[385,385],&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX425_.jpg&quot;:[425,425],&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX466_.jpg&quot;:[466,466],&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX522_.jpg&quot;:[522,522],&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX569_.jpg&quot;:[569,569],&quot;https://m.media-amazon.com/images/I/61a2HNR5roL._AC_SX679_.jpg&quot;:[679,679]}" style="max-width:679px;max-height:679px;" fetchpriority="high"/></div>
 
 <span id="productTitle">Premium 3-Inch Trunk Boxer Brief by New Balance</span>
 

@@ -74,6 +74,20 @@ class ManualItemRepository(private val ds: DataSource) {
             }
         }
 
+    /**
+     * Just the ASINs, for marking and filtering rows in the UI.
+     *
+     * A set rather than the full rows: the tracked tab asks "was this one added by hand?" once per
+     * row, and loading the URLs and timestamps to answer a membership test would be wasteful.
+     */
+    fun trackedAsins(): Set<String> = ds.connection.use { conn ->
+        conn.prepareStatement("SELECT asin FROM manual_items").use { st ->
+            st.executeQuery().use { rs ->
+                buildSet { while (rs.next()) add(rs.getString("asin")) }
+            }
+        }
+    }
+
     /** Oldest-checked first, nulls first, so a repeatedly failing item cannot starve the others. */
     fun all(): List<ManualItem> = ds.connection.use { conn ->
         conn.prepareStatement(

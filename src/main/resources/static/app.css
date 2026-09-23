@@ -1292,3 +1292,19 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   border-radius: var(--radius);
   color: var(--text);
 }
+
+/* Tracked tab: the "added by URL" badge.
+ *
+ * Green because it marks verified-good, the same meaning the at-lowest badge and the CO-shipping
+ * verdict use — these rows' price and size are the item's own rather than a size filter's guess.
+ * Quieter than those two: it is provenance, not news. */
+.manual-badge {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--good);
+  border: 1px solid rgba(79, 191, 139, 0.4);
+  border-radius: 3px;
+  padding: 0 5px;
+}

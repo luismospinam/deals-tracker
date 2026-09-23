@@ -4,6 +4,7 @@ import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.FeedFilter
 import com.luis.dealstracker.db.WatchDraft
+import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.ingest.Categorizer
 import com.luis.dealstracker.ingest.IngestService
@@ -47,6 +48,7 @@ fun Application.routes(
     watches: WatchRepository,
     ingest: IngestService,
     manual: ManualItemService,
+    manualItems: ManualItemRepository,
     app: AppConfig,
     categorizer: Categorizer,
     scope: CoroutineScope,
@@ -161,9 +163,14 @@ fun Application.routes(
             val brand = call.request.queryParameters["brand"]?.trim()?.takeIf { it.isNotEmpty() }
 
             val notice = call.request.queryParameters["notice"]?.trim()?.takeIf { it.isNotEmpty() }
+            // Unknown values fall back to "no filter", same tolerance as type/sort/brand.
+            val origin = TrackedOrigin.of(call.request.queryParameters["origin"])
+            val manualAsins = withContext(Dispatchers.IO) { manualItems.trackedAsins() }
 
             call.respondHtml {
-                page("Tracked — Deals Tracker") { trackedPage(deals, sources, selected, sort, brand, notice) }
+                page("Tracked — Deals Tracker") {
+                    trackedPage(deals, sources, selected, sort, brand, notice, manualAsins, origin)
+                }
             }
         }
 

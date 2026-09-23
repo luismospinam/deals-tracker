@@ -88,7 +88,7 @@ internal class ManualItemFetcher(
                 // Override first, then the page's byline. Null stays null rather than being guessed
                 // from the title: a wrong brand produces a wrong identity key.
                 brand = brandOverride?.trim()?.takeIf { it.isNotEmpty() } ?: AmazonParser.parseBrand(html),
-                imageUrl = null,
+                imageUrl = AmazonParser.parseImage(html),
                 listPrice = null,
                 // A type override doubles as the category hint; otherwise the breadcrumb, which
                 // Categorizer prefers to guessing from a title.

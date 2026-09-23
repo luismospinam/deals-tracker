@@ -140,6 +140,28 @@ internal enum class ProductType(val label: String, internal val nouns: List<Stri
 }
 
 /**
+ * How a tracked row got here: found by a search, or added by URL.
+ *
+ * Worth distinguishing rather than a cosmetic label, because the two are not equally trustworthy.
+ * Amazon's size FILTER returns a representative of the product family, not strictly the matching
+ * child — a size-8 search returned the 8.5 ASIN at $130.26 while size 8 sold for $107.41 — so a
+ * searched row's size is Amazon's claim. A pasted URL names an exact ASIN, so its size comes from
+ * that ASIN's own variation entry and its price is the price of the thing actually wanted.
+ *
+ * So "added by hand" marks the rows whose numbers can be relied on, which is the reason to surface
+ * it at all.
+ */
+internal enum class TrackedOrigin(val label: String) {
+    MANUAL("added"),
+    SEARCH("found");
+
+    companion object {
+        fun of(value: String?): TrackedOrigin? =
+            entries.firstOrNull { it.label.equals(value?.trim(), ignoreCase = true) }
+    }
+}
+
+/**
  * How the tracked table is ordered.
  *
  * A small local enum rather than reusing `WatchSort`, which is coupled to the two watch tables and
@@ -194,12 +216,18 @@ internal fun comparatorFor(sort: TrackedSort): Comparator<Deal> = when (sort) {
  * Built in one place so the type tags and the column headers cannot encode state differently —
  * each control changes its own dimension and carries the other along unchanged.
  */
-private fun trackedUrl(types: Set<ProductType>, sort: TrackedSort, brand: String? = null): String {
+private fun trackedUrl(
+    types: Set<ProductType>,
+    sort: TrackedSort,
+    brand: String? = null,
+    origin: TrackedOrigin? = null,
+): String {
     val params = buildList {
         if (types.isNotEmpty()) add("type=" + types.joinToString(",") { it.label })
         // The default is omitted, so the plain path stays the canonical URL for it.
         if (sort != TrackedSort.PRICE) add("sort=${sort.key}")
         brand?.takeIf { it.isNotBlank() }?.let { add("brand=" + java.net.URLEncoder.encode(it, "UTF-8")) }
+        origin?.let { add("origin=${it.label}") }
     }
     return if (params.isEmpty()) "/tracked" else "/tracked?" + params.joinToString("&")
 }
@@ -217,9 +245,10 @@ private fun kotlinx.html.TR.sortTh(
     selected: Set<ProductType>,
     classes: String,
     brand: String?,
+    origin: TrackedOrigin?,
     tooltip: String? = null,
 ) {
-    val href = trackedUrl(selected, sort, brand)
+    val href = trackedUrl(selected, sort, brand, origin)
 
     th(classes = classes) {
         tooltip?.let { title = it }
@@ -309,6 +338,7 @@ private fun MAIN.brandPicker(
     types: Set<ProductType>,
     sort: TrackedSort,
     brand: String?,
+    origin: TrackedOrigin?,
 ) {
     // Case-insensitive grouping: V12's backfill recovered the folded form (`adidas`) from
     // model_key while a fresh fetch stores the source's own casing (`Nike`), and the two must not
@@ -327,7 +357,7 @@ private fun MAIN.brandPicker(
                 attributes["onchange"] = "location.href=this.value"
 
                 option {
-                    value = trackedUrl(types, sort, null)
+                    value = trackedUrl(types, sort, null, origin)
                     if (brand.isNullOrBlank()) this.selected = true
                     +"all brands"
                 }
@@ -335,11 +365,51 @@ private fun MAIN.brandPicker(
                     .forEach { (key, n) ->
                         val name = display[key] ?: key
                         option {
-                            value = trackedUrl(types, sort, name)
+                            value = trackedUrl(types, sort, name, origin)
                             if (brand?.lowercase() == key) this.selected = true
                             +"$name ($n)"
                         }
                     }
+            }
+        }
+    }
+}
+
+/**
+ * "How it got here" tags: found by a search, or added by URL.
+ *
+ * Tags rather than a dropdown, matching the type row: there are exactly two values and both fit.
+ * Counted within the active brand for the same reason the type tags are — a tag that promises rows
+ * the page will not show teaches you to distrust the numbers.
+ */
+private fun MAIN.originTags(
+    deals: List<Deal>,
+    manualAsins: Set<String>,
+    selected: Set<ProductType>,
+    sort: TrackedSort,
+    brand: String?,
+    origin: TrackedOrigin?,
+) {
+    val inBrand = deals.filter {
+        brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase()
+    }
+    val manual = inBrand.count { it.asin != null && it.asin in manualAsins }
+    val found = inBrand.size - manual
+
+    // Nothing to choose between if every row came the same way.
+    if (manual == 0 || found == 0) return
+
+    div("typetags") {
+        span("typetags-label") { +"Origin" }
+
+        listOf(TrackedOrigin.MANUAL to manual, TrackedOrigin.SEARCH to found).forEach { (which, n) ->
+            val on = origin == which
+            a(
+                classes = if (on) "typetag on" else "typetag",
+                href = trackedUrl(selected, sort, brand, if (on) null else which),
+            ) {
+                +which.label
+                span("typetag-n") { +n.toString() }
             }
         }
     }
@@ -360,6 +430,7 @@ private fun MAIN.typeTags(
     selected: Set<ProductType>,
     sort: TrackedSort,
     brand: String?,
+    origin: TrackedOrigin?,
 ) {
     // Counted within the active BRAND, but across all types.
     //
@@ -385,7 +456,7 @@ private fun MAIN.typeTags(
 
             val on = type in selected
             val next = if (on) selected - type else selected + type
-            val href = trackedUrl(next, sort, brand)
+            val href = trackedUrl(next, sort, brand, origin)
 
             a(classes = if (on) "typetag on" else "typetag", href = href) {
                 +type.label
@@ -396,7 +467,7 @@ private fun MAIN.typeTags(
         if (selected.isNotEmpty()) {
             // Clears the TYPE filter only. Resetting the sort too would be a second, unasked-for
             // change hiding behind one control.
-            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand)) { +"clear" }
+            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin)) { +"clear" }
         }
     }
 }
@@ -441,6 +512,8 @@ internal fun MAIN.trackedPage(
     sort: TrackedSort = TrackedSort.PRICE,
     brand: String? = null,
     notice: String? = null,
+    manualAsins: Set<String> = emptySet(),
+    origin: TrackedOrigin? = null,
 ) {
     addItemForm(notice)
 
@@ -472,20 +545,28 @@ internal fun MAIN.trackedPage(
 
     // Tags are built from the UNFILTERED set, so the counts stay stable and a deselected type does
     // not vanish from the row the moment you click it.
-    brandPicker(deals, selected, sort, brand)
-    typeTags(deals, selected, sort, brand)
+    brandPicker(deals, selected, sort, brand, origin)
+    typeTags(deals, selected, sort, brand, origin)
+    originTags(deals, manualAsins, selected, sort, brand, origin)
 
     val shown = deals
         .filter { selected.isEmpty() || ProductType.of(it.title) in selected }
         // Case-insensitive, for the same reason the picker groups that way: the stored casing
         // differs between a V12-backfilled row and a freshly fetched one.
         .filter { brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase() }
+        .filter {
+            when (origin) {
+                null -> true
+                TrackedOrigin.MANUAL -> it.asin != null && it.asin in manualAsins
+                TrackedOrigin.SEARCH -> it.asin == null || it.asin !in manualAsins
+            }
+        }
         .sortedWith(comparatorFor(sort))
 
     if (shown.isEmpty()) {
         div("empty") {
             +"No tracked items of that type. "
-            a(href = trackedUrl(emptySet(), sort, brand)) { +"Show all" }
+            a(href = trackedUrl(emptySet(), sort, brand, origin)) { +"Show all" }
             +"."
         }
         return
@@ -513,13 +594,13 @@ internal fun MAIN.trackedPage(
                 th(classes = "col-thumb") { attributes["aria-label"] = "image" }
                 th { +"Item" }
                 th(classes = "col-size") { +"Size" }
-                sortTh("Now", TrackedSort.PRICE, sort, selected, "col-price", brand)
+                sortTh("Now", TrackedSort.PRICE, sort, selected, "col-price", brand, origin)
                 th(classes = "col-price") {
                     title = "Amazon's own \"List:\" price, where it publishes one"
                     +"List"
                 }
                 sortTh(
-                    "Off", TrackedSort.OFF, sort, selected, "col-disc", brand,
+                    "Off", TrackedSort.OFF, sort, selected, "col-disc", brand, origin,
                     tooltip = "Discount against Amazon's list price — its claim about its own " +
                         "former price, not a decline we observed. Blank where no list price is " +
                         "shown; those rows sort last.",
@@ -539,7 +620,7 @@ internal fun MAIN.trackedPage(
                     +"Highest"
                 }
                 sortTh(
-                    "Low", TrackedSort.LOWEST, sort, selected, "col-low", brand,
+                    "Low", TrackedSort.LOWEST, sort, selected, "col-low", brand, origin,
                     tooltip = "At the lowest price we have ever recorded, AND genuinely down from " +
                         "a higher one we saw. A price that never moved does not qualify.",
                 )
@@ -548,17 +629,17 @@ internal fun MAIN.trackedPage(
                         "observation exists — one price is not a trend."
                     +"Change"
                 }
-                sortTh("Checked", TrackedSort.CHECKED, sort, selected, "col-seen", brand)
+                sortTh("Checked", TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin)
                 th(classes = "col-act") { +"" }
             }
         }
         tbody {
-            shown.forEach { trackedRow(it) }
+            shown.forEach { trackedRow(it, manualAsins) }
         }
     }
 }
 
-private fun kotlinx.html.TBODY.trackedRow(deal: Deal) {
+private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) {
     tr {
         // htmx targets this to remove the row on hide.
         id = "tracked-${deal.id}"
@@ -583,6 +664,15 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal) {
             }
             div("meta") {
                 span { +deal.source }
+                // Marks the rows whose price and size are exact rather than filter-derived. See
+                // TrackedOrigin for why that distinction is worth surfacing.
+                if (deal.asin != null && deal.asin in manualAsins) {
+                    span("manual-badge") {
+                        title = "Added by URL, so its ASIN is exact — the price and size are this " +
+                            "item's own, not a size filter's best guess."
+                        +"added"
+                    }
+                }
                 deal.asin?.let { span { +"ASIN $it" } }
                 deal.categoryGroup?.let { span("cat") { +it } }
             }

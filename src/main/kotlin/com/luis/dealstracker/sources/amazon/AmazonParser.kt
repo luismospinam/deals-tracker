@@ -354,6 +354,32 @@ internal object AmazonParser {
     }
 
     /**
+     * The product image.
+     *
+     * `#imgTagWrapperId img[src]` first, because it is the image Amazon actually renders and is a
+     * plain attribute read. The `"hiRes"` entry in the `colorImages` payload is the fallback: it is a
+     * larger file and survives when the wrapper's markup shifts, but it lives in an inline script,
+     * so reaching for it first would mean regex-scanning a 2MB document for every item.
+     *
+     * Note `#landingImage` — the obvious candidate, and the one the feed's other adapters would
+     * suggest — is ABSENT on these pages. Verified across four real captures: shoes, boxer briefs
+     * and two different trainers all carried `#imgTagWrapperId` and `hiRes`, and none had
+     * `#landingImage` or an `og:image`.
+     *
+     * Data URIs are rejected: Amazon uses a base64 placeholder while the real image lazy-loads, and
+     * storing that would give every row the same grey square.
+     */
+    fun parseImage(html: String): String? {
+        Jsoup.parse(html).selectFirst("#imgTagWrapperId img")
+            ?.attr("src")?.trim()
+            ?.takeIf { it.startsWith("http") }
+            ?.let { return it }
+
+        return Regex(""""hiRes"\s*:\s*"(https?://[^"]{20,300})"""")
+            .find(html)?.groupValues?.get(1)
+    }
+
+    /**
      * Whether this HTML is actually a rendered product page.
      *
      * The signal that separates "the size is not stocked" from "we were served a wall". Amazon's

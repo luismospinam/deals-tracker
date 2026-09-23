@@ -124,6 +124,47 @@ class ManualAddTest {
         assertEquals("USD", currency)
     }
 
+    /**
+     * The product image, which a manually-added row was missing entirely.
+     *
+     * `#landingImage` — the obvious candidate — is ABSENT on these pages; verified across four real
+     * captures (shoes, boxer briefs, two trainers), all of which carried `#imgTagWrapperId` and a
+     * `"hiRes"` entry instead, and none of which had an `og:image`.
+     */
+    @Test
+    fun `reads the product image from the wrapper Amazon actually renders`() {
+        val img = assertNotNull(AmazonParser.parseImage(page))
+        assertEquals(true, img.startsWith("https://m.media-amazon.com/images/"), img)
+    }
+
+    /**
+     * Amazon serves a base64 placeholder while the real image lazy-loads. Storing that would give
+     * every row the same grey square, so it must read as "no image" rather than as an image.
+     */
+    @Test
+    fun `a lazy-load placeholder is not treated as an image`() {
+        val placeholder = """
+            <html><body><div id="imgTagWrapperId">
+              <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+            </div></body></html>
+        """.trimIndent()
+        assertNull(AmazonParser.parseImage(placeholder))
+    }
+
+    /** The hiRes payload is the fallback when the wrapper's markup shifts. */
+    @Test
+    fun `falls back to the hiRes payload when the wrapper is absent`() {
+        val onlyJson = """
+            <html><body><script>
+              var data = {"colorImages":{"initial":[{"hiRes":"https://m.media-amazon.com/images/I/71mNsWXnr-L._AC_SL1500_.jpg"}]}};
+            </script></body></html>
+        """.trimIndent()
+        assertEquals(
+            "https://m.media-amazon.com/images/I/71mNsWXnr-L._AC_SL1500_.jpg",
+            AmazonParser.parseImage(onlyJson),
+        )
+    }
+
     // --- and the price, which is the point ---
 
     @Test

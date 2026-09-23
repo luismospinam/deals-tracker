@@ -19,7 +19,7 @@ import java.util.Locale
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "28"
+private const val CSS_VERSION = "29"
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an

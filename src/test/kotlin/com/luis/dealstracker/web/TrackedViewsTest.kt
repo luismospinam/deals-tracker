@@ -183,6 +183,26 @@ class TrackedViewsTest {
         assertEquals(ProductType.PANTS, ProductType.of("Men's Tiro 19 Track Pants — S"))
     }
 
+    // --- origin: found by a search vs added by URL ---
+
+    /**
+     * The two origins are not equally trustworthy, which is the reason to surface the distinction.
+     *
+     * Amazon's size FILTER returns a representative of the product family rather than strictly the
+     * matching child, so a searched row's size is Amazon's claim. A pasted URL names an exact ASIN,
+     * so its price and size are the item's own.
+     */
+    @Test
+    fun `origin parses from its label and ignores anything else`() {
+        assertEquals(TrackedOrigin.MANUAL, TrackedOrigin.of("added"))
+        assertEquals(TrackedOrigin.SEARCH, TrackedOrigin.of("found"))
+        assertEquals(TrackedOrigin.MANUAL, TrackedOrigin.of("ADDED"))
+        // Unknown and absent both mean "no filter" rather than an error.
+        assertNull(TrackedOrigin.of("manual"))
+        assertNull(TrackedOrigin.of(null))
+        assertNull(TrackedOrigin.of(""))
+    }
+
     // --- extra charges (shipping / import) ---
 
     /**

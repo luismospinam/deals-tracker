@@ -249,7 +249,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, app, categorizer, scope)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope)
     }.start(wait = true)
 }
 
