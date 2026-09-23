@@ -332,4 +332,69 @@ class WatchEvaluatorTest {
         )
         assertTrue(alerts.all { it.dealId == 1L })
     }
+
+    // --- currency isolation ---
+
+    /**
+     * The failure this guards against is silence, which is the worst kind here: a watch whose
+     * terms span two languages ("soporte para TV | TV wall mount") matches Colombian listings
+     * in COP and Slickdeals listings in USD. Nothing in this app holds an FX rate, so a single
+     * global minimum across both currencies lands on the USD figure -- $22.99 -- and no COP
+     * listing can ever be numerically below it. The watch then never fires again while still
+     * looking perfectly healthy.
+     */
+    @Test
+    fun `a cheap USD listing does not become the floor for COP listings`() {
+        val alerts = WatchEvaluator.evaluate(
+            watch(),
+            listOf(
+                // USD mount, numerically tiny next to any COP price.
+                candidate(1, "slickdeals", "22.99", priorFloor = "39.99", currency = "USD"),
+                // COP mount beating its own COP floor: this must still be announced.
+                candidate(2, "exito", "19061", priorFloor = "20697", currency = "COP"),
+            ),
+        )
+
+        assertEquals(
+            setOf(1L, 2L),
+            alerts.filter { it.reason == MatchReason.LOWEST_IN_WINDOW }.map { it.dealId }.toSet(),
+            "each currency must be judged against its own floor",
+        )
+    }
+
+    /** Evidence is the audit trail, so it has to name the price in the unit it was quoted in. */
+    @Test
+    fun `evidence reports the candidate's own currency, not the watch's`() {
+        val alerts = WatchEvaluator.evaluate(
+            watch(),
+            listOf(candidate(1, "slickdeals", "22.99", priorFloor = "39.99", currency = "USD")),
+        )
+
+        val evidence = alerts.single().evidence
+        assertTrue(
+            evidence.contains("US$"),
+            "a USD alert under a COP watch must still read as USD, got: $evidence",
+        )
+    }
+
+    /**
+     * Cross-site comparison must not pair a COP listing with a USD one. Both carry the same
+     * model key here -- the same mount really is sold on both -- so only the currency
+     * separation stops a 15,000 COP bracket being reported as "99.8% cheaper than slickdeals".
+     */
+    @Test
+    fun `cross-site spread never compares across currencies`() {
+        val alerts = WatchEvaluator.evaluate(
+            watch(),
+            listOf(
+                candidate(1, "exito", "15000", matchKey = "mount-x", currency = "COP"),
+                candidate(2, "slickdeals", "22.99", matchKey = "mount-x", currency = "USD"),
+            ),
+        )
+
+        assertTrue(
+            alerts.none { it.reason == MatchReason.CROSS_SITE_SPREAD },
+            "a COP price and a USD price are not comparable, got: ${alerts.map { it.evidence }}",
+        )
+    }
 }

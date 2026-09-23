@@ -181,17 +181,44 @@ class WatchRepository(private val ds: DataSource) {
         //
         // `maxPrice` is the budget, and a budget is about what you would pay now, so that
         // one does test the current price.
+        // Both bounds apply ONLY to listings in the watch's own currency. A bound is a number
+        // with no unit attached, and this app holds no FX rate anywhere, so testing a COP floor
+        // of 10,000 against a $22.99 mount compares unrelated quantities -- and because USD
+        // amounts are numerically tiny next to COP ones, every USD listing would fail a COP
+        // floor and be dropped without trace. That is precisely the silent-exclusion failure
+        // the minPrice comment below warns about, arriving through the currency rather than
+        // through the discount.
+        //
+        // Leaving the other currency UNBOUNDED rather than excluded is the deliberate choice: a
+        // watch spanning both is a legitimate thing to want -- "soporte para TV | TV wall mount"
+        // is one shopping intent expressed in two languages -- and the rules in WatchEvaluator
+        // already compare like with like. An unbounded USD side is noisier than a bounded one,
+        // never wrong; a silently emptied USD side looks like the source has nothing.
+        // Accumulated separately, then appended together. The currency placeholder comes first
+        // inside the clause, so it has to reach `params` before the bounds' own values -- and
+        // since `params` already holds the term/exclude/category/source values, that means
+        // building this group in order rather than inserting into the list.
+        val bounded = mutableListOf<String>()
+        val boundParams = mutableListOf<Any>()
         watch.minPrice?.let {
-            where += "hi.top >= ?"
-            params += it
+            bounded += "hi.top >= ?"
+            boundParams += it
         }
         watch.maxPrice?.let {
-            where += "po.price <= ?"
-            params += it
+            bounded += "po.price <= ?"
+            boundParams += it
+        }
+        if (bounded.isNotEmpty()) {
+            where += "(d.currency <> ? OR (${bounded.joinToString(" AND ")}))"
+            params += watch.currency
+            // addAll IS wanted here, unlike the `sources` array above: each bound is its own
+            // placeholder, so these must splat into separate parameters rather than bind as one.
+            params.addAll(boundParams)
         }
 
         val sql = """
-            SELECT d.id, d.source, d.title, d.url, d.currency, d.match_key, d.model_key, po.price, prior.floor AS prior_floor
+            SELECT d.id, d.source, d.title, d.url, d.currency, d.match_key, d.model_key,
+                   po.price, prior.floor AS prior_floor
             FROM deals d
             JOIN LATERAL (
                 SELECT price, observed_at FROM price_observations
@@ -318,18 +345,23 @@ class WatchRepository(private val ds: DataSource) {
         pending: List<Pair<Long, WatchAlert>>,
     ): List<PendingNotification> {
         if (pending.isEmpty()) return emptyList()
-        val byDeal = mutableMapOf<Long, Pair<String, String>>()
-        conn.prepareStatement("SELECT id, title, source FROM deals WHERE id = ANY (?)").use { st ->
+        // Currency comes from the DEAL, not the watch: a watch may legitimately match listings
+        // priced in another currency (a Spanish/English term list spans COP retailers and USD
+        // ones), and a banner that renders $22.99 as "$22,99" in COP misreports the price by
+        // three orders of magnitude.
+        val byDeal = mutableMapOf<Long, Triple<String, String, String>>()
+        conn.prepareStatement("SELECT id, title, source, currency FROM deals WHERE id = ANY (?)").use { st ->
             st.setArray(1, conn.createArrayOf("bigint", pending.map { it.second.dealId }.toTypedArray()))
             st.executeQuery().use { rs ->
                 while (rs.next()) {
-                    byDeal[rs.getLong("id")] = rs.getString("title") to rs.getString("source")
+                    byDeal[rs.getLong("id")] =
+                        Triple(rs.getString("title"), rs.getString("source"), rs.getString("currency"))
                 }
             }
         }
         return pending.mapNotNull { (matchId, alert) ->
-            val (title, source) = byDeal[alert.dealId] ?: return@mapNotNull null
-            PendingNotification(matchId, watch.name, alert, title, source, watch.currency)
+            val (title, source, currency) = byDeal[alert.dealId] ?: return@mapNotNull null
+            PendingNotification(matchId, watch.name, alert, title, source, currency)
         }
     }
 

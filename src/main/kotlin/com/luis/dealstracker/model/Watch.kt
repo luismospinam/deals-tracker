@@ -72,6 +72,12 @@ data class WatchCandidate(
      * ~100% saving. That was latent while every source but Slickdeals was COP and Slickdeals
      * rarely clustered with them; the Amazon adapter stores COP prices for rows that may share
      * an identity key with a Colombian retailer, which makes the collision realistic.
+     *
+     * The lowest-in-window rule needs it for a different reason, and the failure there is
+     * silence rather than a false positive: that rule takes ONE minimum across all candidates,
+     * so a watch whose terms span both languages ("soporte para TV | TV wall mount") would set
+     * its floor at the USD figure — $22.99 — which no COP listing can ever be below. The watch
+     * then never fires again while still reporting candidates and looking healthy.
      */
     val currency: String,
     val priorFloor: BigDecimal?,

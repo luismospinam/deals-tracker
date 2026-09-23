@@ -21,8 +21,24 @@ object WatchEvaluator {
 
     private val HUNDRED = BigDecimal(100)
 
+    /**
+     * Evaluates both rules **per currency**, then concatenates the results.
+     *
+     * Grouping here rather than inside each rule keeps the rules themselves single-currency by
+     * construction, so neither can accidentally compare a USD price against a COP one. Nothing
+     * in this app holds an FX rate, so two prices in different currencies are simply not
+     * comparable — 22.99 is a smaller *number* than 15,000 but not a cheaper mount.
+     *
+     * This matters as soon as one watch spans both, which a Spanish/English term list does
+     * naturally: "soporte para TV | TV wall mount" matches Colombian retailers in COP and
+     * Slickdeals in USD. Before this, [lowestInWindow] took one global minimum and would have
+     * set the floor at $22.99, which no COP listing can go below — a watch that had gone
+     * permanently silent while appearing to work.
+     */
     fun evaluate(watch: Watch, candidates: List<WatchCandidate>): List<WatchAlert> =
-        lowestInWindow(watch, candidates) + crossSiteSpread(watch, candidates)
+        candidates.groupBy { it.currency }.flatMap { (_, sameCurrency) ->
+            lowestInWindow(watch, sameCurrency) + crossSiteSpread(watch, sameCurrency)
+        }
 
     /**
      * Fires when a price beats the cheapest price previously recorded for anything this
@@ -57,9 +73,14 @@ object WatchEvaluator {
                 dealId = candidate.dealId,
                 reason = MatchReason.LOWEST_IN_WINDOW,
                 price = candidate.price,
-                evidence = "beat the ${formatMoney(floor, watch.currency)} " +
+                // The candidate's own currency, not the watch's. Every candidate in this call
+                // shares one currency (see `evaluate`), but that need not be the watch's
+                // nominal one -- a COP watch legitimately matches USD listings -- and the
+                // evidence is the audit trail, so labelling $22.99 as "$22,99 COP" would make
+                // a correct alert unreadable.
+                evidence = "beat the ${formatMoney(floor, candidate.currency)} " +
                     "${watch.lookbackDays}-day floor held by ${incumbent.source}, " +
-                    "by ${formatMoney(saving, watch.currency)}",
+                    "by ${formatMoney(saving, candidate.currency)}",
             )
         }
     }
@@ -115,7 +136,7 @@ object WatchEvaluator {
                 reason = MatchReason.CROSS_SITE_SPREAD,
                 price = candidate.price,
                 evidence = "$spread% cheaper than ${elsewhere.source} " +
-                    "at ${formatMoney(elsewhere.price, watch.currency)} (same $shared)",
+                    "at ${formatMoney(elsewhere.price, candidate.currency)} (same $shared)",
             )
         }
     }
