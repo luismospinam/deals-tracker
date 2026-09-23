@@ -224,8 +224,12 @@ fun main(args: Array<String>) {
 
             // After the searches, so a long manual list cannot starve discovery. Wrapped for the
             // same reason every other phase is: one failing item must not stop the cycle.
-            runCatching { manualService.refreshAll() }
-                .onFailure { println("[manual] refresh failed: ${it.message}") }
+            // Skips anything a search already fetched this cycle -- otherwise an item that is both
+            // manually tracked and returned by a search gets two observations seconds apart, which
+            // reads as a price oscillating when nothing moved.
+            runCatching {
+                manualService.refreshAll(repo.recentlyObservedAsins("amazon"))
+            }.onFailure { println("[manual] refresh failed: ${it.message}") }
 
             // Every cycle, not every Nth: a watch is only as fresh as the observations it
             // scores, and unlike the browser-based shipping verifier this costs one query

@@ -9,6 +9,10 @@
    2. The CATEGORY is the breadcrumb: Clothing, Shoes & Jewelry > Men > Clothing > Underwear.
    3. The exact SIZE of this ASIN comes from the variation map, NOT from a search filter -- which
       is what lets a manually-added item dodge the size-representative problem entirely.
+   4. The PRICE lives in `.apex-pricetopay-value`, whose own `.a-offscreen` span is EMPTY -- the
+      digits are in `.a-price-whole` / `.a-price-fraction`. An earlier version of this fixture
+      kept the first offscreen price on the page instead, which was the "$6.33 per count"
+      per-unit figure, so it encoded the very bug it was meant to guard against.
 -->
 <html><head><title>Premium 3-Inch Trunk Boxer Brief by New Balance</title></head><body>
 <div id="wayfinding-breadcrumbs_feature_div"><ul>
@@ -22,7 +26,9 @@
 
 <span id="productTitle">Premium 3-Inch Trunk Boxer Brief by New Balance</span>
 
-<div id="corePrice_desktop"><span class="a-price"><span class="a-offscreen">$6.33</span></span></div>
+<div id="corePrice_feature_div">
+  <div class="a-section apex-core-price-identifier"><span class="a-price aok-align-center reinventPricePriceToPayMargin priceToPay apex-pricetopay-value" data-a-size="xl" data-a-color="base"><span class="a-offscreen"> </span><span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">18<span class="a-price-decimal">.</span></span><span class="a-price-fraction">98</span></span></span></div>
+</div>
 <div id="availability"><span>In Stock</span></div>
 
 <script type="text/javascript">

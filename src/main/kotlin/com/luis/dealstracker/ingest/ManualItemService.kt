@@ -101,10 +101,27 @@ class ManualItemService(
      * Never throws: a manual item failing must not stop the rest of the cycle, the same guarantee
      * `IngestService.runAll` gives each provider.
      */
-    suspend fun refreshAll(): Int {
+    /**
+     * @param alreadySeen ASINs a search already fetched this cycle. Those are skipped.
+     *
+     * Without this a manually-tracked item that a search ALSO returns is written twice per poll,
+     * two seconds apart. Observed on a New Balance boxer brief: every hourly cycle left two
+     * price_observations rows for one item, so its history read as a price oscillating between two
+     * values when nothing had changed. "Lowest ever" and the change percentage are both computed
+     * from that series, so a duplicate is not cosmetic — it fabricates movement.
+     *
+     * The search wins because it already paid for the request. Skipping is therefore also cheaper.
+     */
+    suspend fun refreshAll(alreadySeen: Set<String> = emptySet()): Int {
         val cfg = provider ?: return 0
-        val list = items.all()
-        if (list.isEmpty()) return 0
+        val all = items.all()
+        val list = all.filterNot { it.asin in alreadySeen }
+        if (list.isEmpty()) {
+            if (all.isNotEmpty()) {
+                println("[manual] all ${all.size} tracked URL(s) were already fetched by a search this cycle")
+            }
+            return 0
+        }
 
         val fetcher = AmazonFetcher(
             http = http,
@@ -145,7 +162,13 @@ class ManualItemService(
 
         // Counted, never silent -- the house rule. A manual list that has quietly stopped refreshing
         // is indistinguishable in the UI from one whose prices have not moved.
-        println("[manual] refreshed $refreshed of ${list.size} tracked URL(s)" + if (failed > 0) ", $failed failed" else "")
+        val skipped = all.size - list.size
+        println(
+            "[manual] refreshed $refreshed of ${list.size} tracked URL(s)" +
+                (if (failed > 0) ", $failed failed" else "") +
+                // Counted, so a shrinking manual refresh is explained rather than mysterious.
+                (if (skipped > 0) ", $skipped already fetched by a search" else ""),
+        )
         return refreshed
     }
 

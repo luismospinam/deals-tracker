@@ -216,6 +216,38 @@ class DealRepository(
     }
 
     /**
+     * ASINs for [source] whose price was recorded within the last [withinMinutes].
+     *
+     * Asked by the manual refresh so it can skip an item a search already fetched this cycle.
+     * Reading it back from the database rather than threading a set of ASINs out through
+     * `IngestReport` keeps the two paths from drifting: the question is "was an observation written
+     * for this item just now?", and `price_observations` is the only thing that can answer it.
+     *
+     * Without the skip, an item that is BOTH manually tracked and returned by a search gets two
+     * observations per poll seconds apart -- which reads as a price oscillating between two values
+     * when nothing changed, and "lowest ever" is computed from that series.
+     */
+    fun recentlyObservedAsins(source: String, withinMinutes: Int = 30): Set<String> =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT DISTINCT d.asin
+                FROM deals d
+                JOIN price_observations po ON po.deal_id = d.id
+                WHERE d.source = ?
+                  AND d.asin IS NOT NULL
+                  AND po.observed_at >= now() - make_interval(mins => ?)
+                """.trimIndent(),
+            ).use { st ->
+                st.setString(1, source)
+                st.setInt(2, withinMinutes)
+                st.executeQuery().use { rs ->
+                    buildSet { while (rs.next()) add(rs.getString("asin")) }
+                }
+            }
+        }
+
+    /**
      * Retires deals this source has not returned for [staleAfterHours].
      *
      * Deliberately age-based rather than "absent from the latest fetch". A single poll

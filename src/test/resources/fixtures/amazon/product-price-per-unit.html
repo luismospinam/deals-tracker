@@ -1,0 +1,26 @@
+<!--
+  The two-price trap, verbatim from https://www.amazon.com/dp/B074JLDHK3 on 2026-09-23.
+
+  A New Balance 3-pack shows BOTH of these on one page:
+
+    $6.33   in `.apex-priceperunit-value`  -- "$6.33 per count"
+    $18.98  in `.apex-pricetopay-value`    -- what the item actually costs
+
+  Two separate traps, and both are needed to reproduce the bug:
+
+   1. The per-unit block comes FIRST in the document, so document order picks the wrong one.
+   2. The pricetopay block's own `.a-offscreen` span is EMPTY -- its digits live in
+      `.a-price-whole` / `.a-price-fraction`. The offscreen shortcut used everywhere else finds
+      nothing here, which is why the loose alternatives were reached at all.
+
+  Result before the fix: the item was stored at $6.33, making a 3-pack look like a bargain and
+  fabricating price movement in its history.
+-->
+<html><head><title>New Balance Men's No Fly Trunks Boxer Brief Underwear</title></head><body>
+<span id="productTitle">New Balance Men's No Fly Trunks Boxer Brief Underwear</span>
+<div id="corePrice_feature_div">
+  <div class="a-section aok-align-center"><span class="a-price a-text-price apex-priceperunit-value" data-a-size="mini" data-a-color="base"><span class="a-offscreen">$6.33</span><span aria-hidden="true">$6.33</span></span></div>
+  <div class="a-section apex-core-price-identifier"><span class="a-price aok-align-center reinventPricePriceToPayMargin priceToPay apex-pricetopay-value" data-a-size="xl" data-a-color="base"><span class="a-offscreen"> </span><span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">18<span class="a-price-decimal">.</span></span><span class="a-price-fraction">98</span></span></span></div>
+</div>
+<div id="availability"><span>In Stock</span></div>
+</body></html>

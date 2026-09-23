@@ -68,11 +68,27 @@ internal data class AmazonSelectors(
             // A price that cannot be located in the buy box is now no price at all, which the
             // caller turns into a dropped row. Silence beats a confident wrong number, the same
             // call `CoShippingExtractor` makes about a YES verdict.
+            // `apex-pricetopay-value` FIRST, and `:not(.apex-priceperunit-value)` throughout.
+            //
+            // Both were forced by a real row. A New Balance 3-pack shows two prices on one page:
+            //
+            //   $18.98  in `.apex-pricetopay-value`      <- the price
+            //   $6.33   in `.apex-priceperunit-value`    <- "$6.33 per count"
+            //
+            // Nothing in the previous selector list matched either -- `#corePrice_desktop` is absent
+            // on this page and `#corePrice_feature_div` holds no offscreen span directly -- so the
+            // price came from whichever document-order match turned up first, and the item was
+            // stored at $6.33. A per-unit figure is not what the item costs, and storing it makes a
+            // 3-pack look like a bargain while poisoning the price history.
+            //
+            // `pricetopay` is Amazon's own name for the amount charged, which is exactly the thing
+            // wanted, so it leads. The `:not()` is belt-and-braces for the later alternatives.
             productPrice = cfg.options["productPriceSelector"]
-                ?: "#corePrice_desktop span.a-offscreen, " +
+                ?: ".apex-pricetopay-value span.a-offscreen, " +
+                "#corePrice_desktop span.a-offscreen:not(.apex-priceperunit-value), " +
                 "#corePriceDisplay_desktop_feature_div span.a-offscreen, " +
-                "#corePrice_feature_div span.a-offscreen, " +
-                "#apex_desktop span.a-offscreen, " +
+                "#corePrice_feature_div .a-price:not(.apex-priceperunit-value) span.a-offscreen, " +
+                "#apex_desktop .a-price:not(.apex-priceperunit-value) span.a-offscreen, " +
                 "#buybox .priceToPay span.a-offscreen, " +
                 "#price_inside_buybox, #newBuyBoxPrice",
             productAvailability = cfg.options["productAvailabilitySelector"] ?: "#availability",

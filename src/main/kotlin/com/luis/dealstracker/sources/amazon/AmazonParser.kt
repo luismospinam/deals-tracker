@@ -124,6 +124,20 @@ internal object AmazonParser {
      */
     private const val MAX_BRAND_LENGTH = 24
 
+    /**
+     * Containers whose prices are never the item's price.
+     *
+     * Each was found holding a plausible-looking amount on a live page: a per-unit figure, an
+     * "Includes $X discount" promo line, and the was-price. Matched by ancestor so a nested span
+     * cannot slip through the class check.
+     */
+    private val DECOY_ANCESTORS = listOf(
+        ".apex-priceperunit-value",
+        "#promoMessagingDiscountValue",
+        "#promoMessagingDiscountValue_feature_div",
+        ".a-text-price",
+    )
+
     /** Interface affordances that have appeared where a product name was expected. */
     private val NON_TITLES = listOf(
         "leave ad feedback",
@@ -284,9 +298,50 @@ internal object AmazonParser {
      * Takes the first match, which is the buy box; later ones are recommendations and other
      * listings on the same page.
      */
-    fun parsePrice(html: String, selectors: AmazonSelectors): Pair<BigDecimal, String>? =
-        Jsoup.parse(html).select(selectors.productPrice)
+    fun parsePrice(html: String, selectors: AmazonSelectors): Pair<BigDecimal, String>? {
+        val doc = Jsoup.parse(html)
+
+        // The price-to-pay block first, read from its VISIBLE spans.
+        //
+        // Two things make this necessary, both from one real page (a New Balance 3-pack):
+        //
+        //  * That page shows `$6.33` in `.apex-priceperunit-value` -- "$6.33 per count" -- and
+        //    `$18.98` in `.apex-pricetopay-value`. A per-unit figure is not what the item costs,
+        //    and storing it made a 3-pack look like a bargain and fabricated price movement.
+        //  * The pricetopay block's own `.a-offscreen` span is EMPTY. Its digits live in
+        //    `.a-price-whole` and `.a-price-fraction`, so the offscreen shortcut used everywhere
+        //    else finds nothing here and the loose alternatives then matched the per-unit price.
+        //
+        // Reassembled from the parts rather than read as text, because `.text()` on the container
+        // yields "$18.98$18.98" -- the aria-hidden copy and the symbol spans concatenate.
+        doc.selectFirst(".apex-pricetopay-value")?.let { el ->
+            val whole = el.selectFirst(".a-price-whole")?.text()?.filter { it.isDigit() || it == ',' }
+            val fraction = el.selectFirst(".a-price-fraction")?.text()?.filter(Char::isDigit)
+            val symbol = el.selectFirst(".a-price-symbol")?.text()?.trim().orEmpty()
+            if (!whole.isNullOrEmpty()) {
+                val joined = symbol + whole + (fraction?.takeIf { it.isNotEmpty() }?.let { ".$it" } ?: "")
+                AmazonMoney.parse(joined)
+                    ?.takeIf { (amount, currency) -> AmazonMoney.isPlausibleApparelPrice(amount, currency) }
+                    ?.let { return it }
+            }
+        }
+
+        // Fallbacks, with the known decoys excluded by ancestor as well as by class.
+        //
+        // Three different non-prices have now been observed in `span.a-price` on real pages, each of
+        // which was stored as the item's price at some point:
+        //
+        //   $6.33  `.apex-priceperunit-value`  -- "$6.33 per count" on a 3-pack
+        //   $4.94  `#promoMessagingDiscountValue` -- "Includes $4.94 Amazon discount"
+        //   $9,500 inside an `a-link-normal`    -- a carousel link to a DIFFERENT product
+        //
+        // All three are cheap-looking, which is the dangerous direction: they make an item appear to
+        // be a bargain and they poison its price history. Excluded structurally rather than by
+        // guessing at plausible ranges, since the band cannot tell $4.94 of discount from a $4.94
+        // item.
+        return doc.select(selectors.productPrice)
             .asSequence()
+            .filter { el -> DECOY_ANCESTORS.none { el.closest(it) != null } }
             // Never a price that lives inside a link. A buy-box price is not a link; a price that
             // is one belongs to a *different* product in a carousel or comparison table. That is
             // literally what produced the $9,500 Nike: the matched element sat inside an
@@ -296,6 +351,7 @@ internal object AmazonParser {
             // Absurd values are rejected rather than stored -- see isPlausibleApparelPrice. A bad
             // price becomes the recorded peak and makes every later reading look like a crash.
             .firstOrNull { (amount, currency) -> AmazonMoney.isPlausibleApparelPrice(amount, currency) }
+    }
 
     /**
      * Whether this HTML is actually a rendered product page.

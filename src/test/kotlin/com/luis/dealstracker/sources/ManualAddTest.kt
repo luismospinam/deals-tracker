@@ -101,12 +101,37 @@ class ManualAddTest {
         assertNull(AmazonParser.parseOwnSize("<html><body>no twister payload here</body></html>"))
     }
 
+    /**
+     * The per-unit trap: a multipack shows two prices and the cheaper one is not the price.
+     *
+     * A New Balance 3-pack put `$6.33` in `.apex-priceperunit-value` ("$6.33 per count") and
+     * `$18.98` in `.apex-pricetopay-value`. The item was stored at $6.33, which made a 3-pack look
+     * like a bargain and — because the searches ALSO fetched it — left a history alternating between
+     * the two values, fabricating price movement that never happened.
+     *
+     * Two traps in one page, both reproduced by the fixture: the per-unit block comes first in
+     * document order, AND the pricetopay block's own `.a-offscreen` span is empty, so the shortcut
+     * used everywhere else finds nothing and the loose alternatives get reached.
+     */
+    @Test
+    fun `a multipack's per-unit price is never read as the price`() {
+        val page = requireNotNull(
+            javaClass.getResourceAsStream("/fixtures/amazon/product-price-per-unit.html"),
+        ) { "missing fixture" }.bufferedReader().readText()
+
+        val (amount, currency) = assertNotNull(AmazonParser.parsePrice(page, selectors))
+        assertEquals(BigDecimal("18.98"), amount, "must be the price to pay, not \$6.33 per count")
+        assertEquals("USD", currency)
+    }
+
     // --- and the price, which is the point ---
 
     @Test
     fun `reads the buy-box price and title`() {
         val (amount, currency) = assertNotNull(AmazonParser.parsePrice(page, selectors))
-        assertEquals(BigDecimal("6.33"), amount)
+        // 18.98, not 6.33: the page also shows "$6.33 per count" as a per-unit figure, and the
+        // price to pay is what an item costs.
+        assertEquals(BigDecimal("18.98"), amount)
         assertEquals("USD", currency)
 
         assertNotNull(AmazonParser.parseTitle(page, selectors)).also {
