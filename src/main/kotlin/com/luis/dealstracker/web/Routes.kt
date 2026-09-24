@@ -36,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.html.p
+import kotlinx.html.span
 import kotlinx.html.strong
 import io.ktor.server.http.content.staticResources
 import java.math.BigDecimal
@@ -65,9 +66,14 @@ fun Application.routes(
 
             val page = repo.feedPage(filter)
             val sources = sourceNames(repo, app)
+            // For the scope row's badge. Unscoped by the current filters on purpose: it answers "how
+            // many favorites do I have", not "how many match what I am currently searching for" -- a
+            // count that fell to 0 because of an unrelated search would read as having lost them.
+            val favoriteCount = repo.countMatching(favoritesFilter(Parameters.Empty))
 
             call.respondHtml {
                 page("Deals Tracker") {
+                    feedScopes(q, FeedScreen.FEED, favoriteCount)
                     filterForm(sources, categorizer.categoryNames, q)
                     p("result-count") {
                         // State the total explicitly when the page is capped -- showing
@@ -126,6 +132,109 @@ fun Application.routes(
                     .toString(),
             )
             call.respondBytes(bytes, ContentType.parse(DealsExport.CONTENT_TYPE))
+        }
+
+        /**
+         * The favorites screen: the rows Luis marked, and only those.
+         *
+         * Reuses the feed's own [filterForm] and [dealTable] rather than a bespoke table — favorites
+         * IS the feed restricted to chosen rows, so search, sort, the chip presets and the Excel
+         * export all work here for free, and a second presentation would be a second thing to keep
+         * in step. [FeedScreen] carries the three things that differ.
+         *
+         * `recentRuns` is deliberately omitted: fetch bookkeeping is about whether the poller is
+         * healthy, which belongs on the feed and says nothing about a chosen row.
+         */
+        get("/favorites") {
+            val params = call.request.queryParameters
+            val q = FILTER_PARAMS.associateWith { params[it].orEmpty() }
+            val filter = favoritesFilter(params)
+
+            val page = repo.feedPage(filter)
+            val sources = sourceNames(repo, app)
+
+            call.respondHtml {
+                page("Favorites — Deals Tracker") {
+                    // `page.totalMatching` is this scope's own unfiltered-by-nothing total only when
+                    // no filter is applied, so the badge reuses the same unscoped count the feed
+                    // computes rather than the possibly-narrowed number shown below.
+                    feedScopes(q, FeedScreen.FAVORITES, repo.countMatching(favoritesFilter(Parameters.Empty)))
+                    filterForm(sources, categorizer.categoryNames, q, FeedScreen.FAVORITES)
+                    p("result-count") {
+                        if (page.truncated) {
+                            +"showing "
+                            strong { +"${page.deals.size}" }
+                            +" of "
+                            strong { +"${page.totalMatching}" }
+                            +" favorites"
+                        } else {
+                            strong { +"${page.totalMatching}" }
+                            +" favorite(s)"
+                        }
+                        // Stated up front rather than left to be inferred from the chips, because
+                        // this page breaks the rule every other view follows: a retired deal is
+                        // shown, and its price is the last one recorded rather than a live one.
+                        val expired = page.deals.count { !it.isActive }
+                        if (expired > 0) {
+                            span("tracked-note") { +" · $expired whose offer has since expired" }
+                        }
+                    }
+                    // Whether a control is NARROWING the page, which is what changes the meaning of
+                    // an empty one. `sort` only reorders and `state` is pinned by favoritesFilter,
+                    // so neither can be why a favorite is missing.
+                    dealTable(
+                        page.deals,
+                        FeedScreen.FAVORITES,
+                        filtered = q.any { (k, v) -> k !in NON_NARROWING_PARAMS && v.isNotBlank() },
+                    )
+                }
+            }
+        }
+
+        /** As `/export.xlsx`, scoped to favorites. See [favoritesFilter]. */
+        get("/favorites/export.xlsx") {
+            val filter = favoritesFilter(call.request.queryParameters)
+            val zone = ZoneId.systemDefault()
+
+            val (bytes, meta) = withContext(Dispatchers.IO) {
+                val totalMatching = repo.countMatching(filter)
+                val deals = repo.feed(filter.copy(limit = DealsExport.MAX_ROWS))
+                val meta = DealsExport.Meta(Instant.now(), filter, totalMatching, deals.size)
+                DealsExport.build(deals, meta, zone) to meta
+            }
+
+            println("[export] ${meta.rowsExported} favorite(s) of ${meta.totalMatching} matching")
+
+            call.response.header(
+                HttpHeaders.ContentDisposition,
+                ContentDisposition.Attachment
+                    .withParameter(
+                        ContentDisposition.Parameters.FileName,
+                        "favorites-${LocalDate.now(zone)}.xlsx",
+                    )
+                    .toString(),
+            )
+            call.respondBytes(bytes, ContentType.parse(DealsExport.CONTENT_TYPE))
+        }
+
+        /**
+         * Un-favorites a deal from the favorites screen itself.
+         *
+         * Distinct from `POST /deal/{id}/state` — which performs the same update — because that one
+         * answers with a rendered row. Swapped into this page it would leave a row that no longer
+         * belongs here still sitting among the favorites, which is the "stale row claiming to be
+         * tracked" problem `POST /tracked/{id}/hide` exists to avoid. An empty body plus htmx's
+         * `outerHTML` swap removes it instead.
+         *
+         * Writes SEEN rather than NEW: you have plainly seen a row you once favorited. See
+         * `favoriteToggle`.
+         */
+        post("/favorites/{id}/remove") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+
+            withContext(Dispatchers.IO) { repo.updateState(id, DealState.SEEN) }
+            call.respondText("", ContentType.Text.Html)
         }
 
         /**
@@ -489,6 +598,15 @@ internal val FILTER_PARAMS = listOf(
 )
 
 /**
+ * Filter parameters that cannot remove a row from the page.
+ *
+ * `sort` only reorders, and `state` is pinned server-side by [favoritesFilter] and has no control
+ * on that screen. So neither can be the reason a favorite is missing, and treating either as a
+ * narrowing filter would offer to clear something that was never excluding anything.
+ */
+private val NON_NARROWING_PARAMS = setOf("sort", "state")
+
+/**
  * Builds a [FeedFilter] from the filter form's query parameters.
  *
  * Shared by the feed page and the Excel export rather than duplicated, for the same reason
@@ -509,7 +627,7 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
         ?.let { runCatching { listOf(DealState.valueOf(it)) }.getOrNull() }
         // Dismissed deals are hidden by default -- that is the point of dismissing
         // them -- but remain reachable via the State filter.
-        ?: listOf(DealState.NEW, DealState.SEEN, DealState.SAVED),
+        ?: listOf(DealState.NEW, DealState.SEEN, DealState.FAVORITE),
     coShipping = params["co"]?.takeIf { it.isNotBlank() }
         ?.let { runCatching { listOf(CoShipping.valueOf(it)) }.getOrNull() }.orEmpty(),
     minScore = params["minScore"]?.takeIf { it.isNotBlank() }?.toIntOrNull(),
@@ -519,6 +637,28 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
     // "relevance" (promoted first, then recency, then discount) rather than "discount",
     // which buries every source that publishes no list price.
     sort = params["sort"]?.takeIf { it.isNotBlank() } ?: "relevance",
+)
+
+/**
+ * The favorites scope, as a [FeedFilter].
+ *
+ * Shared by `/favorites` and `/favorites/export.xlsx` for the same reason [feedFilterFrom] is shared
+ * by the feed and its export: two copies of a filter drift, and the failure is silent.
+ *
+ * Both overrides are deliberate:
+ *
+ *  - **`states` is PINNED, not read from the query string.** The screen renders no State control
+ *    (see [FeedScreen]), so honouring `?state=DISMISSED` here would let a hand-edited URL turn the
+ *    favorites page into a general feed while its heading still said "favorites".
+ *  - **`includeInactive`** is what keeps a favorite visible after its offer ends. See the field's
+ *    own comment: retirement is keyed on `last_seen_at` alone and never consults `state`.
+ *
+ * Everything else — search, source, category, sort, the chip presets — comes straight from
+ * [feedFilterFrom], so the feed's whole filter bar works here unchanged.
+ */
+internal fun favoritesFilter(params: Parameters): FeedFilter = feedFilterFrom(params).copy(
+    states = listOf(DealState.FAVORITE),
+    includeInactive = true,
 )
 
 private fun String.toBigDecimalOrNull(): BigDecimal? = runCatching { BigDecimal(this) }.getOrNull()

@@ -21,7 +21,7 @@ data class FeedFilter(
     val minDiscount: BigDecimal? = null,
     val maxPrice: BigDecimal? = null,
     val minPrice: BigDecimal? = null,
-    val states: List<DealState> = listOf(DealState.NEW, DealState.SEEN, DealState.SAVED),
+    val states: List<DealState> = listOf(DealState.NEW, DealState.SEEN, DealState.FAVORITE),
     val coShipping: List<CoShipping> = emptyList(),
     val minScore: Int? = null,
     val maxAgeDays: Int? = null,
@@ -29,6 +29,18 @@ data class FeedFilter(
     val onlyPromoted: Boolean = false,
     val onlyLowestEver: Boolean = false,
     val sort: String = "relevance",
+    /**
+     * Includes deals retired by `deactivateStale`, which every other query excludes.
+     *
+     * The favorites screen is the only caller, and it needs this because retirement is keyed on
+     * `last_seen_at` alone — `deactivateStale` never reads `state`, so a favorited deal whose
+     * source stops returning it drops out after 48h exactly like an unfavorited one. A favorite
+     * disappearing reads as "it was never saved" rather than "the offer ended", and the second is
+     * the useful fact: the row and its full price history are still here.
+     *
+     * Default false, so no existing query changes behaviour by omission.
+     */
+    val includeInactive: Boolean = false,
     // High enough that the whole feed renders in one page at current volume (a few
     // hundred deals across four sources). The UI states the total when this does cap
     // the page, so truncation is visible rather than silent. Proper pagination is the
@@ -374,8 +386,12 @@ class DealRepository(
     private data class Criteria(val where: String, val params: List<Any>)
 
     private fun criteria(filter: FeedFilter): Criteria {
-        val where = mutableListOf("d.is_active")
+        val where = mutableListOf<String>()
         val params = mutableListOf<Any>()
+
+        // Applied unless a caller opts out, which only the favorites screen does -- see
+        // FeedFilter.includeInactive. Kept first so the common query's plan is unchanged.
+        if (!filter.includeInactive) where += "d.is_active"
 
         // These are bound as a single SQL array parameter, so the list must be added
         // as one element -- `params += list` would splat it into separate params.
@@ -436,7 +452,9 @@ class DealRepository(
         if (filter.onlyPromoted) where += "d.promoted"
         if (filter.onlyLowestEver) where += "po.price <= agg.min_price"
 
-        return Criteria(where.joinToString(" AND "), params)
+        // `ifEmpty` matters now that is_active is conditional: every clause above is optional, so a
+        // filter with nothing set at all would otherwise emit a bare `WHERE` and fail to parse.
+        return Criteria(where.ifEmpty { listOf("TRUE") }.joinToString(" AND "), params)
     }
 
     fun countMatching(filter: FeedFilter): Int {

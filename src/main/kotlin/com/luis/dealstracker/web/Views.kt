@@ -5,6 +5,7 @@ import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
 import com.luis.dealstracker.model.PriceObservation
 import com.luis.dealstracker.model.formatMoney
+import io.ktor.http.encodeURLParameter
 import kotlinx.html.*
 import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
@@ -19,7 +20,35 @@ import java.util.Locale
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "29"
+private const val CSS_VERSION = "31"
+
+/**
+ * Which feed-shaped screen is being rendered.
+ *
+ * `/` and `/favorites` share every column, every filter and the whole row renderer — favorites is
+ * the feed restricted to rows Luis chose, not a second presentation of them. What differs is small
+ * and varies *together*, which is why it travels as one value rather than three parameters: a form
+ * posting to `/favorites` while its export button points at `/export.xlsx` would hand over a file
+ * that silently disagreed with the page it was taken from.
+ */
+// Public rather than internal only because `filterForm`, `dealTable` and `rowFragment` are, and an
+// internal type cannot appear in a public signature.
+enum class FeedScreen(
+    /** Where the filter form submits. */
+    val action: String,
+    /** The Export button's `formaction`, so the download matches the controls as they stand. */
+    val exportAction: String,
+    /**
+     * Whether to render the State control.
+     *
+     * False on favorites, which pins `states` server-side: a dropdown offering "dismissed" on a
+     * page that can only ever show favorites would be a control that does nothing.
+     */
+    val showState: Boolean,
+) {
+    FEED("/", "/export.xlsx", showState = true),
+    FAVORITES("/favorites", "/favorites/export.xlsx", showState = false),
+}
 
 /**
  * Typefaces for the "Terminal Ledger" look: an editorial serif nameplate over an
@@ -54,6 +83,12 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         header {
             h1 { +"Deals Tracker" }
             span("sub") { a(href = "/") { +"feed" } }
+            // Favorites is deliberately NOT here. It was a fourth top-level tab, which put it beside
+            // `tracked` and `watches` and so implied it was a fourth kind of thing — but it is the
+            // feed with `state = FAVORITE` pinned: same query, same columns, same row renderer, same
+            // filters (see FeedScreen). `tracked` and `watches` genuinely are different questions with
+            // different columns and different tables behind them. So favorites moved one level down,
+            // to the scope row `feedScopes` renders inside the feed screen itself.
             // A separate tab rather than a filter on the feed, because it answers a different
             // question. The feed asks "what is discounted right now?" and is sorted by deal
             // quality; tracked items ask "what is this costing me over time?", where a discount
@@ -132,15 +167,70 @@ private val ADVANCED_PARAMS = listOf("minDiscount", "maxPrice", "minScore", "co"
  * surface a count at all. A collapsed panel that silently filtered the feed would be worse
  * than the cluttered bar it replaces.
  */
-internal fun hiddenFilterCount(q: Map<String, String>): Int = ADVANCED_PARAMS.count { p ->
-    val v = q[p].orEmpty()
-    v.isNotBlank() && FILTER_CHIPS.none { it.param == p && it.value == v }
+internal fun hiddenFilterCount(q: Map<String, String>, screen: FeedScreen = FeedScreen.FEED): Int =
+    ADVANCED_PARAMS.count { p ->
+        // A parameter whose control this screen does not render cannot be counted: the badge means
+        // "something you cannot see is narrowing this", and offering to reveal a control that is
+        // not there would be a dead end. Favorites pins `state` server-side.
+        if (p == "state" && !screen.showState) return@count false
+        val v = q[p].orEmpty()
+        v.isNotBlank() && FILTER_CHIPS.none { it.param == p && it.value == v }
+    }
+
+/**
+ * The scope row: which slice of the feed is being looked at.
+ *
+ * A scope is not a filter, and the distinction is why this is its own control above the filter bar
+ * rather than a fourth chip in [FILTER_CHIPS]. A chip narrows *within* what you are looking at and
+ * composes with the others; scope decides what the set is in the first place, and the two scopes are
+ * mutually exclusive. Putting "Favorites" among the chips would also have implied it could be
+ * combined with `state=DISMISSED`, which [favoritesFilter] pins server-side precisely to prevent.
+ *
+ * The current filters ride along in the links, so switching scope keeps your search and sort. Only
+ * params this screen actually renders are carried — `state` is dropped, since favorites pins it and
+ * a carried value would be silently ignored.
+ *
+ * Deliberately anchors rather than form buttons: these are two addressable pages (`/` and
+ * `/favorites`), both bookmarkable, and an anchor is what the browser's back button expects.
+ */
+fun MAIN.feedScopes(q: Map<String, String>, screen: FeedScreen, favoriteCount: Int) {
+    // Rebuilt rather than passed through wholesale: `state` is meaningless on favorites, and an
+    // empty value would add `?state=` noise to every link.
+    val carried = q.filterKeys { it != "state" }
+        .filterValues { it.isNotBlank() }
+        .map { (k, v) -> "$k=${v.encodeURLParameter()}" }
+        .joinToString("&")
+    val suffix = if (carried.isEmpty()) "" else "?$carried"
+
+    div("scopes") {
+        // aria-current is what tells a screen reader which of the two is active; the visual
+        // treatment alone conveys nothing.
+        a(href = "/$suffix", classes = if (screen == FeedScreen.FEED) "scope on" else "scope") {
+            if (screen == FeedScreen.FEED) attributes["aria-current"] = "page"
+            +"All deals"
+        }
+        a(
+            href = "/favorites$suffix",
+            classes = if (screen == FeedScreen.FAVORITES) "scope on" else "scope",
+        ) {
+            if (screen == FeedScreen.FAVORITES) attributes["aria-current"] = "page"
+            +"Favorites"
+            // Shown only when there are some. A "Favorites 0" badge reads as a broken counter,
+            // while a bare label reads as an invitation -- and zero is the starting state.
+            if (favoriteCount > 0) span("scope-count") { +"$favoriteCount" }
+        }
+    }
 }
 
-fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<String, String>) {
+fun MAIN.filterForm(
+    sources: List<String>,
+    categories: List<String>,
+    q: Map<String, String>,
+    screen: FeedScreen = FeedScreen.FEED,
+) {
     form(classes = "filters") {
         attributes["method"] = "get"
-        attributes["action"] = "/"
+        attributes["action"] = screen.action
 
         label {
             +"Search"
@@ -222,9 +312,16 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
             // Needs no JavaScript, and the form is already method=get.
             button {
                 type = ButtonType.submit
-                attributes["formaction"] = "/export.xlsx"
-                title = "Download the matching deals as an Excel file. " +
-                    "With nothing filtered this is every active deal except dismissed ones."
+                attributes["formaction"] = screen.exportAction
+                title = when (screen) {
+                    FeedScreen.FEED -> "Download the matching deals as an Excel file. " +
+                        "With nothing filtered this is every active deal except dismissed ones."
+                    // Says so explicitly, because this export breaks the guarantee the feed's
+                    // makes -- retired offers are included here, and the file's Export info
+                    // sheet records that too.
+                    FeedScreen.FAVORITES -> "Download your favorites as an Excel file, " +
+                        "including any whose offer has since expired."
+                }
                 +"Export to Excel"
             }
             button {
@@ -260,7 +357,7 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
         details("more") {
             summary {
                 +"More filters"
-                val hidden = hiddenFilterCount(q)
+                val hidden = hiddenFilterCount(q, screen)
                 if (hidden > 0) span("act-count") { +"$hidden" }
             }
             div("more-grid") {
@@ -300,15 +397,24 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
                         }
                     }
                 }
-                label {
-                    +"State"
-                    select {
-                        name = "state"
-                        listOf("" to "active", "NEW" to "new", "SAVED" to "saved", "DISMISSED" to "dismissed").forEach { (v, t) ->
-                            option {
-                                value = v
-                                if (q["state"] == v) selected = true
-                                +t
+                // Omitted, not disabled, on a screen that pins the state: a disabled select submits
+                // nothing, so it looks broken rather than inapplicable.
+                if (screen.showState) {
+                    label {
+                        +"State"
+                        select {
+                            name = "state"
+                            listOf(
+                                "" to "active",
+                                "NEW" to "new",
+                                "FAVORITE" to "favorite",
+                                "DISMISSED" to "dismissed",
+                            ).forEach { (v, t) ->
+                                option {
+                                    value = v
+                                    if (q["state"] == v) selected = true
+                                    +t
+                                }
                             }
                         }
                     }
@@ -348,12 +454,41 @@ fun MAIN.filterForm(sources: List<String>, categories: List<String>, q: Map<Stri
     }
 }
 
-fun MAIN.dealTable(deals: List<Deal>) {
+/**
+ * [filtered] distinguishes "you have none of these" from "your filters exclude them all", which
+ * matter differently on the favorites screen: the first needs telling where a favorite comes from,
+ * the second needs telling that clearing the filters brings yours back. Conflating them told a
+ * page with two favorites on it that it had none.
+ */
+fun MAIN.dealTable(
+    deals: List<Deal>,
+    screen: FeedScreen = FeedScreen.FEED,
+    filtered: Boolean = false,
+) {
     if (deals.isEmpty()) {
         div("empty") {
-            +"No deals match those filters. If the database is empty, run "
-            code { +"./dt run --args=\"--fetch-once\"" }
-            +" or press Refresh now."
+            when {
+                screen == FeedScreen.FEED -> {
+                    +"No deals match those filters. If the database is empty, run "
+                    code { +"./dt run --args=\"--fetch-once\"" }
+                    +" or press Refresh now."
+                }
+                filtered -> {
+                    +"None of your favorites match those filters. "
+                    a(href = "/favorites") { +"Show all favorites" }
+                    +"."
+                }
+                // Says where a favorite comes from, since this page has no control that creates one.
+                // Names the scope control by its own visible label ("All deals") rather than "the
+                // feed": both scopes are the feed now, so that phrasing no longer points anywhere.
+                else -> {
+                    +"No favorites yet. Press "
+                    code { +"☆ favorite" }
+                    +" on any row under "
+                    a(href = "/") { +"All deals" }
+                    +" and it will appear here — and stay, even after the offer ends."
+                }
+            }
         }
         return
     }
@@ -385,7 +520,7 @@ fun MAIN.dealTable(deals: List<Deal>) {
             }
         }
         tbody {
-            deals.forEach { dealRow(it) }
+            deals.forEach { dealRow(it, screen = screen) }
         }
     }
 }
@@ -469,8 +604,8 @@ private fun sourceDotClass(source: String): String = when (source) {
 private fun heatClass(deal: Deal): String? =
     deal.discountPercent?.let { "heat heat-s${discountTier(it)}" }
 
-private fun TBODY.dealRow(deal: Deal, note: String? = null) {
-    tr(classes = heatClass(deal)) { dealRowBody(deal, note) }
+private fun TBODY.dealRow(deal: Deal, note: String? = null, screen: FeedScreen = FeedScreen.FEED) {
+    tr(classes = heatClass(deal)) { dealRowBody(deal, note, screen) }
 }
 
 /**
@@ -480,7 +615,7 @@ private fun TBODY.dealRow(deal: Deal, note: String? = null) {
  * this inside a `tbody`; the swap renders the identical markup with no wrapper at all, so
  * the two can never drift apart.
  */
-private fun TR.dealRowBody(deal: Deal, note: String? = null) {
+private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen = FeedScreen.FEED) {
     run {
         id = "deal-${deal.id}"
 
@@ -581,7 +716,25 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null) {
                 if (Duration.between(deal.firstSeenAt, Instant.now()).toHours() < 24) {
                     span("chip chip-new") { +"new" }
                 }
-                if (deal.state == DealState.SAVED) span("chip") { +"saved" }
+                if (deal.state == DealState.FAVORITE) {
+                    span("chip chip-fav") {
+                        title = "One of your favorites. It stays on /favorites even after the " +
+                            "offer expires."
+                        +"★ favorite"
+                    }
+                }
+                // Only reachable on /favorites, which is the one screen that does not filter on
+                // is_active. Says WHEN it was last seen rather than merely that it is gone: the
+                // price history is intact, and how stale the last observation is decides whether
+                // the number beside it still means anything.
+                if (!deal.isActive) {
+                    span("chip chip-expired") {
+                        title = "The source stopped returning this deal, so it was retired " +
+                            "${relativeAgo(deal.lastSeenAt)}. The price shown is the last one " +
+                            "we recorded, not a current one."
+                        +"expired"
+                    }
+                }
             }
         }
 
@@ -607,8 +760,13 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null) {
 
         td(classes = "col-act") {
             div("actions") {
-                stateButton(deal.id, DealState.SAVED, "Save")
-                stateButton(deal.id, DealState.DISMISSED, "Hide")
+                favoriteToggle(deal, screen)
+                // Deliberately absent on a favorited row. `state` holds ONE value, so DISMISSED
+                // would overwrite FAVORITE -- hiding would silently un-favorite, and the undo
+                // lives behind a dropdown on another screen. Un-favorite first, and Hide returns.
+                if (deal.state != DealState.FAVORITE) {
+                    stateButton(deal.id, DealState.DISMISSED, "Hide")
+                }
                 a(href = "/deal/${deal.id}") { +"history" }
             }
         }
@@ -727,6 +885,50 @@ private fun DIV.stateButton(dealId: Long, state: DealState, label: String) {
 }
 
 /**
+ * The favorite toggle: marks a deal, and un-marks it.
+ *
+ * ## Why un-favoriting writes SEEN rather than NEW
+ *
+ * `state` is single-valued, so coming off FAVORITE has to land on something, and NEW would be a
+ * lie — you have plainly seen a row you once favorited. This is the first thing in the app to
+ * write SEEN, which `DealScore` notes was in the enum but never set; the consequence is that a
+ * previously-favorited row loses the feed's "new" chip, which is correct.
+ *
+ * ## Why un-favoriting posts somewhere different on each screen
+ *
+ * On the feed the row stays and is swapped in place, so `/deal/{id}/state` — which answers with a
+ * feed-shaped row — is exactly right. On `/favorites` the row no longer belongs on the page at
+ * all, so it posts to `/favorites/{id}/remove`, which answers empty and lets the `outerHTML` swap
+ * delete it. Swapping in a still-rendered row there would leave it claiming to be a favorite on a
+ * page that lists favorites — the same trap `POST /tracked/{id}/hide` exists to avoid.
+ */
+private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen) {
+    val on = deal.state == DealState.FAVORITE
+    val post = when {
+        !on -> "/deal/${deal.id}/state?value=${DealState.FAVORITE.name}"
+        screen == FeedScreen.FAVORITES -> "/favorites/${deal.id}/remove"
+        else -> "/deal/${deal.id}/state?value=${DealState.SEEN.name}"
+    }
+
+    button(classes = if (on) "fav-btn on" else "fav-btn") {
+        attributes["hx-post"] = post
+        attributes["hx-target"] = "#deal-${deal.id}"
+        attributes["hx-swap"] = "outerHTML"
+        // So a screen reader hears a toggle rather than two unrelated buttons, matching the
+        // filter chips' convention.
+        attributes["aria-pressed"] = on.toString()
+        title = if (on) {
+            "Remove from favorites" +
+                if (screen == FeedScreen.FAVORITES) " — the row leaves this page" else ""
+        } else {
+            "Keep this deal on the favorites page, even after the offer ends"
+        }
+        // The glyph is filled or hollow AND the word changes, so the state never rests on colour.
+        +if (on) "★ favorited" else "☆ favorite"
+    }
+}
+
+/**
  * One row as a bare `<tr>` fragment, for an HTMX `outerHTML` swap.
  *
  * This must NOT be a whole document. It used to respond via `respondHtml`, which emits
@@ -738,11 +940,15 @@ private fun DIV.stateButton(dealId: Long, state: DealState, label: String) {
  * [note] carries the outcome of an action that did not change the verdict — an unclear
  * check, a block, a busy session. Without it those cases swap in a row that looks identical
  * to the one clicked, which reads as the button doing nothing.
+ *
+ * [screen] has to travel with the swap, not just with the initial render: a row swapped into
+ * `/favorites` by a shipping check needs its favorite toggle still pointed at that page's own
+ * remove route, or the next click would swap a row back in instead of removing it.
  */
-fun rowFragment(deal: Deal, note: String? = null): String {
+fun rowFragment(deal: Deal, note: String? = null, screen: FeedScreen = FeedScreen.FEED): String {
     val consumer = createHTML(prettyPrint = false)
     TR(mapOf("class" to heatClass(deal)).filterValues { it != null }.mapValues { it.value!! }, consumer)
-        .visit { dealRowBody(deal, note) }
+        .visit { dealRowBody(deal, note, screen) }
     return consumer.finalize()
 }
 

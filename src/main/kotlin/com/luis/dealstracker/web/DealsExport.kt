@@ -288,5 +288,17 @@ internal fun FeedFilter.describe(): List<Pair<String, String>> = buildList {
     add("Max age (days)" to (maxAgeDays?.toString() ?: "any"))
     // Applied by DealRepository.criteria() on every query, with no form control to relax
     // it. Without saying so, an export missing a deal Luis remembers looks like a bug.
-    add("Always applied" to "active deals only -- retired deals (unseen for staleAfterHours) are never exported")
+    //
+    // The favorites export is the one caller that relaxes it, and that has to be stated rather
+    // than left as a stale absolute: a file whose rows include dead offers while its own info
+    // sheet promises "active deals only" is worse than one that says nothing, because it would be
+    // read as evidence the offers are live.
+    add(
+        "Always applied" to if (includeInactive) {
+            "favorites only -- retired deals (unseen for staleAfterHours) ARE included, and their " +
+                "price is the last one recorded rather than a current one"
+        } else {
+            "active deals only -- retired deals (unseen for staleAfterHours) are never exported"
+        },
+    )
 }

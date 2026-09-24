@@ -22,7 +22,13 @@ class RowFragmentTest {
 
     private val now: Instant = Instant.parse("2026-09-05T12:00:00Z")
 
-    private fun deal(id: Long = 7, co: CoShipping = CoShipping.UNKNOWN, asin: String? = "B01ABCDEFG") = Deal(
+    private fun deal(
+        id: Long = 7,
+        co: CoShipping = CoShipping.UNKNOWN,
+        asin: String? = "B01ABCDEFG",
+        state: DealState = DealState.NEW,
+        isActive: Boolean = true,
+    ) = Deal(
         id = id,
         source = "slickdeals",
         sourceDealId = "sd-$id",
@@ -35,8 +41,8 @@ class RowFragmentTest {
         currency = "USD",
         firstSeenAt = now,
         lastSeenAt = now,
-        isActive = true,
-        state = DealState.NEW,
+        isActive = isActive,
+        state = state,
         coShipping = co,
         promoted = true,
         promotedAt = now,
@@ -96,5 +102,67 @@ class RowFragmentTest {
     fun `verify is not offered on an already decided row`() {
         assertFalse(rowFragment(deal(co = CoShipping.YES)).contains("/verify"))
         assertFalse(rowFragment(deal(co = CoShipping.NO)).contains("/verify"))
+    }
+
+    /**
+     * The toggle has to be able to undo itself, which the old Save button could not: it always
+     * wrote SAVED, so a second click was a no-op and there was no route off the state at all.
+     *
+     * SEEN rather than NEW, because you have plainly seen a row you once favorited.
+     */
+    @Test
+    fun `the favorite toggle posts the opposite state`() {
+        assertTrue(
+            rowFragment(deal(state = DealState.NEW)).contains("/deal/7/state?value=FAVORITE"),
+            "an unmarked row must offer to favorite",
+        )
+        assertTrue(
+            rowFragment(deal(state = DealState.FAVORITE)).contains("/deal/7/state?value=SEEN"),
+            "a favorited row must offer to un-favorite",
+        )
+    }
+
+    /**
+     * Hide and favorite write the same single-valued column, so DISMISSED would overwrite
+     * FAVORITE. Rather than warn about that, the button is not offered — un-favorite first.
+     */
+    @Test
+    fun `hide is withheld from a favorited row`() {
+        assertTrue(
+            rowFragment(deal(state = DealState.NEW)).contains("value=DISMISSED"),
+            "an unmarked row keeps Hide",
+        )
+        assertFalse(
+            rowFragment(deal(state = DealState.FAVORITE)).contains("value=DISMISSED"),
+            "hiding a favorite would silently un-favorite it, so it must not be offered",
+        )
+    }
+
+    /**
+     * On /favorites the row leaves the page, so un-favoriting there posts to a route that answers
+     * empty. Swapping in a rendered row would leave it claiming to be a favorite on the favorites
+     * page — the same trap POST /tracked/{id}/hide exists to avoid.
+     */
+    @Test
+    fun `un-favoriting from the favorites screen posts to the removing route`() {
+        val html = rowFragment(deal(state = DealState.FAVORITE), screen = FeedScreen.FAVORITES)
+        assertTrue(html.contains("/favorites/7/remove"), "must post to the route that removes the row")
+        assertFalse(html.contains("state?value=SEEN"), "the in-place swap would leave a stale row")
+    }
+
+    /**
+     * A retired favorite is kept rather than hidden, so the row has to say the offer ended — the
+     * price beside it is the last one recorded, not a current one.
+     */
+    @Test
+    fun `a retired row is marked expired`() {
+        assertTrue(
+            rowFragment(deal(state = DealState.FAVORITE, isActive = false)).contains("expired"),
+            "a retired row must say so rather than presenting a stale price as live",
+        )
+        assertFalse(
+            rowFragment(deal(state = DealState.FAVORITE)).contains("chip-expired"),
+            "a live row must not be marked expired",
+        )
     }
 }

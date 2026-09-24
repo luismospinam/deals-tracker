@@ -14,6 +14,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -234,10 +235,34 @@ class DealsExportTest {
         assertEquals("any", described["Min discount %"])
         assertEquals("everything", described["Only"])
         // The two constraints no form control relaxes.
-        assertEquals("NEW, SEEN, SAVED", described["State"], "dismissed deals are excluded by default")
+        assertEquals("NEW, SEEN, FAVORITE", described["State"], "dismissed deals are excluded by default")
         assertTrue(
             described["Always applied"]!!.contains("active deals only"),
             "retired deals are never exported, and the file must say so",
+        )
+    }
+
+    /**
+     * The favorites export is the one caller that keeps retired deals, so it must not inherit the
+     * feed's promise.
+     *
+     * A file whose rows include dead offers while its own info sheet reads "active deals only" is
+     * worse than one that says nothing: the sheet would be read as evidence the offers are live,
+     * and the prices beside them are the last ones recorded rather than current.
+     */
+    @Test
+    fun `a favorites export says retired deals are included`() {
+        val described = FeedFilter(
+            states = listOf(DealState.FAVORITE),
+            includeInactive = true,
+        ).describe().toMap()
+
+        assertEquals("FAVORITE", described["State"])
+        val always = described["Always applied"]!!
+        assertTrue(always.contains("ARE included"), "the inclusion must be stated, got: $always")
+        assertFalse(
+            always.contains("active deals only"),
+            "the feed's guarantee must not be repeated where it does not hold, got: $always",
         )
     }
 

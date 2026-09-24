@@ -169,6 +169,38 @@ Design decisions worth not undoing:
 - **Slickdeals' `category` is a forum name** ("Hot Deals" on nearly every row), so
   generic values are suppressed via `GENERIC_CATEGORIES`.
 
+## Favorites
+
+`☆ favorite` on any feed row marks it; `/favorites` shows those and nothing else. Marking
+survives every poll — `upsertDeal` never touches `state` on conflict — and the toggle
+reverses itself, writing `SEEN` rather than `NEW` because you have plainly seen a row you
+once favorited.
+
+The screen reuses the feed's own `filterForm` and `dealTable` via `FeedScreen`, so search,
+sort, the chip presets and the Excel export all work there unchanged. Favorites *is* the
+feed restricted to rows you chose, not a second presentation of them.
+
+Three things here are load-bearing:
+
+- **A retired favorite is kept, marked `expired`.** This is the only query in the app that
+  does not filter on `is_active`. Retirement is keyed on `last_seen_at` alone —
+  `deactivateStale` never reads `state` — so without the exception a favorite would vanish
+  48h after its source stopped returning it, which reads as "it was never saved" rather
+  than "the offer ended". The price on an expired row is the last one recorded, not a
+  current one, which is why the chip is there at all.
+- **Hide is not offered on a favorited row.** `state` holds one value, so `DISMISSED` would
+  overwrite `FAVORITE`. Rather than warn about that, the button is absent until you
+  un-favorite — the conflict is made impossible to express.
+- **Un-favoriting from `/favorites` posts to `/favorites/{id}/remove`**, which answers with
+  an empty body so htmx's `outerHTML` swap deletes the row. `POST /deal/{id}/state` performs
+  the same update but answers with a rendered row, which on this page would leave something
+  claiming to be a favorite among the favorites.
+
+`FAVORITE` was called `SAVED` until `V14__favorite_state.sql`, which renamed the stored
+value too — `state` is visible in the State dropdown, the export's `State` column and the
+query string, so a column saying one thing under a UI saying another is a discrepancy the
+operator would see.
+
 ## Tracking Amazon items in one size
 
 Slickdeals only carries what its community posted, so a Nike hoodie you actually want is
@@ -483,12 +515,17 @@ apart.
 | Constraint | Effect |
 |---|---|
 | `d.is_active` | retired deals excluded — anything unseen for `staleAfterHours` (48h) |
-| `state IN (NEW, SEEN, SAVED)` | **dismissed deals excluded** — reachable only via the State filter |
+| `state IN (NEW, SEEN, FAVORITE)` | **dismissed deals excluded** — reachable only via the State filter |
 | relevance sort | promoted first, then recency, then discount |
 
 So it's every active, non-dismissed deal — not a dump of the `deals` table. Rather than
 leave that to be rediscovered, the **Export info** sheet writes it into every file, along
 with the generated timestamp, the row counts, and each filter's value.
+
+The one exception is `/favorites/export.xlsx`, which keeps retired deals (see
+[Favorites](#favorites)). Its **Export info** sheet says so explicitly rather than
+repeating the guarantee above: a file whose rows include dead offers while its own sheet
+promises "active deals only" would be read as evidence those offers are live.
 
 ### It exports all matching rows, not the page
 

@@ -171,6 +171,57 @@ header h1::after {
 
 main { padding: 20px 22px 72px; max-width: 1500px; }
 
+/* ---------- scope row ----------
+ * "All deals / Favorites": which slice of the feed is in view. Sits above the filter bar
+ * because it is not a filter — it decides the set the filters then narrow.
+ *
+ * Deliberately NOT styled like .chip-tog, even though both are pill-shaped toggles. A chip is
+ * independent and composes with its neighbours; these two are mutually exclusive, so they are
+ * drawn as one segmented control with a shared border and a divider between the halves. Looking
+ * different from the chips is the point: same look would imply the same behaviour. */
+.scopes {
+  display: inline-flex;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 15px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+/* Divider between the halves rather than a gap, so the two read as one control. */
+.scope + .scope { border-left: 1px solid var(--line); }
+.scope:hover { background: var(--surface-3); color: var(--text); }
+
+.scope.on {
+  color: #1a0d02;
+  background: var(--accent);
+  font-weight: 700;
+}
+.scope.on:hover { background: #ff8a2e; color: #1a0d02; }
+
+/* Reads against the ember fill when active and the dim surface when not, so it needs both. */
+.scope-count {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.scope:not(.on) .scope-count { background: var(--surface-3); color: var(--text-dim); }
+
 /* ---------- filters ---------- */
 
 form.filters {
@@ -624,6 +675,22 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .chip-drop { color: var(--good);  border-color: rgba(79, 191, 139, 0.45); background: rgba(79, 191, 139, 0.1); }
 .chip-new  { color: var(--accent); border-color: var(--accent-line); background: var(--accent-wash); }
 
+/* A favorite is a CHOICE, not a measurement, which is why it takes the ember accent rather than
+ * the green. Green here consistently means verified-good — at-lowest, ships-to-Colombia,
+ * added-by-URL — all of which are facts the app established. Marking a row says nothing about
+ * whether the deal is any good, so it must not borrow that vocabulary. */
+.chip-fav { color: var(--accent); border-color: var(--accent); background: var(--accent-wash); font-weight: 700; }
+
+/* "The source stopped returning this." Reachable only on /favorites, the one view that does not
+ * filter on is_active. The quietest chip in the file on purpose: it reports an absence, and the row
+ * it sits on is being kept for its history rather than offered as something to buy. */
+.chip-expired {
+  color: var(--text-faint);
+  border-color: var(--line);
+  background: var(--surface-2);
+  font-weight: 400;
+}
+
 .chips { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 
 /* Colombia shipping. Unverified is the only actionable state, so it is the brightest —
@@ -917,6 +984,27 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   color: var(--accent);
 }
 .actions button.verify-btn:hover { background: var(--accent-wash); }
+
+/* The favorite toggle. Off state is a plain action button; on state is filled and accented, the
+ * same treatment `.typetag.on` uses for a selected tag — one visual language for "this is on".
+ *
+ * The glyph changes too (☆ → ★) and so does the word, because the button reports state rather than
+ * only inviting a click, and a state that rests on colour alone is unreadable to a third of a
+ * decision. Wider than its neighbours since the label is two tokens; the column is nowrap, so it
+ * claims the space rather than wrapping the row's buttons onto two lines. */
+.actions button.fav-btn.on {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Hover on an already-favorited row means "remove", so it warms toward the bad hue rather than
+ * restating the accent — the same call `.tracked .hide-btn` makes for its own soft delete. */
+.actions button.fav-btn.on:hover {
+  color: var(--bad);
+  border-color: rgba(217, 86, 110, 0.5);
+  background: rgba(217, 86, 110, 0.08);
+}
 
 /* htmx toggles `htmx-request` on the element named by hx-indicator. Default hidden, so a
  * row at rest carries no spinner; `display` rather than `opacity` so the hidden state

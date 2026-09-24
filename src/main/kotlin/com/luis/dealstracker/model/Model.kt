@@ -26,7 +26,14 @@ fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) 
     else -> "$currency " + String.format("%,.2f", amount)
 }
 
-enum class DealState { NEW, SEEN, DISMISSED, SAVED }
+/**
+ * Where a deal stands with Luis. Single-valued, which is the constraint that shapes the UI:
+ * [FAVORITE] and [DISMISSED] cannot both hold, so the feed does not offer Hide on a favorited
+ * row rather than letting a click silently un-favorite it.
+ *
+ * [FAVORITE] was called SAVED until V14 — see that migration for why the name moved.
+ */
+enum class DealState { NEW, SEEN, DISMISSED, FAVORITE }
 
 /** Whether the item can be shipped to Colombia. */
 enum class CoShipping { UNKNOWN, YES, NO }
