@@ -156,6 +156,42 @@ data class Defaults(
      * never lift a weak one above a strong one.
      */
     val feedRotationHours: Int = 3,
+
+    // --- Ask Claude panel ---
+    /**
+     * Model for the Ask panel, as `claude --model` takes it.
+     *
+     * Sonnet rather than Haiku, on a measurement rather than a price list: asked for the best
+     * full-motion mount among 139 watch candidates, Haiku 4.5 spent 9.4K output tokens reasoning
+     * and cost $0.054 in 65s, where Sonnet 5 answered in 1.8K tokens for $0.035 in 22s — and was
+     * the one that flagged the USD row and the missing height-adjustment spec. Cheaper per token
+     * is not cheaper per answer.
+     */
+    val askModel: String = "sonnet",
+    /** `claude --effort`. Lower means shorter reasoning, which is most of an answer's cost. */
+    val askEffort: String = "low",
+    /**
+     * Hard ceiling per question, passed as `--max-budget-usd`. Sized against the row cap below: a
+     * full 500-row screen is ~25K tokens, measured at roughly $0.10 for the first question and a
+     * little more for each follow-up (a resume replays the transcript). So this only bites on a
+     * runaway answer, which is the case it exists for.
+     */
+    val askMaxBudgetUsd: Double = 0.30,
+    /**
+     * Most rows sent with a question. ~50 tokens each, so 500 is ~25K tokens.
+     *
+     * Was 200, which cut the "Soporte TV" watch — 335 candidates — to its 200 cheapest, and the
+     * answer then had to say it could not see the rest. The whole point of asking a watch is "which
+     * of everything I'm hunting is best", so the cap is set to cover any real watch whole. It still
+     * binds on the unfiltered feed (1,000+ rows), where the prompt says how many were left out.
+     */
+    val askMaxRows: Int = 500,
+    /**
+     * The `claude` executable. Blank means "find it": PATH first, then `~/.local/bin/claude`,
+     * where the installer puts it — launchd starts the app with a bare PATH that lacks that
+     * directory, so relying on PATH alone would work from a terminal and fail in the background.
+     */
+    val askClaudePath: String = "",
 )
 
 @Serializable

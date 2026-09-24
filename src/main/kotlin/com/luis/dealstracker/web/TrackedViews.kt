@@ -549,19 +549,7 @@ internal fun MAIN.trackedPage(
     typeTags(deals, selected, sort, brand, origin)
     originTags(deals, manualAsins, selected, sort, brand, origin)
 
-    val shown = deals
-        .filter { selected.isEmpty() || ProductType.of(it.title) in selected }
-        // Case-insensitive, for the same reason the picker groups that way: the stored casing
-        // differs between a V12-backfilled row and a freshly fetched one.
-        .filter { brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase() }
-        .filter {
-            when (origin) {
-                null -> true
-                TrackedOrigin.MANUAL -> it.asin != null && it.asin in manualAsins
-                TrackedOrigin.SEARCH -> it.asin == null || it.asin !in manualAsins
-            }
-        }
-        .sortedWith(comparatorFor(sort))
+    val shown = trackedShown(deals, selected, brand, origin, manualAsins, sort)
 
     if (shown.isEmpty()) {
         div("empty") {
@@ -638,6 +626,33 @@ internal fun MAIN.trackedPage(
         }
     }
 }
+
+/**
+ * The rows the tracked tab shows for a given set of controls, in the order it shows them.
+ *
+ * Extracted so the Ask panel reads exactly what the page renders. A second copy of these filters
+ * would drift, and the failure would be an answer about rows the operator cannot see.
+ */
+internal fun trackedShown(
+    deals: List<Deal>,
+    selected: Set<ProductType>,
+    brand: String?,
+    origin: TrackedOrigin?,
+    manualAsins: Set<String>,
+    sort: TrackedSort,
+): List<Deal> = deals
+    .filter { selected.isEmpty() || ProductType.of(it.title) in selected }
+    // Case-insensitive, for the same reason the picker groups that way: the stored casing
+    // differs between a V12-backfilled row and a freshly fetched one.
+    .filter { brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase() }
+    .filter {
+        when (origin) {
+            null -> true
+            TrackedOrigin.MANUAL -> it.asin != null && it.asin in manualAsins
+            TrackedOrigin.SEARCH -> it.asin == null || it.asin !in manualAsins
+        }
+    }
+    .sortedWith(comparatorFor(sort))
 
 private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) {
     tr {

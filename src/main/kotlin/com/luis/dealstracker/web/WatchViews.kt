@@ -142,7 +142,7 @@ private fun sortLabel(sort: WatchSort): String = when (sort.key) {
  * `nullsLast` on the window low is deliberate: a listing never seen before has no floor, and
  * "unknown" belongs at the end rather than sorting as zero.
  */
-private fun matchingComparator(sort: WatchSort): Comparator<WatchCandidate> {
+internal fun matchingComparator(sort: WatchSort): Comparator<WatchCandidate> {
     val base: Comparator<WatchCandidate> = when (sort.key) {
         "product" -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
         "floor" -> compareBy(nullsLast<BigDecimal>()) { it.priorFloor }

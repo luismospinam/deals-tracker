@@ -1,5 +1,8 @@
 package com.luis.dealstracker
 
+import com.luis.dealstracker.ask.AskService
+import com.luis.dealstracker.ask.ClaudeCli
+import com.luis.dealstracker.ask.SYSTEM_PROMPT
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.Db
@@ -247,9 +250,26 @@ fun main(args: Array<String>) {
         }
     }
 
+    // Questions go to the local `claude` CLI on the operator's own login -- see ClaudeCli for why
+    // not the API. Its working directory is an empty folder under build/, so its session files are
+    // filed apart from this repo's own Claude Code history.
+    val claudePath = ClaudeCli.resolveExecutable(app.defaults.askClaudePath)
+    val ask = AskService(
+        ClaudeCli(
+            executable = claudePath,
+            workDir = File(projectDir, "build/ask"),
+            model = app.defaults.askModel,
+            effort = app.defaults.askEffort,
+            maxBudgetUsd = app.defaults.askMaxBudgetUsd,
+            systemPrompt = SYSTEM_PROMPT,
+        ),
+        maxRows = app.defaults.askMaxRows,
+    )
+    println("[ask] using $claudePath, model ${app.defaults.askModel}, effort ${app.defaults.askEffort}")
+
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask)
     }.start(wait = true)
 }
 

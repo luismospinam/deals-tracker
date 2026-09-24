@@ -549,28 +549,46 @@ class DealRepository(
         }
     }
 
-    fun findById(id: Long): Deal? {
-        val sql = """
-            SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n,
-                   ${DealScore.SQL} AS relevance
-            FROM deals d
-            JOIN LATERAL (
-                SELECT price, list_price FROM price_observations
-                WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
-            ) po ON TRUE
-            JOIN LATERAL (
-                SELECT MIN(price) AS min_price, MAX(price) AS max_price, COUNT(*) AS n
-                FROM price_observations WHERE deal_id = d.id
-            ) agg ON TRUE
-            WHERE d.id = ?
-        """.trimIndent()
-        return ds.connection.use { conn ->
-            conn.prepareStatement(sql).use { st ->
-                st.setLong(1, id)
-                st.executeQuery().use { rs -> if (rs.next()) rs.toDeal() else null }
-            }
+    fun findById(id: Long): Deal? = ds.connection.use { conn ->
+        conn.prepareStatement(dealSelect("d.id = ?")).use { st ->
+            st.setLong(1, id)
+            st.executeQuery().use { rs -> if (rs.next()) rs.toDeal() else null }
         }
     }
+
+    /**
+     * Several deals in one query, returned in the order of [ids].
+     *
+     * For callers that already hold a list of ids from somewhere else — a watch's candidates — and
+     * need the full rows. Calling [findById] per id would be one round trip per row, which on a
+     * watch with 140 candidates is noticeable. Ids that no longer exist are simply absent.
+     */
+    fun findByIds(ids: List<Long>): List<Deal> {
+        if (ids.isEmpty()) return emptyList()
+        val byId = ds.connection.use { conn ->
+            conn.prepareStatement(dealSelect("d.id = ANY(?)")).use { st ->
+                st.setArray(1, conn.createArrayOf("bigint", ids.toTypedArray()))
+                st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.toDeal()) } }
+            }
+        }.associateBy { it.id }
+        return ids.mapNotNull { byId[it] }
+    }
+
+    /** The row shape [toDeal] reads, for single- and multi-id lookups. */
+    private fun dealSelect(where: String) = """
+        SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n,
+               ${DealScore.SQL} AS relevance
+        FROM deals d
+        JOIN LATERAL (
+            SELECT price, list_price FROM price_observations
+            WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
+        ) po ON TRUE
+        JOIN LATERAL (
+            SELECT MIN(price) AS min_price, MAX(price) AS max_price, COUNT(*) AS n
+            FROM price_observations WHERE deal_id = d.id
+        ) agg ON TRUE
+        WHERE $where
+    """.trimIndent()
 
     fun priceHistory(dealId: Long): List<PriceObservation> =
         ds.connection.use { conn ->

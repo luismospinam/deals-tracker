@@ -1,5 +1,6 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.ask.AskService
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.FeedFilter
@@ -53,8 +54,11 @@ fun Application.routes(
     app: AppConfig,
     categorizer: Categorizer,
     scope: CoroutineScope,
+    ask: AskService,
 ) {
     routing {
+        askRoutes(ask, repo, watches, manualItems, app)
+
         // Serves src/main/resources/static/*. Keeping the CSS on disk rather than in a
         // Kotlin constant means style edits need only a browser refresh.
         staticResources("/static", "static")
@@ -89,6 +93,7 @@ fun Application.routes(
                             +" deals"
                         }
                     }
+                    askPanel("feed", "e.g. which of these are real discounts, not inflated list prices?")
                     dealTable(page.deals)
                     recentRuns(repo.recentRuns())
                 }
@@ -179,6 +184,7 @@ fun Application.routes(
                             span("tracked-note") { +" · $expired whose offer has since expired" }
                         }
                     }
+                    askPanel("favorites", "e.g. which of my favorites is the best buy right now?")
                     // Whether a control is NARROWING the page, which is what changes the meaning of
                     // an empty one. `sort` only reorders and `state` is pinned by favoritesFilter,
                     // so neither can be why a favorite is missing.
@@ -278,6 +284,7 @@ fun Application.routes(
 
             call.respondHtml {
                 page("Tracked — Deals Tracker") {
+                    askPanel("tracked", "e.g. which of these has dropped the most, and is it worth buying now?")
                     trackedPage(deals, sources, selected, sort, brand, notice, manualAsins, origin)
                 }
             }
@@ -458,6 +465,10 @@ fun Application.routes(
 
             call.respondHtml {
                 page(watch.name) {
+                    askPanel(
+                        "watch:${watch.id}",
+                        "e.g. which is the best option for what I'm looking for, and why?",
+                    )
                     watchDetail(
                         watch, candidates, matches, dealsById,
                         sourceNames(repo, app), categorizer.categoryNames,

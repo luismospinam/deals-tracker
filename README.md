@@ -353,6 +353,55 @@ trivially. Without a floor the feature is pure noise on day one.
   price, so a standing bargain does not banner every hour. A failed send leaves
   `notified_at` null so the next cycle retries.
 
+## Ask Claude about the rows on screen
+
+The feed, favorites, tracked and watch-detail screens each carry a collapsed **✦ Ask Claude
+about these rows** panel. Ask "which of these is the best full-motion mount for a 55" TV?" and
+the answer streams in, ranked, with every product it mentions linked to the retailer's page.
+
+It runs the local `claude` CLI (`claude -p`) on the Claude Code login already on this machine —
+there is no API key here, so the panel spends plan usage rather than a separate bill. Configure
+it under `defaults:` in `config/sources.yaml`: `askModel` (default `sonnet`), `askEffort`
+(`low`), `askMaxRows` (500), `askMaxBudgetUsd` (0.30), `askClaudePath` (blank = find it).
+
+### What it sees
+
+The server rebuilds the rows from the page's own query string, using the same functions the page
+calls (`feedFilterFrom`, `favoritesFilter`, `trackedShown`, `watches.candidates`). The browser
+never sends rows, so an answer is always about what the page shows. A watch sends its whole
+"Matching now" list, not the 15 on the current page.
+
+Rows go as a compact pipe-separated table at ~50 tokens a row: the 335 candidates of the
+"Soporte TV" watch are ~17K tokens. If a screen exceeds `askMaxRows`, the prompt says how many
+were left out.
+
+### Why these settings
+
+Each was measured, not guessed:
+
+- **Sonnet, not Haiku.** On the same 139-row watch question, Haiku 4.5 spent 9.4K output tokens
+  and cost $0.054 in 65s; Sonnet 5 answered in 1.8K tokens for $0.035 in 22s, and was the one that
+  flagged the USD row. Cheaper per token is not cheaper per answer.
+- **`--safe-mode` + our own `--system-prompt`.** Claude Code's default prompt was 8.5K tokens
+  on a one-word reply — more than the rows. Replaced, the fixed overhead is ~350.
+- **`--tools ""`.** It reads the rows and nothing else: no commands, files or web. A
+  seller-written title cannot steer it into doing anything.
+- **Follow-ups `--resume` the session**, so the rows are not re-sent. A follow-up after a filter
+  change, or after 8 turns, starts fresh instead — resuming would answer about the old rows.
+
+Typical cost: 3–10 cents per question depending on row count.
+
+### Things that are easy to get wrong here
+
+- **Links come from the database, never from the model.** URLs are not in the prompt (they would
+  cost tokens on every row), so the server finds which sent rows the answer mentions — `[#id]`,
+  `#id` or `id N` — and returns their real URLs. Only ids of rows actually sent count, so a
+  screen size or price after a `#` never becomes a link.
+- **The system prompt carries this README's rules** — blank is unknown, a list price is a claim,
+  never compare COP with USD, Éxito vs Carulla is weak evidence — because a model reading these
+  rows falls into the same traps the app already did.
+- **Answers are inserted as text, never HTML**: they are model output about third-party titles.
+
 ## Cross-site product identity
 
 The strongest evidence a price is good is a different retailer charging more for the same
