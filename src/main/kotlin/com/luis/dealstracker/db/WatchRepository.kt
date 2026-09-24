@@ -1,10 +1,12 @@
 package com.luis.dealstracker.db
 
+import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.WatchAlert
 import com.luis.dealstracker.model.WatchCandidate
 import com.luis.dealstracker.model.WatchMatch
+import com.luis.dealstracker.model.WatchSearch
 import java.math.BigDecimal
 import java.sql.Connection
 import java.sql.PreparedStatement
@@ -25,6 +27,8 @@ data class WatchDraft(
     val lookbackDays: Int = 30,
     val crossSiteMinSpread: BigDecimal = BigDecimal("15.00"),
     val enabled: Boolean = true,
+    /** See [Watch.amazonTerms]. Null means the watch does not search Amazon. */
+    val amazonTerms: String? = null,
 )
 
 /**
@@ -73,12 +77,24 @@ class WatchRepository(private val ds: DataSource) {
     fun activeSearchTerms(): List<String> =
         enabled().flatMap { parseSearchTerms(it.terms) }.distinct()
 
+    /**
+     * Every Amazon search the enabled watches ask for, one per term.
+     *
+     * Read by the `amazon-watch` adapter and nothing else. Kept apart from [activeSearchTerms],
+     * which is merged into every provider's `searches`, because those are Spanish terms for
+     * Colombian retailers and each Amazon request is scarce — see [Watch.amazonTerms].
+     */
+    fun amazonSearches(): List<WatchSearch> =
+        enabled().flatMap { watch ->
+            parseSearchTerms(watch.amazonTerms).map { WatchSearch(watch.id, it, watch.categoryGroup) }
+        }
+
     fun create(draft: WatchDraft): Long = ds.connection.use { conn ->
         val sql = """
             INSERT INTO watches (name, terms, exclude_terms, category_group, sources,
                                  min_price, max_price, currency, lookback_days,
-                                 cross_site_min_spread, enabled)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 cross_site_min_spread, enabled, amazon_terms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
@@ -91,12 +107,13 @@ class WatchRepository(private val ds: DataSource) {
         val sql = """
             UPDATE watches SET name = ?, terms = ?, exclude_terms = ?, category_group = ?,
                                sources = ?, min_price = ?, max_price = ?, currency = ?,
-                               lookback_days = ?, cross_site_min_spread = ?, enabled = ?
+                               lookback_days = ?, cross_site_min_spread = ?, enabled = ?,
+                               amazon_terms = ?
             WHERE id = ?
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
             st.bindDraft(conn, draft)
-            st.setLong(12, id)
+            st.setLong(13, id)
             st.executeUpdate() > 0
         }
     }
@@ -132,7 +149,7 @@ class WatchRepository(private val ds: DataSource) {
      * observation (`observed_at < po.observed_at`), because a floor containing the price
      * under test is one that price can never beat. See [WatchCandidate.priorFloor].
      */
-    fun candidates(watch: Watch): List<WatchCandidate> {
+    fun candidates(watch: Watch, fx: FxRate): List<WatchCandidate> {
         val where = mutableListOf("d.is_active")
         val params = mutableListOf<Any>()
 
@@ -145,11 +162,17 @@ class WatchRepository(private val ds: DataSource) {
         // unaccent on both sides, so one term matches Exito's "Nevecon" and Carulla's
         // "Nevecón" alike -- see V9__unaccent. The trigram clause stays on the raw title so
         // it still uses deals_title_trgm_idx for the fuzzy tail.
-        where += terms.joinToString(" OR ", prefix = "(", postfix = ")") {
+        //
+        // OR a row this watch's own Amazon search returned. Those titles are English, and
+        // "SAMSUNG 55-Inch Class Crystal UHD" matches no Spanish term, so without this every one
+        // of them would be fetched for the watch and then never shown to it. Only the matching is
+        // widened: exclusions, the price band and the category below still apply to them.
+        where += terms.joinToString(" OR ", prefix = "(", postfix = "") {
             params += "%${escapeLike(it)}%"
             params += it
             "unaccent(d.title) ILIKE unaccent(?) OR d.title % ?"
-        }
+        } + " OR d.id IN (SELECT deal_id FROM watch_sourced_deals WHERE watch_id = ?))"
+        params += watch.id
 
         parseSearchTerms(watch.excludeTerms).takeIf { it.isNotEmpty() }?.let { excludes ->
             // Substring-only, no trigram: an exclusion should be predictable. Fuzzy matching
@@ -181,39 +204,25 @@ class WatchRepository(private val ds: DataSource) {
         //
         // `maxPrice` is the budget, and a budget is about what you would pay now, so that
         // one does test the current price.
-        // Both bounds apply ONLY to listings in the watch's own currency. A bound is a number
-        // with no unit attached, and this app holds no FX rate anywhere, so testing a COP floor
-        // of 10,000 against a $22.99 mount compares unrelated quantities -- and because USD
-        // amounts are numerically tiny next to COP ones, every USD listing would fail a COP
-        // floor and be dropped without trace. That is precisely the silent-exclusion failure
-        // the minPrice comment below warns about, arriving through the currency rather than
-        // through the discount.
         //
-        // Leaving the other currency UNBOUNDED rather than excluded is the deliberate choice: a
-        // watch spanning both is a legitimate thing to want -- "soporte para TV | TV wall mount"
-        // is one shopping intent expressed in two languages -- and the rules in WatchEvaluator
-        // already compare like with like. An unbounded USD side is noisier than a bounded one,
-        // never wrong; a silently emptied USD side looks like the source has nothing.
-        // Accumulated separately, then appended together. The currency placeholder comes first
-        // inside the clause, so it has to reach `params` before the bounds' own values -- and
-        // since `params` already holds the term/exclude/category/source values, that means
-        // building this group in order rather than inserting into the list.
+        // Both are in the watch's currency, and a listing in the other one is converted at the
+        // day's rate (`fx.f`) before it is tested. This used to leave the other currency
+        // UNBOUNDED, because the app held no rate -- which was tolerable while USD rows were a
+        // handful of Slickdeals posts, and not once a watch fetches twenty Amazon TVs an hour:
+        // every mount and remote among them would clear a TV watch's floor. A currency the rate
+        // does not cover (`fx.f` NULL) keeps the old behaviour, unbounded rather than dropped,
+        // because a silently emptied side looks like the source has nothing.
         val bounded = mutableListOf<String>()
-        val boundParams = mutableListOf<Any>()
         watch.minPrice?.let {
-            bounded += "hi.top >= ?"
-            boundParams += it
+            bounded += "hi.top * fx.f >= ?"
+            params += it
         }
         watch.maxPrice?.let {
-            bounded += "po.price <= ?"
-            boundParams += it
+            bounded += "po.price * fx.f <= ?"
+            params += it
         }
         if (bounded.isNotEmpty()) {
-            where += "(d.currency <> ? OR (${bounded.joinToString(" AND ")}))"
-            params += watch.currency
-            // addAll IS wanted here, unlike the `sources` array above: each bound is its own
-            // placeholder, so these must splat into separate parameters rather than bind as one.
-            params.addAll(boundParams)
+            where += "(fx.f IS NULL OR (${bounded.joinToString(" AND ")}))"
         }
 
         val sql = """
@@ -243,15 +252,22 @@ class WatchRepository(private val ds: DataSource) {
             JOIN LATERAL (
                 SELECT MAX(price) AS top FROM price_observations WHERE deal_id = d.id
             ) hi ON TRUE
+            -- What one unit of the listing's currency is worth in the watch's, for the price band.
+            CROSS JOIN LATERAL (
+                SELECT CASE d.currency WHEN 'COP' THEN ?::numeric WHEN 'USD' THEN ?::numeric END AS f
+            ) fx
             WHERE ${where.joinToString(" AND ")}
         """.trimIndent()
 
         return ds.connection.use { conn ->
             conn.prepareStatement(sql).use { st ->
                 // The window parameter is first: it sits in the LEFT JOIN LATERAL, which the
-                // planner places ahead of every WHERE predicate.
+                // planner places ahead of every WHERE predicate. The two conversion factors
+                // follow, in the order of the `fx` lateral's CASE.
                 st.setInt(1, watch.lookbackDays)
-                bind(conn, st, params, offset = 1)
+                st.setBigDecimal(2, fx.convert(BigDecimal.ONE, "COP", watch.currency, scale = 8))
+                st.setBigDecimal(3, fx.convert(BigDecimal.ONE, "USD", watch.currency, scale = 8))
+                bind(conn, st, params, offset = 3)
                 st.executeQuery().use { rs ->
                     buildList {
                         while (rs.next()) {
@@ -279,6 +295,30 @@ class WatchRepository(private val ds: DataSource) {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Records that a watch's Amazon search returned these deals, so they become its candidates.
+     *
+     * Additive, never pruned: a row the search stops returning is still the thing the watch was
+     * hunting, and it leaves the candidate list the normal way -- when `deactivateStale` retires it.
+     */
+    fun linkSourced(links: Map<Long, Set<Long>>) {
+        if (links.isEmpty()) return
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO watch_sourced_deals (watch_id, deal_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            ).use { st ->
+                links.forEach { (dealId, watchIds) ->
+                    watchIds.forEach { watchId ->
+                        st.setLong(1, watchId)
+                        st.setLong(2, dealId)
+                        st.addBatch()
+                    }
+                }
+                st.executeBatch()
             }
         }
     }
@@ -429,6 +469,7 @@ private fun PreparedStatement.bindDraft(conn: Connection, d: WatchDraft) {
     setInt(9, d.lookbackDays)
     setBigDecimal(10, d.crossSiteMinSpread)
     setBoolean(11, d.enabled)
+    setString(12, d.amazonTerms?.trim()?.takeIf { it.isNotEmpty() })
 }
 
 /** Positional binder, dispatching on Kotlin type. Mirrors `DealRepository.bind`. */
@@ -460,6 +501,7 @@ private fun ResultSet.toWatch() = Watch(
     crossSiteMinSpread = getBigDecimal("cross_site_min_spread"),
     enabled = getBoolean("enabled"),
     createdAt = getTimestamp("created_at").toInstant(),
+    amazonTerms = getString("amazon_terms"),
 )
 
 private fun ResultSet.toWatchMatch() = WatchMatch(

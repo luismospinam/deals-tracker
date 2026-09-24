@@ -1,6 +1,8 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.ingest.WatchEvaluator
 import com.luis.dealstracker.model.Deal
+import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.WatchCandidate
@@ -319,6 +321,9 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
             }
             watch.categoryGroup?.let { span { +it } }
             span { +if (watch.sources.isEmpty()) "all sources" else watch.sources.joinToString(", ") }
+            watch.amazonTerms?.takeIf { it.isNotBlank() }?.let {
+                span { +"amazon: "; code { +it } }
+            }
             if (!watch.enabled) span("chip") { +"paused" }
         }
     }
@@ -409,6 +414,15 @@ private fun MAIN.watchForm(
                 required = true
                 placeholder = "nevera | refrigerador"
                 value = watch?.terms ?: ""
+            }
+        }
+        div("f wide") {
+            label { +"Amazon terms" }
+            input(type = InputType.text, name = "amazonTerms") {
+                placeholder = "55 inch 4k tv | smart tv 65"
+                attributes["title"] = "What to search amazon.com for, in English. Blank = this watch does not " +
+                    "search Amazon. Each term costs up to two Amazon page loads an hour."
+                value = watch?.amazonTerms ?: ""
             }
         }
         div("f wide") {
@@ -510,17 +524,21 @@ fun MAIN.watchDetail(
     matchingSort: WatchSort = WatchSort.MATCHING_DEFAULT,
     alertsSort: WatchSort = WatchSort.ALERTS_DEFAULT,
     matchingPage: Int = 1,
+    fx: FxRate? = null,
 ) {
     val basePath = "/watches/${watch.id}"
     h2 { +watch.name }
     p("meta") {
         span { code { +watch.terms } }
+        watch.amazonTerms?.takeIf { it.isNotBlank() }?.let { span { +"amazon: "; code { +it } } }
         span { +"${watch.lookbackDays}-day window" }
         span { +"${candidates.size} matching now" }
         if (!watch.enabled) span("chip") { +"paused" }
     }
 
-    matchingTable(watch, candidates, matchingSort, alertsSort, matchingPage, basePath)
+    // Compared, sorted and highlighted in the watch's currency, the same conversion the rules use.
+    val comparable = fx?.let { WatchEvaluator.comparable(watch, candidates, it) } ?: candidates
+    matchingTable(watch, comparable, matchingSort, alertsSort, matchingPage, basePath, fx)
 
     h3 { +"Alerts" }
     if (matches.isEmpty()) {
@@ -562,7 +580,9 @@ fun MAIN.watchDetail(
                             deal?.let { div("meta") { span { +it.source } } }
                         }
                         td(classes = "col-price") {
-                            +formatMoney(match.priceAtMatch, watch.currency)
+                            // The deal's own currency: the ledger stores the price as quoted, so a
+                            // USD alert reads US$399.99 rather than as 400 pesos.
+                            +formatMoney(match.priceAtMatch, deal?.currency ?: watch.currency)
                         }
                         td(classes = "col-sig") {
                             span(if (match.reason == MatchReason.CROSS_SITE_SPREAD) "chip chip-drop" else "chip chip-low") {
@@ -603,6 +623,7 @@ private fun MAIN.matchingTable(
     alertsSort: WatchSort,
     page: Int,
     basePath: String,
+    fx: FxRate? = null,
 ) {
     h3 { +"Matching now" }
     if (candidates.isEmpty()) {
@@ -638,6 +659,9 @@ private fun MAIN.matchingTable(
         +"Sorted by ${sortLabel(sort)}. A highlighted price matches the cheapest this watch has "
         +"on record in its window; \"new\" under Window low means the listing has not been seen "
         +"before."
+        if (fx != null && candidates.any { it.quotedPrice != null }) {
+            +" Prices marked ≈ are converted at ${fx.describe()}."
+        }
     }
 
     pager(basePath, sort, alertsSort, current, pages)
@@ -677,17 +701,18 @@ private fun MAIN.matchingTable(
                     }
                     td(classes = "col-price") {
                         val isFloor = floor != null && candidate.price <= floor
+                        // The quoted price first for a converted row, then what it is worth here.
                         if (isFloor) {
-                            strong("chip chip-low") { +formatMoney(candidate.price, watch.currency) }
+                            strong("chip chip-low") { +candidate.priceLabel() }
                         } else {
-                            +formatMoney(candidate.price, watch.currency)
+                            +candidate.priceLabel()
                         }
                     }
                     td(classes = "col-price") {
                         // Blank, not zero: no prior observation means unknown, and this listing
                         // has simply not been seen before.
                         candidate.priorFloor
-                            ?.let { +formatMoney(it, watch.currency) }
+                            ?.let { +formatMoney(it, candidate.currency) }
                             ?: span("dim") { +"new" }
                     }
                     td(classes = "col-sig") { +candidate.source }
@@ -724,6 +749,8 @@ private fun rivalIndex(candidates: List<WatchCandidate>): Map<Long, WatchCandida
             .flatMap { byKey[it].orEmpty() }
             .distinctBy { it.dealId }
             .filter { it.source != candidate.source }
+            // As in the rule: whatever the rate could not convert is never a rival.
+            .filter { it.currency == candidate.currency }
             .minByOrNull { it.price }
             ?: return@mapNotNull null
         candidate.dealId to cheapestElsewhere
@@ -750,6 +777,6 @@ private fun DIV.rivalNote(watch: Watch, candidate: WatchCandidate, rival: WatchC
     } else {
         // Dearer here. Said plainly rather than hidden: the point of the comparison is to send
         // you to the cheaper shop, not to flatter the row you happen to be looking at.
-        span("dim") { +"${rival.source} has it for ${formatMoney(rival.price, watch.currency)}" }
+        span("dim") { +"${rival.source} has it for ${rival.priceLabel()}" }
     }
 }

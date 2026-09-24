@@ -47,6 +47,7 @@ Tests (no database or network needed — they run against captured fixtures):
 | `homecenter` | `falabella-next` | working — Sodimac; **category crawl only**, robots disallows its search |
 | `falabella` | `falabella-next` | working — keyword search allowed |
 | `amazon` | `amazon` | working — tracks named items **in your size**; heavily rate-limited |
+| `amazon-watches` | `amazon-watch` | working — searches amazon.com for each watch's **Amazon terms** |
 | `mercadolibre-co` | `mercadolibre` | **disabled** — search API policy-blocked |
 | `rappi-medellin` | `rappi` | **disabled** — no adapter |
 | Makro | — | **deferred** — RSC payload, store-scoped, see BLOCKERS.md |
@@ -266,9 +267,9 @@ Amazon served this machine **COP** on some runs (`COP 234,124.82`) and **USD** o
 That makes this a fourth money format: comma groups thousands *and* dot is the decimal, which
 neither existing parser handles — applying one is a factor-of-100 error, and a test pins it.
 
-Because one source can now carry mixed currencies, `WatchEvaluator.crossSiteSpread` **skips
-rivals in a different currency**. It does no conversion, and comparing US$189.99 against
-COP 700,000 would otherwise report a ~100% saving.
+Because one source can carry mixed currencies, watches convert before they compare — see
+[Comparing across currencies](#comparing-across-currencies). A currency the rate does not cover
+is still never compared: US$189.99 against COP 700,000 read raw is a ~100% "saving".
 
 ### Expect it to be partly refused
 
@@ -314,6 +315,47 @@ Two rules fire alerts, and both are deliberately hard to satisfy:
 ```
 
 Alerts arrive as a macOS notification, one per watch per cycle rather than one per deal.
+
+### Searching Amazon for a watch
+
+A watch can also search amazon.com: fill in **Amazon terms** on its form, in English
+(`55 inch 4k tv | smart tv 65`). The `amazon-watches` provider runs those searches each poll —
+20 items per term, at most 2 pages — and links every row it finds to the watch that asked for it
+(`watch_sourced_deals`, V15). Blank means the watch does not search Amazon.
+
+- **A separate field, not the watch's terms.** Those are Spanish, for Colombian retailers, and
+  amazon.com answers `televisor` poorly. Every Amazon page load is also scarce — the host starts
+  refusing after a few — so each term should be one worth spending a request on.
+- **Linked rows are candidates even though their titles do not match.** "SAMSUNG 55-Inch Class
+  Crystal UHD" contains no Spanish term, so matching on the title alone would fetch rows for the
+  watch and never show them to it. Only the matching is widened: exclusions, the price band and
+  the category still apply.
+- **Each row carries the watch's category**, so a TV found for a "TV & Video" watch lands there
+  whatever its English title matches. `Categorizer` takes a source category that is already a
+  bucket name as it stands.
+- **Separate from the `amazon` provider** so that its rows stay off Tracked, and its requests are
+  not spent from the clothing searches' budget.
+- **Neither Amazon provider appears on the feed**, which ranks offers; both fetch items whether or
+  not they are discounted. Favorites is unaffected. Slickdeals' Amazon deals are still on the feed.
+- **Shipping is not counted.** An Amazon TV is compared at its item price, even though freight
+  to Colombia can nearly match it (`$248.68` on a `$267.99` TV). The rows get the usual
+  automatic shipping check, and it shows on the feed and the Tracked tab.
+
+### Comparing across currencies
+
+A watch compares every candidate in its own currency. A USD listing is converted at Colombia's
+official **TRM**, fetched once a day from datos.gov.co (dataset `32sa-8pi3`, no key). If that
+fails, the app uses `defaults.usdCopRate` in `config/sources.yaml` (3200). The price band, the
+30-day floor and the cross-site rule all use the converted price, so an Amazon TV can fire
+"undercuts exito".
+
+- **The alert says which rate it used**: `… — converted: amazon-watches US$399.99 at 3,264.39
+  COP/USD (TRM 2026-09-24)`. A claim that rests on the fallback says `(config)`.
+- **The ledger stores the quoted price**, in the deal's own currency. Storing the converted one
+  would re-announce an unchanged dollar price every time the peso strengthened.
+- **The watch page shows both**: `US$399.99 ≈ $1,305,723`. It sorts and highlights by the
+  converted figure.
+- **A currency the rate does not cover** (neither COP nor USD) is still judged only against its own kind.
 
 ### Set a minimum price. This is not optional.
 
@@ -398,7 +440,7 @@ Typical cost: 3–10 cents per question depending on row count.
   `#id` or `id N` — and returns their real URLs. Only ids of rows actually sent count, so a
   screen size or price after a `#` never becomes a link.
 - **The system prompt carries this README's rules** — blank is unknown, a list price is a claim,
-  never compare COP with USD, Éxito vs Carulla is weak evidence — because a model reading these
+  compare COP with USD only at the rate the screen states, Éxito vs Carulla is weak evidence — because a model reading these
   rows falls into the same traps the app already did.
 - **Answers are inserted as text, never HTML**: they are model output about third-party titles.
 

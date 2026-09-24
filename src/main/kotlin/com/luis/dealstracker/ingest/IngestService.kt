@@ -40,6 +40,11 @@ class IngestService(
      * watches live, and so tests can drive it without a database.
      */
     private val watchTerms: () -> List<String>? = { null },
+    /**
+     * Records which watch's own search found which deal, keyed by deal id. Called after the
+     * ingest transaction commits, so the deal rows exist. See `V15__watch_amazon_terms`.
+     */
+    private val linkWatchDeals: (Map<Long, Set<Long>>) -> Unit = {},
 ) {
 
     suspend fun runAll(): List<IngestReport> =
@@ -202,6 +207,7 @@ class IngestService(
         // source would be silently filtered down to nothing.
         val curated = provider.options["promoteAllNew"]?.toBoolean() ?: false
 
+        val watchLinks = mutableMapOf<Long, Set<Long>>()
         var newCount = 0
         var promotedCount = 0
         var dropCount = 0
@@ -213,6 +219,7 @@ class IngestService(
                 byCategory[group] = (byCategory[group] ?: 0) + 1
                 val upsert = repo.upsertDeal(conn, provider.id, raw, coShippingDefault, group)
                 if (upsert.isNew) newCount++
+                if (raw.watchIds.isNotEmpty()) watchLinks[upsert.dealId] = raw.watchIds
 
                 // Read the historical minimum BEFORE recording this observation --
                 // otherwise the new price is inside its own minimum and a genuine
@@ -236,6 +243,11 @@ class IngestService(
                 println("[${provider.id}] $deactivated deal(s) retired (unseen for ${staleAfterHours}h)")
             }
         }
+
+        // Outside the transaction on purpose: a failed link costs a watch some candidates until the
+        // next poll, and must not roll back the prices just recorded.
+        runCatching { linkWatchDeals(watchLinks) }
+            .onFailure { println("[${provider.id}] linking deals to watches failed: ${it.message}") }
 
         // Surfaced so an over-broad or missing rule shows up as a suspicious "Other" count
         // rather than passing unnoticed.

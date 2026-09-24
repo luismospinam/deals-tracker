@@ -1,5 +1,8 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.ingest.ExchangeRates
+import com.luis.dealstracker.ingest.WatchEvaluator
+import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.ask.AskContext
 import com.luis.dealstracker.ask.AskService
 import com.luis.dealstracker.ask.firstPrompt
@@ -46,6 +49,7 @@ fun Routing.askRoutes(
     watches: WatchRepository,
     manualItems: ManualItemRepository,
     app: AppConfig,
+    rates: ExchangeRates,
 ) {
     post("/ask") {
         val form = call.receiveParameters()
@@ -59,7 +63,7 @@ fun Routing.askRoutes(
         val screen = form["screen"].orEmpty()
         val qs = form["qs"].orEmpty().removePrefix("?")
         val context = withContext(Dispatchers.IO) {
-            askContextFor(screen, parseQueryString(qs), ask.maxRows, repo, watches, manualItems, app)
+            askContextFor(screen, parseQueryString(qs), ask.maxRows, repo, watches, manualItems, app, rates.current())
         } ?: return@post call.respondText("unknown screen", status = HttpStatusCode.BadRequest)
 
         // The screen's identity for follow-ups: same screen, same filters. See AskService.
@@ -158,8 +162,9 @@ internal fun askContextFor(
     watches: WatchRepository,
     manualItems: ManualItemRepository,
     app: AppConfig,
+    fx: FxRate,
 ): AskContext? = when {
-    screen == "feed" -> feedContext("deal feed", feedFilterFrom(params), maxRows, repo)
+    screen == "feed" -> feedContext("deal feed", feedScreenFilter(params, app), maxRows, repo)
     screen == "favorites" -> feedContext("favorites", favoritesFilter(params), maxRows, repo)
     screen == "tracked" -> {
         val sources = trackingSources(app)
@@ -189,10 +194,15 @@ internal fun askContextFor(
         val watch = screen.removePrefix("watch:").toLongOrNull()?.let { watches.findById(it) }
         watch?.let {
             // Same order the "Matching now" table uses, so a cut at maxRows drops the same tail.
-            val ordered = watches.candidates(it)
+            val ordered = WatchEvaluator.comparable(it, watches.candidates(it, fx), fx)
                 .sortedWith(matchingComparator(watchSortFrom(params, WatchSort.MATCHING_PARAM)))
                 .map { c -> c.dealId }
-            AskContext.forWatch(it, repo.findByIds(ordered.take(maxRows)), omitted = (ordered.size - maxRows).coerceAtLeast(0))
+            AskContext.forWatch(
+                it,
+                repo.findByIds(ordered.take(maxRows)),
+                omitted = (ordered.size - maxRows).coerceAtLeast(0),
+                fx = fx,
+            )
         }
     }
     else -> null

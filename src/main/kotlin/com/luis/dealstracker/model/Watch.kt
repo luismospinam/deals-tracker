@@ -45,6 +45,27 @@ data class Watch(
     val crossSiteMinSpread: BigDecimal,
     val enabled: Boolean,
     val createdAt: Instant,
+    /**
+     * What to search amazon.com for, pipe-separated like [terms]. Null means this watch does not
+     * search Amazon.
+     *
+     * Separate from [terms] because those are written for Colombian retailers, in Spanish, and
+     * amazon.com answers `televisor` poorly — and each Amazon search spends a scarce request
+     * budget, so it should be phrased for that site ("55 inch 4k tv").
+     */
+    val amazonTerms: String? = null,
+)
+
+/**
+ * One Amazon search a watch asked for, handed to the `amazon-watch` adapter.
+ *
+ * Carries the watch's id so the rows found can be linked back to it, and its category so they land
+ * in the bucket the watch is pinned to rather than wherever an English title happens to match.
+ */
+data class WatchSearch(
+    val watchId: Long,
+    val term: String,
+    val categoryGroup: String?,
 )
 
 /**
@@ -90,7 +111,25 @@ data class WatchCandidate(
      * all. Empty means no reliable identity, and must never match anything.
      */
     val keys: List<String> = emptyList(),
-)
+    /**
+     * The price as the retailer quoted it, when [price] and [priorFloor] have been converted to the
+     * watch's currency for comparison — see `WatchEvaluator.inWatchCurrency`. Null when no
+     * conversion happened.
+     *
+     * Kept so every place that shows a converted price can also show the real one: an Amazon TV
+     * reads `US$399.99 ≈ $1,305,756`, never a bare peso figure Amazon did not charge.
+     */
+    val quotedPrice: BigDecimal? = null,
+    val quotedCurrency: String? = null,
+) {
+    /** `US$399.99 ≈ $1,305,756` for a converted row, the plain price otherwise. */
+    fun priceLabel(): String =
+        if (quotedPrice != null && quotedCurrency != null) {
+            "${formatMoney(quotedPrice, quotedCurrency)} ≈ ${formatMoney(price, currency)}"
+        } else {
+            formatMoney(price, currency)
+        }
+}
 
 /** A fired rule, ready to be written to the ledger and possibly announced. */
 data class WatchAlert(
@@ -99,6 +138,15 @@ data class WatchAlert(
     val price: BigDecimal,
     /** The sentence the alert rests on, stored so it can be audited without recomputing. */
     val evidence: String,
+    /**
+     * [price] in the watch's currency, which is what the rules compared, so alerts on listings in
+     * two currencies can still be ranked against each other. Null when no conversion happened.
+     *
+     * [price] itself stays in the deal's own currency, because that is what the ledger compares a
+     * later price against — converting it would re-announce an unchanged price every time the
+     * exchange rate moved.
+     */
+    val comparablePrice: BigDecimal? = null,
 )
 
 /** A ledger row, used to decide whether an alert is actually news. */

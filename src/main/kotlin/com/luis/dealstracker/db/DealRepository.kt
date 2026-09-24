@@ -17,6 +17,12 @@ data class UpsertResult(val dealId: Long, val isNew: Boolean)
 
 data class FeedFilter(
     val sources: List<String> = emptyList(),
+    /**
+     * Sources left out unless [sources] names them. The feed uses it to keep out the providers
+     * that fetch items whether or not they are discounted — the size tracker and the watches'
+     * Amazon search — since the feed's job is ranking offers. See `feedHiddenSources`.
+     */
+    val excludeSources: List<String> = emptyList(),
     val search: String? = null,
     val minDiscount: BigDecimal? = null,
     val maxPrice: BigDecimal? = null,
@@ -402,6 +408,10 @@ class DealRepository(
         if (filter.sources.isNotEmpty()) {
             where += "d.source = ANY (?)"
             params.add(filter.sources)
+        } else if (filter.excludeSources.isNotEmpty()) {
+            // Only when no source is picked: choosing one by name is an explicit request to see it.
+            where += "d.source <> ALL (?)"
+            params.add(filter.excludeSources)
         }
         if (filter.coShipping.isNotEmpty()) {
             where += "d.co_shipping = ANY (?)"

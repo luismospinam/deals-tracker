@@ -1,5 +1,6 @@
 package com.luis.dealstracker.ingest
 
+import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.WatchCandidate
@@ -204,7 +205,8 @@ class WatchEvaluatorTest {
     }
 
     /**
-     * Two prices in different currencies are not comparable, and this rule does no conversion.
+     * Called directly, the rule still refuses to compare two currencies: `evaluate` converts before
+     * it runs, so anything still in a different currency here is one the rate could not cover.
      *
      * Latent until the `amazon` adapter arrived: every source but Slickdeals was COP, and
      * Slickdeals publishes neither a brand nor a barcode so it rarely shares an identity key
@@ -325,7 +327,7 @@ class WatchEvaluatorTest {
             candidate(1, "exito", "1739900", priorFloor = "2400000", matchKey = key),
             candidate(2, "easy", "2360900", priorFloor = "2360900", matchKey = key),
         )
-        val alerts = WatchEvaluator.evaluate(watch(), candidates)
+        val alerts = WatchEvaluator.evaluate(watch(), candidates, fx)
         assertEquals(
             setOf(MatchReason.LOWEST_IN_WINDOW, MatchReason.CROSS_SITE_SPREAD),
             alerts.map { it.reason }.toSet(),
@@ -333,68 +335,119 @@ class WatchEvaluatorTest {
         assertTrue(alerts.all { it.dealId == 1L })
     }
 
-    // --- currency isolation ---
+    // --- currencies ---
+
+    private val fx = FxRate(BigDecimal("3200"), "config")
 
     /**
-     * The failure this guards against is silence, which is the worst kind here: a watch whose
-     * terms span two languages ("soporte para TV | TV wall mount") matches Colombian listings
-     * in COP and Slickdeals listings in USD. Nothing in this app holds an FX rate, so a single
-     * global minimum across both currencies lands on the USD figure -- $22.99 -- and no COP
-     * listing can ever be numerically below it. The watch then never fires again while still
-     * looking perfectly healthy.
+     * The failure this once guarded against is silence: a watch whose terms span two languages
+     * matches COP listings and USD ones, and a single minimum across raw numbers lands on the USD
+     * figure -- $22.99 -- which no COP listing can be below, so the watch never fires again.
+     *
+     * With a rate the two are compared as what they cost. The USD mount is worth 73,568 pesos, well
+     * above the COP floor, so it neither fires nor silences the COP mount that does beat it.
      */
     @Test
-    fun `a cheap USD listing does not become the floor for COP listings`() {
+    fun `a cheap-looking USD listing is judged at its converted price`() {
         val alerts = WatchEvaluator.evaluate(
             watch(),
             listOf(
-                // USD mount, numerically tiny next to any COP price.
                 candidate(1, "slickdeals", "22.99", priorFloor = "39.99", currency = "USD"),
-                // COP mount beating its own COP floor: this must still be announced.
                 candidate(2, "exito", "19061", priorFloor = "20697", currency = "COP"),
             ),
+            fx,
         )
 
         assertEquals(
-            setOf(1L, 2L),
+            setOf(2L),
             alerts.filter { it.reason == MatchReason.LOWEST_IN_WINDOW }.map { it.dealId }.toSet(),
-            "each currency must be judged against its own floor",
+            "22.99 USD is 73,568 COP, which beats nothing; the COP mount must still fire",
         )
     }
 
-    /** Evidence is the audit trail, so it has to name the price in the unit it was quoted in. */
+    /** Evidence is the audit trail, so it names the quoted price and the rate it was converted at. */
     @Test
-    fun `evidence reports the candidate's own currency, not the watch's`() {
+    fun `evidence reports the quoted price and the rate`() {
         val alerts = WatchEvaluator.evaluate(
             watch(),
             listOf(candidate(1, "slickdeals", "22.99", priorFloor = "39.99", currency = "USD")),
+            fx,
         )
 
         val evidence = alerts.single().evidence
-        assertTrue(
-            evidence.contains("US$"),
-            "a USD alert under a COP watch must still read as USD, got: $evidence",
-        )
+        assertTrue(evidence.contains("US$22.99"), "the price as Amazon quoted it, got: $evidence")
+        assertTrue(evidence.contains("3,200.00 COP/USD (config)"), "the rate and its source, got: $evidence")
     }
 
     /**
-     * Cross-site comparison must not pair a COP listing with a USD one. Both carry the same
-     * model key here -- the same mount really is sold on both -- so only the currency
-     * separation stops a 15,000 COP bracket being reported as "99.8% cheaper than slickdeals".
+     * The whole point of fetching Amazon for a watch: the same TV, cheaper there than at a
+     * Colombian retailer once converted. Identity keys are shared, so this is the real rule.
      */
     @Test
-    fun `cross-site spread never compares across currencies`() {
+    fun `an Amazon listing in USD can undercut a Colombian retailer`() {
+        val alerts = WatchEvaluator.evaluate(
+            watch(spread = "10"),
+            listOf(
+                candidate(1, "amazon-watches", "399.99", keys = listOf("mdl:samsung|un55du7000"), currency = "USD"),
+                candidate(2, "exito", "1799900", keys = listOf("mdl:samsung|un55du7000"), currency = "COP"),
+            ),
+            fx,
+        )
+
+        val alert = alerts.single { it.reason == MatchReason.CROSS_SITE_SPREAD }
+        assertEquals(1L, alert.dealId)
+        assertTrue(alert.evidence.contains("cheaper than exito"), alert.evidence)
+    }
+
+    /**
+     * The ledger re-announces only on a price lower than the one it last announced. If it stored
+     * the converted figure, an unchanged dollar price would read as a new low the first day the
+     * peso strengthened -- so the alert keeps the quoted price and carries the converted one aside.
+     */
+    @Test
+    fun `an alert on a converted listing keeps its own currency's price`() {
+        val alert = WatchEvaluator.evaluate(
+            watch(),
+            listOf(candidate(1, "amazon-watches", "22.99", priorFloor = "39.99", currency = "USD")),
+            fx,
+        ).single()
+
+        assertEquals(BigDecimal("22.99"), alert.price)
+        assertEquals(BigDecimal("73568"), alert.comparablePrice)
+    }
+
+    /** A currency the rate does not cover is never compared, as before any rate existed. */
+    @Test
+    fun `a currency the rate does not cover is judged only against itself`() {
+        val alerts = WatchEvaluator.evaluate(
+            watch(spread = "1"),
+            listOf(
+                candidate(1, "somewhere", "10", keys = listOf("k"), currency = "EUR"),
+                candidate(2, "exito", "1000000", keys = listOf("k"), currency = "COP"),
+            ),
+            fx,
+        )
+        assertTrue(alerts.isEmpty(), "10 EUR must not read as undercutting 1,000,000 COP: $alerts")
+    }
+
+    /**
+     * Cross-site comparison across currencies happens only at the converted price. Unconverted, a
+     * 15,000 COP bracket read as "99.8% cheaper" than a $22.99 one; at 3,200 the rival costs 73,568
+     * pesos, and the honest figure is 79.6% -- with the conversion named in the evidence.
+     */
+    @Test
+    fun `cross-site spread across currencies uses the converted price`() {
         val alerts = WatchEvaluator.evaluate(
             watch(),
             listOf(
                 candidate(1, "exito", "15000", matchKey = "mount-x", currency = "COP"),
                 candidate(2, "slickdeals", "22.99", matchKey = "mount-x", currency = "USD"),
             ),
+            fx,
         )
 
-        assertTrue(
-            alerts.none { it.reason == MatchReason.CROSS_SITE_SPREAD },
-            "a COP price and a USD price are not comparable, got: ${alerts.map { it.evidence }}",
-        )
+        val evidence = alerts.single { it.reason == MatchReason.CROSS_SITE_SPREAD }.evidence
+        assertTrue(evidence.startsWith("79.6% cheaper than slickdeals at $73,568"), evidence)
+        assertTrue(evidence.contains("converted: slickdeals US$22.99"), evidence)
     }
 }

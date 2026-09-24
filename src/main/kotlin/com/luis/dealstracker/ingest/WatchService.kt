@@ -2,6 +2,7 @@ package com.luis.dealstracker.ingest
 
 import com.luis.dealstracker.db.PendingNotification
 import com.luis.dealstracker.db.WatchRepository
+import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.formatMoney
@@ -37,6 +38,8 @@ class WatchService(
      */
     private val baseUrl: String = "http://localhost:8080",
     private val notifier: NotifyFn = Notifier::notify,
+    /** The day's USD→COP rate, read per run so a refreshed TRM applies from the next cycle. */
+    private val fx: () -> FxRate = { FxRate(java.math.BigDecimal("3200"), "config") },
 ) {
 
     fun runAll(dryRun: Boolean = false): List<WatchReport> =
@@ -48,14 +51,16 @@ class WatchService(
         }
 
     fun run(watch: Watch, dryRun: Boolean = false): WatchReport {
-        val candidates = watches.candidates(watch)
-        val alerts = WatchEvaluator.evaluate(watch, candidates)
+        val rate = fx()
+        val candidates = watches.candidates(watch, rate)
+        val alerts = WatchEvaluator.evaluate(watch, candidates, rate)
 
         if (dryRun) {
             println("[watch:${watch.name}] ${candidates.size} candidate(s); would alert on ${alerts.size}:")
             alerts.forEach { alert ->
                 val title = candidates.firstOrNull { it.dealId == alert.dealId }?.title.orEmpty()
-                println("    ${alert.reason} ${formatMoney(alert.price, watch.currency)}  ${title.take(64)}")
+                val currency = candidates.firstOrNull { it.dealId == alert.dealId }?.currency ?: watch.currency
+                println("    ${alert.reason} ${formatMoney(alert.price, currency)}  ${title.take(64)}")
                 println("        ${alert.evidence}")
             }
             return WatchReport(watch.name, candidates.size, alerts.size, 0)
@@ -84,8 +89,11 @@ class WatchService(
     private fun announce(watch: Watch, pending: List<PendingNotification>): List<PendingNotification> {
         if (pending.isEmpty()) return emptyList()
 
-        val best = pending.minByOrNull { it.alert.price }!!
-        val price = formatMoney(best.alert.price, watch.currency)
+        // Ranked on the comparable price, so a US$399 TV and a 1.4M-peso one are ordered by what
+        // they cost rather than by which number is smaller. Shown in the deal's own currency.
+        val best = pending.minByOrNull { it.alert.comparablePrice ?: it.alert.price }!!
+        val price = formatMoney(best.alert.price, best.currency) +
+            (best.alert.comparablePrice?.let { " ≈ ${formatMoney(it, watch.currency)}" } ?: "")
         val others = pending.size - 1
 
         val headline = buildString {

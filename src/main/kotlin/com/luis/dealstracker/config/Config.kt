@@ -139,6 +139,15 @@ data class Defaults(
     val categoryOtherWarnPercent: Int = 10,
 
     /**
+     * Pesos per US dollar when Colombia's official TRM cannot be fetched.
+     *
+     * Watches compare in COP, and an Amazon TV is quoted in USD, so some rate is always needed.
+     * The live one comes from datos.gov.co once a day (see `ExchangeRates`); this is only what is
+     * used before that first succeeds or while it keeps failing, and the alert text says so.
+     */
+    val usdCopRate: Double = 3200.0,
+
+    /**
      * How often the feed's default ordering reshuffles among deals of similar quality, in hours.
      * 0 turns rotation off and makes the ordering a pure function of the score.
      *

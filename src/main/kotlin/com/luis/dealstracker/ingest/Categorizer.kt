@@ -57,6 +57,13 @@ class Categorizer(rules: List<CategoryRule>) {
     fun categorize(sourceCategory: String?, title: String): String {
         val normalizedCategory = sourceCategory?.let { normalize(it) }
         if (normalizedCategory != null) {
+            // A source category that already IS one of our bucket names is taken as it stands.
+            // Only `amazon-watch` publishes one: it tags each row with the category of the watch
+            // that asked for it, because an English Amazon title is the weakest evidence there is
+            // and the watch already said what the thing is. No retailer taxonomy uses these
+            // English names, so nothing else takes this path.
+            compiled.firstOrNull { normalize(it.name) == normalizedCategory }?.let { return it.name }
+
             compiled.firstOrNull { rule -> rule.source.any { it.containsMatchIn(normalizedCategory) } }
                 ?.let { return it.name }
         }

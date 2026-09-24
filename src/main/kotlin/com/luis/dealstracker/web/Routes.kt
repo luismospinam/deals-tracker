@@ -8,6 +8,7 @@ import com.luis.dealstracker.db.WatchDraft
 import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.ingest.Categorizer
+import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.ingest.ManualItemService
 import com.luis.dealstracker.model.CoShipping
@@ -55,9 +56,10 @@ fun Application.routes(
     categorizer: Categorizer,
     scope: CoroutineScope,
     ask: AskService,
+    rates: ExchangeRates,
 ) {
     routing {
-        askRoutes(ask, repo, watches, manualItems, app)
+        askRoutes(ask, repo, watches, manualItems, app, rates)
 
         // Serves src/main/resources/static/*. Keeping the CSS on disk rather than in a
         // Kotlin constant means style edits need only a browser refresh.
@@ -66,7 +68,7 @@ fun Application.routes(
         get("/") {
             val params = call.request.queryParameters
             val q = FILTER_PARAMS.associateWith { params[it].orEmpty() }
-            val filter = feedFilterFrom(params)
+            val filter = feedScreenFilter(params, app)
 
             val page = repo.feedPage(filter)
             val sources = sourceNames(repo, app)
@@ -111,7 +113,7 @@ fun Application.routes(
          * The display limit is deliberately raised: see DealsExport.
          */
         get("/export.xlsx") {
-            val filter = feedFilterFrom(call.request.queryParameters)
+            val filter = feedScreenFilter(call.request.queryParameters, app)
             val zone = ZoneId.systemDefault()
 
             // Both the queries and the workbook build are blocking, and an export can be
@@ -448,8 +450,9 @@ fun Application.routes(
             val watch = watches.findById(id)
                 ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
 
+            val fx = rates.current()
             val (candidates, matches, dealsById) = withContext(Dispatchers.IO) {
-                val candidates = watches.candidates(watch)
+                val candidates = watches.candidates(watch, fx)
                 val matches = watches.matches(id)
                 // Titles for the alert list. Looked up in one pass rather than per row.
                 val deals = matches.mapNotNull { repo.findById(it.dealId) }.associateBy { it.id }
@@ -472,7 +475,7 @@ fun Application.routes(
                     watchDetail(
                         watch, candidates, matches, dealsById,
                         sourceNames(repo, app), categorizer.categoryNames,
-                        matchingSort, alertsSort, matchingPage,
+                        matchingSort, alertsSort, matchingPage, fx,
                     )
                 }
             }
@@ -592,6 +595,7 @@ internal fun watchDraftFrom(params: Parameters): WatchDraft? {
         lookbackDays = params["lookbackDays"]?.toIntOrNull()?.coerceIn(1, 365) ?: 30,
         crossSiteMinSpread = params["crossSiteMinSpread"]?.takeIf { it.isNotBlank() }
             ?.toBigDecimalOrNull()?.coerceAtLeast(BigDecimal.ZERO) ?: BigDecimal("15.00"),
+        amazonTerms = params["amazonTerms"]?.trim()?.takeIf { it.isNotEmpty() },
     )
 }
 
@@ -649,6 +653,31 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
     // which buries every source that publishes no list price.
     sort = params["sort"]?.takeIf { it.isNotBlank() } ?: "relevance",
 )
+
+/**
+ * Provider types whose rows stay off the feed: the ones that fetch items whether or not they are
+ * on offer.
+ *
+ * The feed ranks offers. `amazon` stores the operator's clothing in their size and
+ * `amazon-watch` stores whatever a watch searched Amazon for — both at full price as often as not,
+ * and both already shown where they belong (Tracked, and each watch's page). By type rather than by
+ * id, so a second provider of either kind stays off the feed without a code change.
+ */
+private val FEED_HIDDEN_TYPES = setOf("amazon", "amazon-watch")
+
+/** The provider ids [FEED_HIDDEN_TYPES] resolves to, enabled or not — disabling one keeps its rows. */
+internal fun feedHiddenSources(app: AppConfig): List<String> =
+    app.providers.filter { it.type in FEED_HIDDEN_TYPES }.map { it.id }.sorted()
+
+/**
+ * The feed's own filter: [feedFilterFrom] with the fetch-everything providers left out.
+ *
+ * Shared by the feed, its export and its Ask panel, for the reason [feedFilterFrom] is shared.
+ * Favorites deliberately does NOT use it: a row the operator chose stays theirs wherever it came
+ * from.
+ */
+internal fun feedScreenFilter(params: Parameters, app: AppConfig): FeedFilter =
+    feedFilterFrom(params).copy(excludeSources = feedHiddenSources(app))
 
 /**
  * The favorites scope, as a [FeedFilter].

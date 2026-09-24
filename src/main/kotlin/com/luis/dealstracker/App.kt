@@ -18,6 +18,8 @@ import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.sources.SourceRegistry
 import com.luis.dealstracker.sources.algolia.AlgoliaSource
 import com.luis.dealstracker.sources.amazon.AmazonSource
+import com.luis.dealstracker.sources.amazon.AmazonWatchSource
+import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.sources.falabella.FalabellaNextSource
 import com.luis.dealstracker.sources.mercadolibre.MercadoLibreSource
 import com.luis.dealstracker.sources.prestashop.PrestashopSource
@@ -50,6 +52,10 @@ fun main(args: Array<String>) {
     val projectDir = File(System.getProperty("user.dir"))
     val app = AppConfig.load(projectDir)
 
+    // Lazy because the registry below needs it before the database is connected: the watches'
+    // Amazon adapter reads their searches at fetch time, long after `Db.connect`.
+    val watches by lazy { WatchRepository(Db.dataSource) }
+
     val registry = SourceRegistry(
         listOf(
             SlickdealsSource(),
@@ -65,6 +71,9 @@ fun main(args: Array<String>) {
             // Queries amazon.com directly for specific items in a specific size, which the
             // Slickdeals feed cannot do -- it carries whatever the community posted.
             AmazonSource(),
+            // The same site searched for what the watches ask for -- a TV, a fridge -- rather than
+            // for clothing in one size. Its terms are each watch's own `amazonTerms`.
+            AmazonWatchSource { watches.amazonSearches() },
             // Rappi has no adapter: services.rappi.com.co does not resolve and its
             // robots.txt disallows /api, /api-services and /base-api. The provider is
             // present in sources.yaml with enabled:false so this is a config change,
@@ -87,18 +96,24 @@ fun main(args: Array<String>) {
     }
 
     val repo = DealRepository(Db.dataSource, app.defaults.feedRotationHours)
-    val watches = WatchRepository(Db.dataSource)
     val http = PoliteHttp(app.defaults.userAgent, app.defaults.perHostDelayMillis)
+    // The day's USD->COP rate for comparing watch candidates. Refreshed once per poll; read from
+    // cache everywhere else, so rendering a watch page never waits on datos.gov.co.
+    val rates = ExchangeRates(http, java.math.BigDecimal.valueOf(app.defaults.usdCopRate))
     val categorizer = Categorizer.load(projectDir)
     // Watch terms are injected rather than fetched by ingest, so a watch can steer what the
     // adapters go looking for without ingest knowing where watches are stored.
-    val ingest = IngestService(repo, registry, app, http, categorizer) { watches.activeSearchTerms() }
+    val ingest = IngestService(
+        repo, registry, app, http, categorizer,
+        watchTerms = { watches.activeSearchTerms() },
+        linkWatchDeals = { watches.linkSourced(it) },
+    )
     // Env override on top of defaults.httpPort, so a second copy can run alongside the usual
     // one -- a worktree or a branch under test -- without editing committed config and having
     // to remember to put it back. Resolved here rather than at the server, because a
     // notification needs the same value to link back to a watch.
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
-    val watchService = WatchService(watches, baseUrl = "http://localhost:$port")
+    val watchService = WatchService(watches, baseUrl = "http://localhost:$port", fx = rates::current)
     // Items tracked by pasted URL. Refreshed every poll alongside the searches: an un-refreshed row
     // is retired by deactivateStale after 48h and silently vanishes from the tab, which reads as
     // "the item stopped existing" rather than "the app stopped looking".
@@ -137,6 +152,7 @@ fun main(args: Array<String>) {
     // prints what would be announced without writing the ledger or showing a banner, which
     // is how you tune a watch's floor and exclusions without being notified twenty times.
     if (args.contains("--check-watches")) {
+        runBlocking { rates.refresh() }
         val reports = watchService.runAll(dryRun = args.contains("--dry-run"))
         if (reports.isEmpty()) println("no enabled watches. Add one at http://localhost:$port/watches")
         reports.forEach { println(it.summary()) }
@@ -238,6 +254,7 @@ fun main(args: Array<String>) {
             // scores, and unlike the browser-based shipping verifier this costs one query
             // per watch and no network at all. Wrapped because a broken watch must never
             // stop deals being fetched.
+            rates.refresh()
             runCatching { watchService.runAll() }
                 .onFailure { println("[watch] evaluation failed: ${it.message}") }
 
@@ -269,7 +286,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates)
     }.start(wait = true)
 }
 

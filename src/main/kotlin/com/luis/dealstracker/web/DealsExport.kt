@@ -269,7 +269,13 @@ object DealsExport {
  */
 internal fun FeedFilter.describe(): List<Pair<String, String>> = buildList {
     add("Search" to (search?.takeIf { it.isNotBlank() } ?: "(none)"))
-    add("Source" to sources.ifEmpty { listOf("all") }.joinToString(", "))
+    add(
+        "Source" to when {
+            sources.isNotEmpty() -> sources.joinToString(", ")
+            excludeSources.isNotEmpty() -> "all except ${excludeSources.joinToString(", ")}"
+            else -> "all"
+        },
+    )
     add("Category" to categoryGroups.ifEmpty { listOf("all") }.joinToString(", "))
     add("Min discount %" to (minDiscount?.toPlainString() ?: "any"))
     add("Min price" to (minPrice?.toPlainString() ?: "any"))

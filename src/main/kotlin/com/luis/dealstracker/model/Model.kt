@@ -89,6 +89,12 @@ data class RawDeal(
      * the first time today may have been posted in 2025.
      */
     val postedAt: Instant? = null,
+    /**
+     * Watches whose own Amazon search returned this row, so it becomes their candidate even though
+     * an English title matches none of their Spanish terms. Empty for every other source. See
+     * `V15__watch_amazon_terms`.
+     */
+    val watchIds: Set<Long> = emptySet(),
 ) {
     /**
      * Advertised discount as a percentage, or null when there's no usable list price.

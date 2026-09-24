@@ -107,3 +107,37 @@ class FeedScopesTest {
         assertEquals(2, Regex("""<a\b[^>]*class="scope\b""").findAll(html).count(), "expected exactly two scope links")
     }
 }
+
+/** The feed leaves out the providers that fetch items whether or not they are on offer. */
+class FeedHiddenSourcesTest {
+
+    private fun app(vararg providers: com.luis.dealstracker.config.ProviderConfig) =
+        com.luis.dealstracker.config.AppConfig(
+            defaults = com.luis.dealstracker.config.Defaults(),
+            providers = providers.toList(),
+            db = com.luis.dealstracker.config.DbConfig("jdbc:none", "u", "p"),
+            mlClientId = null,
+            mlClientSecret = null,
+        )
+
+    private val app = app(
+        com.luis.dealstracker.config.ProviderConfig(id = "exito", type = "vtex"),
+        com.luis.dealstracker.config.ProviderConfig(id = "slickdeals", type = "rss-slickdeals"),
+        com.luis.dealstracker.config.ProviderConfig(id = "amazon", type = "amazon"),
+        com.luis.dealstracker.config.ProviderConfig(id = "amazon-watches", type = "amazon-watch", enabled = false),
+    )
+
+    @Test
+    fun `both Amazon providers are kept off the feed, disabled or not`() {
+        // Disabled still counts: turning a provider off leaves its stored rows behind.
+        assertEquals(listOf("amazon", "amazon-watches"), feedHiddenSources(app))
+        // Slickdeals' Amazon deals stay: those are community-posted offers, not a sweep.
+        assertFalse("slickdeals" in feedHiddenSources(app))
+    }
+
+    @Test
+    fun `the feed excludes them but favorites does not`() {
+        assertEquals(listOf("amazon", "amazon-watches"), feedScreenFilter(io.ktor.http.Parameters.Empty, app).excludeSources)
+        assertTrue(favoritesFilter(io.ktor.http.Parameters.Empty).excludeSources.isEmpty(), "a favorite stays yours")
+    }
+}

@@ -16,6 +16,12 @@ defaults:
   perHostDelayMillis: 1200
   httpPort: 8080
 
+  # --- Currency ---
+  # Pesos per US dollar, used ONLY when Colombia's official TRM cannot be fetched. Watches compare
+  # Amazon's USD prices with Colombian retailers in COP; the live rate comes from datos.gov.co
+  # (dataset 32sa-8pi3) once a day, and an alert that rests on this fallback says so.
+  usdCopRate: 3200
+
   # --- Feed ranking ---
   # How often the default ordering reshuffles among deals of comparable quality, in hours.
   # 0 = off, ordering becomes a pure function of the score.
@@ -587,6 +593,31 @@ providers:
         - "nike men boxer"
         - "adidas men boxer"
         - "new balance men boxer"
+
+  - id: amazon-watches
+    type: amazon-watch
+    # Searches amazon.com for what the WATCHES ask for -- a TV, a fridge -- rather than clothing in
+    # one size. Each watch opts in with its own "Amazon terms" field on /watches, in English, since
+    # the watch's normal terms are Spanish and amazon.com answers `televisor` poorly. A watch with
+    # that field blank costs this provider nothing.
+    #
+    # A separate provider from `amazon`, not a flag on it, so that its rows stay off the Tracked
+    # tab (which lists providers with `trackSearches`) and its requests are counted on their own.
+    # Both are kept off the feed, which ranks offers -- these rows are fetched discounted or not.
+    #
+    # Same host, same request budget: every term here is up to maxPagesPerSearch more Amazon page
+    # loads per poll, on top of the tracker's. Keep a watch to one or two terms.
+    enabled: true
+    baseUrl: "https://www.amazon.com"
+    # Nominal only; the real currency is read off each price string. See AmazonMoney.
+    currency: USD
+    # Shipping to Colombia is unknown until the verifier checks it, as for every Amazon row.
+    coShippingDefault: UNKNOWN
+    options:
+      # Same limits as the tracker's searches: 20 distinct items per term, over at most 2 pages.
+      maxItemsPerSearch: "20"
+      maxPagesPerSearch: "2"
+      allowBrowserFallback: "true"
 
   - id: mercadolibre-co
     type: mercadolibre

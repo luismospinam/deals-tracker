@@ -34,7 +34,7 @@ import java.math.BigDecimal
  * Reading the unit off the price string itself is the only version that cannot silently lie
  * about what a number means, which matters because `deals.currency` is per row and the
  * export formats each cell from it (`DealsExport.money`). The cost is that one source can
- * carry mixed currencies; see the currency guard in `WatchEvaluator.crossSiteSpread`.
+ * carry mixed currencies; see `WatchEvaluator.evaluate`, which converts before it compares.
  */
 internal object AmazonMoney {
 
