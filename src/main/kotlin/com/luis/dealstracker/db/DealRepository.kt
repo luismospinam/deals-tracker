@@ -599,9 +599,11 @@ class DealRepository(
      * ## Why the ordering is the important part
      *
      * This queue is permanently oversubscribed and always will be. The automatic run takes
-     * `coShippingPollBatch` deals every Nth poll — roughly 40 page loads a day — against a
-     * source that brings tens of new Amazon deals an hour, and a browser session tolerates
-     * only 40-55 loads before Amazon walls it. The backlog cannot be drained, so *which*
+     * `coShippingPollBatch` deals every Nth poll — 20 an hour, so ~480 a day at full uptime,
+     * though measured uptime is nearer 14h than 24h — against a source that brings tens of new
+     * Amazon deals an hour, and a browser session tolerates only 40-55 loads before Amazon
+     * walls it. Raising the batch has not emptied it and is not expected to: at 15 an hour the
+     * backlog still stood at 1,179 (2026-09-23). The backlog cannot be drained, so *which*
      * deals get the budget is the whole decision.
      *
      * It used to be ordered `co_shipping_checked_at ASC NULLS FIRST, id ASC` — sound for a

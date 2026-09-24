@@ -91,12 +91,29 @@ data class Defaults(
      * Sized against measured arrivals rather than caution alone. Slickdeals brings 220-313
      * new deals a day, so the original 5 per hour (120 a day) fell behind by roughly 110 a
      * day — the backlog reached 503 while the log made it look like progress. 15 an hour is
-     * 360 a day, which drains that backlog in about four days of uptime and then keeps pace.
+     * 360 a day, which was meant to drain that backlog in about four days of uptime and then
+     * keep pace. It did not: measured 2026-09-23, 1,179 of 1,688 active Amazon rows were
+     * still UNKNOWN against 336 YES and 173 NO. Hence 20, i.e. 480 a day.
+     *
+     * Note what this buys the feed, since "shipping check" sounds peripheral: an unverified
+     * row scores as though freight were free, and [com.luis.dealstracker.db.DealScore]'s
+     * freight term is the largest single penalty in the ranking at 60 points. A thousand rows
+     * with that term pinned at zero is the "costs more to ship than to buy, ranked among the
+     * best deals on the page" failure, still live.
+     *
+     * Not raised further because Amazon page loads per cycle are now ~68 — 45 for
+     * `AmazonSource` (15 terms × 3 pages), 20 here, 3 for the manual refresh — against a
+     * documented headed-session ceiling of 40-55. That ceiling was measured while a false
+     * wall detection was recording healthy pages as blocked, so the true figure is unknown
+     * and this is already past the written one with no refusal in the logs. Unknown headroom
+     * gets spent in steps, not in one go.
      *
      * Still bounded by [coShippingMaxPerRun], and still leaves the session's remaining
-     * tolerance for the Verify button and manual runs aimed at deals worth buying.
+     * tolerance for the Verify button and manual runs aimed at deals worth buying. Also
+     * diminishing by construction: `coShippingCandidates` orders by `DealScore`, so the 20th
+     * deal in a run is less attractive than the 15th was.
      */
-    val coShippingPollBatch: Int = 15,
+    val coShippingPollBatch: Int = 20,
     /**
      * How long an automatic run waits for a human to clear an Amazon wall before giving up.
      *
