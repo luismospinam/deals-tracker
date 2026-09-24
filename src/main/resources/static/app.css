@@ -430,6 +430,16 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .deals tbody tr:nth-child(even) { background: rgba(255, 240, 220, 0.012); }
 .deals tbody tr:hover { background: rgba(242, 118, 27, 0.055); }
 
+/* A paused watch: the whole row drops to the faint tone and loses the orange of its links, with a
+ * grey rail on the left edge, so the watches still hunting read first. The actions keep full
+ * contrast -- "resume" is the one thing you come to a paused row for. The row also carries a
+ * "paused" chip, so colour is never the only cue. */
+.deals.watches tbody tr.paused td { color: var(--text-faint); }
+.deals.watches tbody tr.paused td a { color: var(--text-dim); }
+.deals.watches tbody tr.paused td code { opacity: 0.6; }
+.deals.watches tbody tr.paused > td:first-child { box-shadow: inset 3px 0 0 var(--line); }
+.deals.watches tbody tr.paused .actions button { color: var(--text); }
+
 /* The heat gutter — the one thing this table does that a spreadsheet cannot.
  *
  * A bar in the left margin whose height and colour both track the discount tier, so

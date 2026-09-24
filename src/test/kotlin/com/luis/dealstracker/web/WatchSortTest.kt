@@ -122,3 +122,20 @@ class WatchSortTest {
         assertEquals(WatchSort("price", true), watchSortFrom(all, WatchSort.ALERTS_PARAM))
     }
 }
+
+class WatchRowStyleTest {
+
+    private fun watch(enabled: Boolean) = com.luis.dealstracker.model.Watch(
+        id = 9, name = "Televisor", terms = "televisor", excludeTerms = null, categoryGroup = null,
+        sources = emptyList(), minPrice = null, maxPrice = null, currency = "COP", lookbackDays = 30,
+        crossSiteMinSpread = java.math.BigDecimal("15"), enabled = enabled,
+        createdAt = java.time.Instant.parse("2026-09-01T00:00:00Z"),
+    )
+
+    /** The pause button swaps in this fragment, so the class must travel with it or the look lags. */
+    @Test
+    fun `a paused watch's row is marked, an active one is not`() {
+        assertTrue(watchRowFragment(watch(enabled = false), null).startsWith("""<tr class="paused""""))
+        assertFalse(watchRowFragment(watch(enabled = true), null).contains("paused"))
+    }
+}

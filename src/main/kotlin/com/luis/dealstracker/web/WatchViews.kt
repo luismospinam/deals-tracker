@@ -305,11 +305,19 @@ fun MAIN.watchesPage(
 
 /** Split from [watchRow] so the HTMX fragment and the table body cannot drift apart. */
 private fun TBODY.watchRow(watch: Watch, counts: Pair<Int, Int>?) {
-    tr {
+    tr(classes = watchRowClass(watch)) {
         attributes["id"] = "watch-${watch.id}"
         watchRowBody(watch, counts)
     }
 }
+
+/**
+ * `paused` dims a disabled watch's whole row, so the ones still hunting stand out at a glance.
+ *
+ * On the `<tr>` rather than inside a cell, so the pause/resume swap — which replaces the row —
+ * changes the look with it. The "paused" chip stays too: colour is never the only cue.
+ */
+private fun watchRowClass(watch: Watch): String? = if (watch.enabled) null else "paused"
 
 private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
     td(classes = "col-deal") {
@@ -375,7 +383,7 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
 
 /** Bare `<tr>` for an HTMX swap — never a full document, which would nest a table. */
 fun watchRowFragment(watch: Watch, counts: Pair<Int, Int>?): String =
-    createHTML(prettyPrint = false).tr {
+    createHTML(prettyPrint = false).tr(classes = watchRowClass(watch)) {
         attributes["id"] = "watch-${watch.id}"
         watchRowBody(watch, counts)
     }
