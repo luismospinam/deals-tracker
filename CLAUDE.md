@@ -22,8 +22,35 @@ second copy alongside the usual one — a worktree, or a branch under test — s
 
 CSS lives at `src/main/resources/static/app.css` and is served
 from disk, so style-only edits need just a browser refresh — but bump `CSS_VERSION` in
-`web/Views.kt` when you change it, or browsers will serve the cached stylesheet. Kotlin
-changes need a restart.
+`web/Views.kt` when you change it, or browsers will serve the cached stylesheet.
+
+## Every change needs the local app restarted
+
+There is no hot reload — Ktor's `development mode` is off, and the log says so on boot
+("Autoreload is disabled"). A Kotlin edit, a migration, or a `config/sources.yaml` change is
+invisible to the running process, so a change that looks broken in the browser is usually
+just a change that isn't loaded. The exception is CSS, which is read from disk per request.
+
+So after editing, restart it:
+
+    pkill -f 'com.luis.dealstracker.AppKt'    # see the warning below before running this
+    nohup ./dt run > logs/app.log 2>&1 &
+
+Leave the app running when you're done — Luis keeps it up on 8080, and the hourly poller only
+collects prices while the process lives. A dead app is not a neutral state: price history has
+gaps for exactly as long as it was down, and nothing backfills them.
+
+**Restart the instance you started, not every instance.** `pkill -f` matches on the main
+class, which is identical across copies, so the pattern above kills the 8080 app too. If you
+started a second copy on another port, stop that one by its own pid:
+
+    DEALS_HTTP_PORT=8099 ./dt run > /tmp/probe.log 2>&1 &
+    kill %1          # or the pid, never a class-wide pkill
+
+A migration is worth one extra check after the restart, since Flyway applies it at boot and a
+failure there leaves the app dead rather than degraded:
+
+    grep -E 'Migrating|Successfully applied|schema at version' logs/app.log
 
 ## Lavish Editor: use `./lavish`, not `npx -y lavish-axi`
 
