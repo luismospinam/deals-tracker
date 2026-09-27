@@ -20,7 +20,7 @@ import java.util.Locale
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "42"
+private const val CSS_VERSION = "44"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -64,6 +64,37 @@ private const val FONT_HREF = "https://fonts.googleapis.com/css2" +
     "&family=IBM+Plex+Mono:wght@400;500;600;700" +
     "&family=Instrument+Serif:ital@0;1" +
     "&display=swap"
+
+/**
+ * Names a cell's column for the phone layout, where app.css turns each row into a card and hides
+ * the header row -- so a bare "$7,540" under "Unit price" would otherwise lose its heading.
+ */
+internal fun TD.cardLabel(label: String) {
+    attributes["data-label"] = label
+}
+
+/** One ordering offered by [sortTags]: its label, the URL that applies it, and whether it is current. */
+internal data class SortOption(val label: String, val href: String, val on: Boolean)
+
+/**
+ * The column-header sorts, as a tag row for phones.
+ *
+ * The card layout hides the header row, and with it every sortable `th` link, so without this a
+ * phone could not reorder the list at all. Same links as the headers -- plain anchors carrying
+ * state in the query string, no JavaScript -- styled as the Store / Aisle tags beside it.
+ * Hidden on desktop, where the headers already do this and a second control would be clutter.
+ */
+internal fun FlowContent.sortTags(options: List<SortOption>) {
+    div("typetags sorttags") {
+        span("typetags-label") { +"Sort" }
+        options.forEach { o ->
+            a(classes = if (o.on) "typetag on" else "typetag", href = o.href) {
+                if (o.on) attributes["aria-current"] = "true"
+                +o.label
+            }
+        }
+    }
+}
 
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
 private val GENERIC_CATEGORIES = setOf("Hot Deals", "Marketplace Deals", "Deal Talk", "Freebies")
@@ -656,11 +687,13 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         }
 
         td(classes = "col-price") {
+            cardLabel("Price")
             div("price") { +formatMoney(deal.price, deal.currency) }
             deal.listPrice?.let { div("was") { +formatMoney(it, deal.currency) } }
         }
 
         td(classes = "col-disc") {
+            cardLabel("Off")
             val pct = deal.discountPercent
             if (pct != null) {
                 span("disc disc-s${discountTier(pct)}") { +"−${pct.toPlainString()}%" }
@@ -678,6 +711,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         // vote is the only evidence available there; a score of 0 or below means the
         // community actively voted it down.
         td(classes = "col-score") {
+            cardLabel("Score")
             val score = deal.communityScore
             if (score == null) {
                 span("no-disc") { title = "This source publishes no community score"; +"—" }
@@ -694,6 +728,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         // stays sparse because a badge everywhere means nothing, whereas a ranking everywhere
         // is the point of a ranking. Without it the default order is unexplainable.
         td(classes = "col-rank") {
+            cardLabel("Rank")
             span(if (deal.relevance < 0) "rank rank-neg" else "rank") {
                 title = rankBreakdown(deal)
                 +formatRank(deal.relevance)
@@ -741,9 +776,13 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
             }
         }
 
-        td(classes = "col-co") { coShippingCell(deal, note) }
+        td(classes = "col-co") {
+            cardLabel("Colombia")
+            coShippingCell(deal, note)
+        }
 
         td(classes = "col-seen") {
+            cardLabel("Seen")
             // The source's own posting date when known, since that is what tells you the
             // deal is current -- lastSeenAt only records when *we* last polled.
             val posted = deal.postedAt

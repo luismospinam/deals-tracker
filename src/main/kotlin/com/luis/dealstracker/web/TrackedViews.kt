@@ -645,11 +645,15 @@ internal fun MAIN.trackedPage(
         }
     }
 
+    sortTags(
+        listOf("Now" to TrackedSort.PRICE, "Off" to TrackedSort.OFF, "Lowest yet" to TrackedSort.LOWEST, "Checked" to TrackedSort.CHECKED)
+            .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip), sort == s) },
+    )
     table("deals tracked") {
         thead {
             tr {
                 th(classes = "col-thumb") { attributes["aria-label"] = "image" }
-                th { +"Item" }
+                th(classes = "col-deal") { +"Item" }
                 th(classes = "col-size") { +"Size" }
                 sortTh("Now", TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip)
                 th(classes = "col-price") {
@@ -790,7 +794,7 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
             }
         }
 
-        td {
+        td(classes = "col-deal") {
             a(classes = "title", href = deal.url) {
                 attributes["target"] = "_blank"
                 attributes["rel"] = "noopener noreferrer"
@@ -825,10 +829,14 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // title because `deals` has no size column; this is the one place that matters enough
         // to read it back out.
         td(classes = "col-size") {
+            cardLabel("Size")
             sizeOf(deal.title)?.let { span("size-chip") { +it } } ?: span("muted") { +"—" }
         }
 
-        td(classes = "col-price") { div("price") { +formatMoney(deal.price, deal.currency) } }
+        td(classes = "col-price") {
+            cardLabel("Now")
+            div("price") { +formatMoney(deal.price, deal.currency) }
+        }
 
         // Amazon's own list price and the discount it advertises against it.
         //
@@ -837,11 +845,13 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // measurements. Conflating them would be the "inflated list price" trap this project
         // documents at length for Éxito, where ~94% of the catalogue is flagged as discounted.
         td(classes = "col-price") {
+            cardLabel("List")
             deal.listPrice?.let { div("was") { +formatMoney(it, deal.currency) } }
                 ?: span("muted") { +"—" }
         }
 
         td(classes = "col-disc") {
+            cardLabel("Off")
             val pct = deal.discountPercent
             if (pct == null) {
                 // Blank, never 0%. Most tiles carry no list price, and a zero would read as
@@ -865,11 +875,20 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // Must stay in the same position as its header, right after Off. It once rendered after
         // Change while the header sat here, which shifted Lowest, Highest, Low and Change one
         // column left and left every value under the wrong heading.
-        td(classes = "col-extra") { extraCosts(deal) }
+        td(classes = "col-extra") {
+            cardLabel("Extra")
+            extraCosts(deal)
+        }
 
         // Blank, not the current price, when there is nothing to compare against.
-        td(classes = "col-price") { priceOrDash(deal.minPriceEver, deal) }
-        td(classes = "col-price") { priceOrDash(deal.maxPriceEver, deal) }
+        td(classes = "col-price") {
+            cardLabel("Lowest")
+            priceOrDash(deal.minPriceEver, deal)
+        }
+        td(classes = "col-price") {
+            cardLabel("Highest")
+            priceOrDash(deal.maxPriceEver, deal)
+        }
 
         // The badge you asked for: at its lowest recorded price, with an actual decline behind it.
         //
@@ -878,6 +897,7 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // never moved, because the minimum includes the current observation. That exact mistake put
         // "lowest yet" on every row of the feed once, which is what made the badge meaningless.
         td(classes = "col-low") {
+            cardLabel("Low")
             when {
                 deal.isAtLowestEver -> span("lowbadge") {
                     title = "Lowest of ${deal.observationCount} recorded price(s), and down from " +
@@ -890,9 +910,15 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
             }
         }
 
-        td(classes = "col-chg") { changeCell(deal) }
+        td(classes = "col-chg") {
+            cardLabel("Change")
+            changeCell(deal)
+        }
 
-        td(classes = "col-seen") { +relativeTime(deal.lastSeenAt) }
+        td(classes = "col-seen") {
+            cardLabel("Checked")
+            +relativeTime(deal.lastSeenAt)
+        }
 
         // Reuses the feed's own `.actions` styling rather than introducing a `.btn` class that
         // exists nowhere else in the stylesheet.

@@ -221,6 +221,28 @@ private fun TR.sortableTh(
 }
 
 /**
+ * [sortTags] for a watch table, from the same (label, column, default direction) triples as its
+ * headers. The active tag shows its direction and, like the header, flips it when tapped.
+ */
+private fun kotlinx.html.FlowContent.watchSortTags(
+    columns: List<Triple<String, String, Boolean>>,
+    isAlerts: Boolean,
+    matching: WatchSort,
+    alerts: WatchSort,
+    basePath: String,
+) {
+    val current = if (isAlerts) alerts else matching
+    sortTags(
+        columns.map { (label, column, defaultDesc) ->
+            val next = current.toggledFor(column, defaultDesc)
+            val href = if (isAlerts) watchUrl(basePath, matching, next, page = 1) else watchUrl(basePath, next, alerts, page = 1)
+            val on = current.isOn(column)
+            SortOption(if (on) label + if (current.desc) " ↓" else " ↑" else label, href, on)
+        },
+    )
+}
+
+/**
  * Previous/next with the current position stated.
  *
  * Rendered above and below the table: with 40 rows you have scrolled past the top control by
@@ -336,6 +358,7 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
         }
     }
     td(classes = "col-price") {
+        cardLabel("Price band")
         val min = watch.minPrice?.let { formatMoney(it, watch.currency) }
         val max = watch.maxPrice?.let { formatMoney(it, watch.currency) }
         when {
@@ -347,11 +370,13 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
         }
     }
     td(classes = "col-disc") {
+        cardLabel("Window")
         +"${watch.lookbackDays}d"
         br()
         span("dim") { +"−${watch.crossSiteMinSpread.stripTrailingZeros().toPlainString()}% x-site" }
     }
     td(classes = "col-sig") {
+        cardLabel("Matches")
         val (total, unseen) = counts ?: (0 to 0)
         if (total == 0) {
             span("dim") { +"—" }
@@ -560,6 +585,10 @@ fun MAIN.watchDetail(
             p { code { +"./dt run --args=\"--check-watches --dry-run\"" } }
         }
     } else {
+        watchSortTags(
+            listOf(Triple("Deal", "deal", false), Triple("Price", "price", false), Triple("Why", "why", false), Triple("When", "when", true)),
+            isAlerts = true, matchingSort, alertsSort, basePath,
+        )
         table("deals watchalerts") {
             thead {
                 tr {
@@ -588,17 +617,20 @@ fun MAIN.watchDetail(
                             deal?.let { div("meta") { span { +it.source } } }
                         }
                         td(classes = "col-price") {
+                            cardLabel("Price")
                             // The deal's own currency: the ledger stores the price as quoted, so a
                             // USD alert reads US$399.99 rather than as 400 pesos.
                             +formatMoney(match.priceAtMatch, deal?.currency ?: watch.currency)
                         }
                         td(classes = "col-sig") {
+                            cardLabel("Why")
                             span(if (match.reason == MatchReason.CROSS_SITE_SPREAD) "chip chip-drop" else "chip chip-low") {
                                 +if (match.reason == MatchReason.CROSS_SITE_SPREAD) "undercuts a rival" else "new low"
                             }
                             match.evidence?.let { div("dim") { +it } }
                         }
                         td(classes = "col-seen") {
+                            cardLabel("When")
                             +relativeAgo(match.matchedAt)
                             // An unnotified row means the banner failed or was suppressed;
                             // saying so is the difference between "quiet" and "broken".
@@ -682,6 +714,10 @@ private fun MAIN.matchingTable(
     // key" rule the alerting uses, so the page cannot name a rival the rule would not.
     val rivals = rivalIndex(candidates)
 
+    watchSortTags(
+        listOf(Triple("Product", "product", false), Triple("Price", "price", false), Triple("Window low", "floor", false), Triple("Source", "source", false)),
+        isAlerts = false, sort, alertsSort, basePath,
+    )
     table("deals watchmatches") {
         thead {
             tr {
@@ -708,6 +744,7 @@ private fun MAIN.matchingTable(
                         }
                     }
                     td(classes = "col-price") {
+                        cardLabel("Price")
                         val isFloor = floor != null && candidate.price <= floor
                         // The quoted price first for a converted row, then what it is worth here.
                         if (isFloor) {
@@ -717,13 +754,17 @@ private fun MAIN.matchingTable(
                         }
                     }
                     td(classes = "col-price") {
+                        cardLabel("Window low")
                         // Blank, not zero: no prior observation means unknown, and this listing
                         // has simply not been seen before.
                         candidate.priorFloor
                             ?.let { +formatMoney(it, candidate.currency) }
                             ?: span("dim") { +"new" }
                     }
-                    td(classes = "col-sig") { +candidate.source }
+                    td(classes = "col-sig") {
+                        cardLabel("Source")
+                        +candidate.source
+                    }
                 }
             }
         }

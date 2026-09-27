@@ -424,11 +424,19 @@ private fun MAIN.groupTags(groupCounts: List<Pair<String, Int>>, controls: Groce
 }
 
 private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryControls) {
+    // Same orderings as the column headers, in their left-to-right order. "vs usual" is only
+    // meaningful once there is history, but it is offered on every view, as its header is.
+    sortTags(
+        listOf(
+            "Item" to GrocerySort.NAME, "Price" to GrocerySort.PRICE, "Card saving" to GrocerySort.CARD,
+            "Unit price" to GrocerySort.UNIT, "Store %" to GrocerySort.STORE, "vs usual" to GrocerySort.BELOW,
+        ).map { (label, sort) -> SortOption(label, controls.url(sort = sort), controls.sort == sort) },
+    )
     table("deals tracked grocery") {
         thead {
             tr {
                 th(classes = "col-thumb") { attributes["aria-label"] = "image" }
-                sortableTh("Item", GrocerySort.NAME, controls, null)
+                sortableTh("Item", GrocerySort.NAME, controls, "col-deal")
                 th(classes = "col-size") { +"Store" }
                 // Two sorts in one header: by the shelf price, or by how much a card saves on it today.
                 th(classes = "col-price") {
@@ -511,7 +519,7 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 }
             }
         }
-        td {
+        td(classes = "col-deal") {
             a(classes = "title", href = deal.url) {
                 attributes["target"] = "_blank"
                 attributes["rel"] = "noopener noreferrer"
@@ -530,6 +538,7 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
         // Which store the price is from, and what the chain's other store charges. Both shown, because
         // "cheaper at Colombia by 2,660" is a reason to walk to Colombia, and a bare tag is not.
         td(classes = "col-size") {
+            cardLabel("Store")
             span("size-chip") {
                 if (row.others.isNotEmpty()) title = "Cheapest of ${row.others.size + 1} stores stocking it"
                 +row.store.ifEmpty { storeName(deal.source) }
@@ -545,10 +554,12 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
         // The shelf price stays the main number -- what anyone pays. The card price sits under it as
         // a chip, because it is conditional: only a Mastercard (or only the store's own card) gets it.
         td(classes = "col-price") {
+            cardLabel("Price")
             div("price") { +formatMoney(deal.price, deal.currency) }
             row.card?.let { card -> cardChip(card, deal.currency) }
         }
         td(classes = "col-price") {
+            cardLabel("Unit price")
             val unit = row.unitPrice
             if (unit == null) span("muted") { +"—" } else {
                 +formatMoney(unit, deal.currency)
@@ -556,14 +567,17 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
             }
         }
         td(classes = "col-price") {
+            cardLabel("Usual")
             row.usual?.takeIf { row.days >= GroceryRow.MIN_DAYS }?.let { +formatMoney(it, deal.currency) }
                 ?: span("muted") { +"—" }
         }
         td(classes = "col-disc") {
+            cardLabel("Store %")
             deal.storeDiscountPercent?.let { span("disc disc-s${discountTier(BigDecimal(it))}") { +"−$it%" } }
                 ?: span("muted") { +"—" }
         }
         td(classes = "col-disc") {
+            cardLabel("vs usual")
             val below = row.belowUsual
             when {
                 below == null -> span("muted") { title = "Under ${GroceryRow.MIN_DAYS} days of history"; +"new" }
@@ -573,9 +587,13 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
             }
         }
         td(classes = "col-price") {
+            cardLabel("30d low")
             row.low?.takeIf { row.days >= 1 }?.let { +formatMoney(it, deal.currency) } ?: span("muted") { +"—" }
         }
-        td(classes = "col-chg") { +row.days.toString() }
+        td(classes = "col-chg") {
+            cardLabel("Days")
+            +row.days.toString()
+        }
         td(classes = "col-act") {
             div("actions") {
                 a(href = "/deal/${deal.id}") { +"history" }

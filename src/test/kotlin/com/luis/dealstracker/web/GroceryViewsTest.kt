@@ -145,7 +145,8 @@ class GroceryViewsTest {
         assertEquals(listOf("Deals", "All items", "Pinned"), Regex(">([A-Za-z ]+)<").findAll(scopes).map { it.groupValues[1] }.filter { it.isNotBlank() }.toList())
         assertTrue("scope-count\">1<" in scopes, scopes)
         // No aisle tags on the shopping list, and the unpin button tells the server which view it is on.
-        assertFalse("typetags" in html)
+        // The label, not the `typetags` class, which the phone Sort row shares.
+        assertFalse(">Aisle<" in html)
         assertTrue("unpin?view=pinned" in html, html)
     }
 
@@ -239,7 +240,7 @@ class GroceryViewsTest {
         val html = createHTML().main {
             groceryPage(merged, listOf("Pantry" to 1), GroceryControls.from(parametersOf("view" to listOf("all"))), stores.keys.toList())
         }
-        val cell = html.substringAfter("class=\"col-size\"><span").substringBefore("</td>")
+        val cell = html.substringAfter("<td class=\"col-size\"").substringBefore("</td>")
         assertTrue("Exito Colombia" in cell, cell)
         assertTrue("Laureles $6,780" in cell, cell)
     }

@@ -1576,3 +1576,148 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   color: var(--good);
 }
 .card-price.store-only { color: var(--accent); }
+
+/* The phone-only Sort row (see `sortTags` in Views.kt). The table headers sort on desktop. */
+.sorttags { display: none; }
+
+/* ---------- phones ----------
+ *
+ * Under 640px every `.deals` table becomes a stack of cards. A 9-column table on a 430px phone
+ * could only be read by scrolling sideways, which hides the price from the title it belongs to.
+ * The markup is the same table — htmx still swaps whole `<tr>`s — only the display changes:
+ *
+ *   [image] title, meta
+ *   PRICE    OFF      COLOMBIA     <- every labelled cell, three to a line
+ *   [actions, full width]
+ *
+ * The header row is hidden, so each cell carries its own heading in `data-label` (see
+ * `cardLabel` in Views.kt). Sorting on these screens stays reachable through the query string
+ * and the controls above the table, not the hidden `th` links.
+ *
+ * Landscape on the same phone (932px) is wide enough for the table, so it gets the table.
+ *
+ * Kept last in the file on purpose: the per-screen rules above (`.grocery-search`, `.watches
+ * .col-price`, ...) would otherwise win on source order at equal specificity. */
+@media (max-width: 640px) {
+  /* 16px is the size below which iOS Safari zooms the page when a field takes focus. */
+  input, select, textarea, .ask-q { font-size: 16px; }
+
+  form.filters { padding: 12px; }
+  form.filters > label { flex: 1 1 calc(50% - 6px); min-width: 0; }
+  form.filters > label input, form.filters > label select { width: 100%; }
+  /* Apply gets its own full-width line, the easiest thing on the bar to hit with a thumb. */
+  form.filters > button.primary { flex: 1 1 100%; padding-block: 10px; }
+  .util { margin-left: 0; flex: 1 1 100%; }
+  .util button { flex: 1; }
+  .more-grid > label { flex: 1 1 calc(50% - 7px); }
+  .more-grid input, .more-grid select { width: 100%; }
+
+  .chip-tog, .typetag { padding-block: 7px; }
+  .scopes { display: flex; }
+  .scope { flex: 1; justify-content: center; padding: 10px 8px; }
+
+  .tracked-intro { max-width: none; }
+  .grocery-search { display: flex; margin: 0 0 12px; }
+  .grocery-search input[type="search"] { min-width: 0; flex: 1; }
+  .brandpick select { min-width: 0; flex: 1; }
+  .watchform .f.wide input { min-width: 0; width: 100%; }
+
+  /* Scrolls sideways as one line rather than wrapping: six sorts over three lines would push
+   * the first card below the fold, and the order they sit in is the order of the columns. */
+  .sorttags {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -12px;
+    padding-inline: 12px;
+  }
+  .sorttags::-webkit-scrollbar { display: none; }
+  .sorttags .typetag { flex: none; white-space: nowrap; }
+
+  .deals, .deals tbody, .deals tr, .deals td { display: block; }
+  .deals { background: none; border: none; }
+  .deals thead { display: none; }
+
+  .deals tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    margin-bottom: 10px;
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .deals tbody tr:nth-child(even) { background: var(--surface); }
+
+  /* `td[class]` for specificity: `.watches .col-price { width: 190px }` and friends outrank a
+   * plain `.deals tbody td`, and would pin a card cell at the desktop column width. */
+  .deals tbody td, .deals tbody td[class] {
+    width: auto;
+    padding: 0;
+    border: none;
+    text-align: left;
+    white-space: normal;
+  }
+
+  /* The heat gutter moves from a cell's pseudo-element to the card's own left edge: a card has
+   * no fixed-height cell to centre a bar in, and the edge is where the eye enters the card. */
+  .deals tbody tr.heat > td.col-thumb::before,
+  .deals tbody tr.heat > td.col-deal::before { display: none; }
+  .deals tbody tr.heat { box-shadow: inset 3px 0 0 var(--heat); }
+  .deals tbody tr.heat-s4 { box-shadow: inset 3px 0 0 var(--heat), -2px 0 12px rgba(255, 61, 20, 0.35); }
+
+  /* The image comes back: the tablet rule above hides it for width, which a card does not need. */
+  .deals td.col-thumb { display: block; flex: 0 0 64px; }
+  .deals td.col-thumb:empty { display: none; }
+  .thumb, .thumb-blank { width: 64px; height: 64px; }
+  /* The 4x hover preview has nothing to hover with on a phone, and a tap would leave it stuck
+   * open over the next card. */
+  .deals tbody td.col-thumb:hover .thumb { transform: none; box-shadow: none; }
+
+  /* Claims the rest of the image's line, so the labelled cells start on the next one rather
+   * than squeezing the title into a column two words wide. */
+  .deals td.col-deal { flex: 1 1 calc(100% - 76px); min-width: 0; }
+  .title { -webkit-line-clamp: 3; font-size: 14.5px; }
+
+  /* Three facts to a line; a fourth wraps rather than squeezing the others. */
+  .deals td[data-label] { flex: 1 1 calc(33.33% - 8px); min-width: 88px; }
+  .deals td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  /* A cell holding only "—" (no list price, no community score) is a heading over nothing. */
+  .deals td[data-label]:has(> .no-disc:only-child) { display: none; }
+  .deals td[data-label]:has(> .muted:only-child:empty) { display: none; }
+  .deals td.col-rank { display: none; }
+  /* The store chip does not wrap ("Carulla Laureles" is one tag), so its cell takes the chip's own
+   * width and lets the price move over, rather than a third of the card it would overflow. */
+  .deals td.col-size { flex: 0 1 auto; }
+  /* The shipping verdict carries its own buttons, so it gets a line of its own. */
+  .deals td.col-co { flex-basis: 100%; }
+  .deals .col-seen { display: block; }
+
+  .deals td.col-act { flex: 1 1 100%; }
+  .deals td.col-act:empty { display: none; }
+  .col-act .actions { flex-wrap: wrap; white-space: normal; gap: 8px; }
+  /* Thumb-sized: the desktop buttons are 20px tall, well under the 44px Apple recommends. */
+  .actions button, .actions a {
+    flex: 1;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+
+  /* Non-card tables that are narrow enough to keep, but scroll inside themselves if not. */
+  .runs { overflow-x: auto; }
+}
