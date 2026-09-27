@@ -1,0 +1,680 @@
+{
+ "products": [
+  {
+   "productId": "408762",
+   "productName": "Bebida hidratante  GATORADE frutas tropicales (500  ml)",
+   "brand": "GATORADE",
+   "linkText": "gatorade-frutas-tropicales-500-ml-408762",
+   "categories": [
+    "/Mercado/Bebidas/Hidratantes y energizantes/",
+    "/Mercado/Bebidas/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "525890",
+     "ean": "7702192422051",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 3280,
+        "ListPrice": 4100,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_20_aliado_prov_mercado_categorias_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "20"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "t-yagarces"
+           }
+          ]
+         },
+         {
+          "name": "paguexllevey_5_6_fisi_1753217_id39117_plus_17sept_18oct",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "SkuIdsList",
+             "value": "525890,3401803,3401804,526041,3831946"
+            }
+           ],
+           "minimumQuantity": 6
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "100"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "msanchezr"
+           },
+           {
+            "key": "CodigoSincoPromo",
+            "value": "1753217"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 4100
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "408763",
+   "productName": "Bebida hidratante  GATORADE mandarina (500  ml)",
+   "brand": "GATORADE",
+   "linkText": "gatorade-mandarina-500-ml-408763",
+   "categories": [
+    "/Mercado/Bebidas/Hidratantes y energizantes/",
+    "/Mercado/Bebidas/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "526041",
+     "ean": "7702192218050",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 4100,
+        "ListPrice": 4100,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_20_aliado_prov_mercado_categorias_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "20"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "t-yagarces"
+           }
+          ]
+         },
+         {
+          "name": "paguexllevey_5_6_fisi_1753217_id39117_plus_17sept_18oct",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "SkuIdsList",
+             "value": "525890,3401803,3401804,526041,3831946"
+            }
+           ],
+           "minimumQuantity": 6
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "100"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "msanchezr"
+           },
+           {
+            "key": "CodigoSincoPromo",
+            "value": "1753217"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 4100
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "3127069",
+   "productName": "Bebida GATORADE sin azúcar sabor a fresa kiwi (500  ml)",
+   "brand": "GATORADE",
+   "linkText": "bebida-hidra-sin-azu-fresa-kiwi-gatorade-500-ml-3127069",
+   "categories": [
+    "/Mercado/Bebidas/Hidratantes y energizantes/",
+    "/Mercado/Bebidas/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "3401803",
+     "ean": "7702192975373",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 4100,
+        "ListPrice": 4100,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_20_aliado_prov_mercado_categorias_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "20"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "t-yagarces"
+           }
+          ]
+         },
+         {
+          "name": "paguexllevey_5_6_fisi_1753217_id39117_plus_17sept_18oct",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "SkuIdsList",
+             "value": "525890,3401803,3401804,526041,3831946"
+            }
+           ],
+           "minimumQuantity": 6
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "100"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "msanchezr"
+           },
+           {
+            "key": "CodigoSincoPromo",
+            "value": "1753217"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 4100
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "3173448",
+   "productName": "Bebida hidratante  GATORADE blue ice (500  ml)",
+   "brand": "GATORADE",
+   "linkText": "bebida-hidratante-gatorade-500-ml-3173448",
+   "categories": [
+    "/Mercado/Bebidas/Hidratantes y energizantes/",
+    "/Mercado/Bebidas/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "3558500",
+     "ean": "7702192736455",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 4100,
+        "ListPrice": 4100,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_20_aliado_prov_mercado_categorias_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "20"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "t-yagarces"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 4100
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "3127070",
+   "productName": "Bebida GATORADE sin azúcar sabor a naranja (500  ml)",
+   "brand": "GATORADE",
+   "linkText": "bebida-hidra-sin-azuca-naranja-gatorade-500-ml-3127070",
+   "categories": [
+    "/Mercado/Bebidas/Hidratantes y energizantes/",
+    "/Mercado/Bebidas/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "3401804",
+     "ean": "7702192395416",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 4100,
+        "ListPrice": 4100,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_20_aliado_prov_mercado_categorias_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "20"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "t-yagarces"
+           }
+          ]
+         },
+         {
+          "name": "paguexllevey_5_6_fisi_1753217_id39117_plus_17sept_18oct",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "SkuIdsList",
+             "value": "525890,3401803,3401804,526041,3831946"
+            }
+           ],
+           "minimumQuantity": 6
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "100"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "msanchezr"
+           },
+           {
+            "key": "CodigoSincoPromo",
+            "value": "1753217"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 4100
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "3248411",
+   "productName": "Bebida GATORADE Manzana Pet (500  ml)",
+   "brand": "GATORADE",
+   "linkText": "bebida-gatorade-manzana-pet-500-ml-3248411",
+   "categories": [
+    "/Mercado/Bebidas/Hidratantes y energizantes/",
+    "/Mercado/Bebidas/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "3831946",
+     "ean": "7702192998716",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 4100,
+        "ListPrice": 4220,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_20_aliado_prov_mercado_categorias_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "20"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "t-yagarces"
+           }
+          ]
+         },
+         {
+          "name": "paguexllevey_5_6_fisi_1753217_id39117_plus_17sept_18oct",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "SkuIdsList",
+             "value": "525890,3401803,3401804,526041,3831946"
+            }
+           ],
+           "minimumQuantity": 6
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "100"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "msanchezr"
+           },
+           {
+            "key": "CodigoSincoPromo",
+            "value": "1753217"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 4100
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "130605",
+   "productName": "Arroz DIANA blanco premium (1000  gr)",
+   "brand": "DIANA",
+   "linkText": "arroz-premium-1000-gr-130605",
+   "categories": [
+    "/Mercado/Despensa/Granos y arroz/",
+    "/Mercado/Despensa/",
+    "/Mercado/"
+   ],
+   "items": [
+    {
+     "itemId": "730954",
+     "ean": "7702511000427",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 5193,
+        "ListPrice": 6110,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_25_aliado_prov_mercado_plus_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "4,501"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "25"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "angmendez"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 6110
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "3163405",
+   "productName": "Tilapia o mojarra PIETRAN natural (500  gr)",
+   "brand": "PIETRAN",
+   "linkText": "filete-de-tilapia-pietran-500-gr-3163405",
+   "categories": [
+    "/Pollo, Carnes y pescado/Pescados y mariscos/Mariscos/",
+    "/Pollo, Carnes y pescado/Pescados y mariscos/",
+    "/Pollo, Carnes y pescado/"
+   ],
+   "items": [
+    {
+     "itemId": "3543515",
+     "ean": "7701101361528",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 22425,
+        "ListPrice": 29900,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "mastercard_35_aliado_prov_mercado_plus_id40239_sep25_sep25",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "PaymentMethodId",
+             "value": "501,4"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "35"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "eperezz"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 29900
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "3088489",
+   "productName": "Filete de tilapia o mojarra TAEQ congelada (540  gr)",
+   "brand": "TAEQ",
+   "linkText": "filete-de-tilapia-taeq-540-gr-3088489",
+   "categories": [
+    "/Pollo, Carnes y pescado/Pescados y mariscos/Mariscos/",
+    "/Pollo, Carnes y pescado/Pescados y mariscos/",
+    "/Pollo, Carnes y pescado/"
+   ],
+   "items": [
+    {
+     "itemId": "3277745",
+     "ean": "7701001950624",
+     "measurementUnit": "un",
+     "unitMultiplier": 1,
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 18950,
+        "ListPrice": 18950,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "paguexllevey_2_3_fisi_1737193_mercado_plus_ID38297_17sep_18oct",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "SkuIdsList",
+             "value": "3277745"
+            }
+           ],
+           "minimumQuantity": 3
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "100"
+            }
+           ]
+          },
+          "generalValues": [
+           {
+            "key": "usuario",
+            "value": "vbaenav"
+           },
+           {
+            "key": "CodigoSincoPromo",
+            "value": "1737193"
+           }
+          ]
+         }
+        ],
+        "PriceWithoutDiscount": 18950
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

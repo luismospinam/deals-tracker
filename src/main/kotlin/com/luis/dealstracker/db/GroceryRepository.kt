@@ -2,6 +2,8 @@ package com.luis.dealstracker.db
 
 import com.luis.dealstracker.ingest.UnitSize
 import com.luis.dealstracker.ingest.unitPrice
+import com.luis.dealstracker.model.CardOffer
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.Deal
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -35,6 +37,12 @@ data class GroceryRow(
      * See `mergeStores` in GroceryViews.
      */
     val others: List<GroceryRow> = emptyList(),
+    /**
+     * Today's card-only price at this store, from the latest observation. Display only: "vs usual",
+     * "30d low" and the deal rule stay on the shelf price, so a one-day card promotion never reads as
+     * the item getting cheaper -- nobody without that card could pay it.
+     */
+    val card: CardOffer? = null,
 ) {
     val unitPrice: BigDecimal? get() = unitPrice(deal.price, size)
 
@@ -156,14 +164,15 @@ class GroceryRepository(private val ds: DataSource) {
                 WHERE finished_at IS NOT NULL AND error IS NULL AND item_count > 0
                 GROUP BY source
             )
-            SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n,
+            SELECT d.*, po.price, po.list_price, po.card_price, po.card_percent, po.card_scope,
+                   agg.min_price, agg.max_price, agg.n,
                    0.0 AS relevance,
                    hist.usual, hist.low, COALESCE(hist.days, 0) AS days,
                    (s.since IS NULL OR d.last_seen_at >= s.since) AS on_shelf
             FROM deals d
             LEFT JOIN shelf s ON s.source = d.source
             JOIN LATERAL (
-                SELECT price, list_price FROM price_observations
+                SELECT price, list_price, card_price, card_percent, card_scope FROM price_observations
                 WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
             ) po ON TRUE
             JOIN LATERAL (
@@ -211,6 +220,14 @@ class GroceryRepository(private val ds: DataSource) {
                                     low = rs.getBigDecimal("low"),
                                     days = rs.getInt("days"),
                                     onShelf = rs.getBoolean("on_shelf"),
+                                    card = rs.getBigDecimal("card_price")?.let { cp ->
+                                        CardOffer(
+                                            price = cp,
+                                            percent = rs.getBigDecimal("card_percent") ?: BigDecimal.ZERO,
+                                            scope = runCatching { CardScope.valueOf(rs.getString("card_scope")) }
+                                                .getOrDefault(CardScope.OTHER),
+                                        )
+                                    },
                                 ),
                             )
                         }

@@ -226,12 +226,17 @@ class DealRepository(
 
     fun recordObservation(conn: Connection, dealId: Long, raw: RawDeal) {
         conn.prepareStatement(
-            "INSERT INTO price_observations (deal_id, price, list_price, currency) VALUES (?, ?, ?, ?)",
+            "INSERT INTO price_observations (deal_id, price, list_price, currency, card_price, card_percent, card_scope) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
         ).use { st ->
             st.setLong(1, dealId)
             st.setBigDecimal(2, raw.price)
             st.setBigDecimal(3, raw.listPrice)
             st.setString(4, raw.currency)
+            // Per observation, because card promotions change daily -- see V17__card_price.
+            st.setBigDecimal(5, raw.cardOffer?.price)
+            st.setBigDecimal(6, raw.cardOffer?.percent)
+            st.setString(7, raw.cardOffer?.scope?.name)
             st.executeUpdate()
         }
     }

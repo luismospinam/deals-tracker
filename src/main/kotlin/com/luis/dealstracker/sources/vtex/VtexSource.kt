@@ -290,7 +290,12 @@ class VtexSource : DealSource {
      * collapsing to one row per product keeps the feed readable.
      */
     internal fun toRawDeal(product: VtexProduct, base: String, currency: String): RawDeal? {
-        data class Offer(val price: BigDecimal, val listPrice: BigDecimal?, val qty: Int)
+        data class Offer(
+            val price: BigDecimal,
+            val listPrice: BigDecimal?,
+            val qty: Int,
+            val card: com.luis.dealstracker.model.CardOffer? = null,
+        )
 
         val offers = product.items.flatMap { item ->
             // VTEX quotes weighed goods PER UNIT, and `unitMultiplier` is the pack size. A 2kg
@@ -317,6 +322,9 @@ class VtexSource : DealSource {
                     // scaling, since both sides must be in the same units.
                     listPrice = o.ListPrice?.multiply(multiplier)?.asMoney()?.takeIf { it > price },
                     qty = o.AvailableQuantity ?: 0,
+                    // The card price of THIS offer, so it travels with the offer chosen below rather
+                    // than being read off a different seller's teasers.
+                    card = cardOfferOf(o, multiplier, price),
                 )
             }
         }
@@ -351,6 +359,7 @@ class VtexSource : DealSource {
                 ?.trim('/')?.split('/')?.joinToString(" > ")?.takeIf { it.isNotBlank() },
             imageUrl = imageUrl,
             available = inStock.isNotEmpty(),
+            cardOffer = best.card,
         )
     }
 
@@ -418,7 +427,89 @@ data class VtexOffer(
     @Serializable(with = BigDecimalSerializer::class) val Price: BigDecimal? = null,
     @Serializable(with = BigDecimalSerializer::class) val ListPrice: BigDecimal? = null,
     val AvailableQuantity: Int? = null,
+    /** The price before any shelf promotion; what a card percentage is taken off. See [cardOfferOf]. */
+    @Serializable(with = BigDecimalSerializer::class) val PriceWithoutDiscount: BigDecimal? = null,
+    /**
+     * Conditional promotions -- card-only prices and multi-buys. Intelligent Search fills this in;
+     * `catalog_system` leaves it empty. See [cardOfferOf].
+     */
+    val teasers: List<VtexTeaser>? = null,
 )
+
+/**
+ * One conditional promotion, e.g. `mastercard_20_aliado_..._sep25_sep25`: condition
+ * `PaymentMethodId = "4,501"`, effect `PercentualDiscount = "20"`.
+ */
+@Serializable
+data class VtexTeaser(
+    val name: String? = null,
+    val conditions: VtexTeaserConditions? = null,
+    val effects: VtexTeaserEffects? = null,
+)
+
+@Serializable
+data class VtexTeaserConditions(val parameters: List<VtexParam> = emptyList(), val minimumQuantity: Int? = null)
+
+@Serializable
+data class VtexTeaserEffects(val parameters: List<VtexParam> = emptyList())
+
+@Serializable
+data class VtexParam(val name: String? = null, val value: String? = null)
+
+/** VTEX payment system ids, as `Installments[].PaymentSystemName` names them at both stores. */
+private const val MASTERCARD_ID = "4"
+
+/** "Tarjeta Éxito y Carulla" at Exito, "Carulla Mastercard" at Carulla -- group customPrivate_501. */
+private const val STORE_CARD_ID = "501"
+
+/**
+ * The best card-only price among an offer's teasers, or null when none applies.
+ *
+ * Only teasers that are purely a payment condition count: `PaymentMethodId` and nothing else, a
+ * minimum quantity of 0, and a `PercentualDiscount`. That excludes `paguexllevey` multi-buys
+ * (condition `SkuIdsList`, minimum 3, "100% off" the free unit), which are not a card price.
+ *
+ * The percentage comes off `PriceWithoutDiscount` -- the price before any shelf promotion -- not the
+ * shelf price, so the two discounts do not stack. Each case below was checked on the rendered page:
+ *
+ *  - Arroz premium 1 kg: shelf 5,193, PriceWithoutDiscount 6,110, 25% -> page $4,583, not 3,895.
+ *  - Gatorade blue ice: shelf 4,100, no shelf promotion, 20% -> page $3,280.
+ *  - Gatorade manzana: shelf 4,100, `ListPrice` 4,220 but PriceWithoutDiscount 4,100, 20% -> page
+ *    $3,280. Taken off ListPrice it would be 3,376, so ListPrice is only the fallback.
+ *  - Gatorade frutas tropicales: shelf already 3,280, 20% of 4,100 is 3,280 -> the page shows no card
+ *    price at all. A card price that does not beat the shelf price is dropped.
+ *
+ * Rounded to the whole unit HALF_UP, which is what the page shows (6,110 x 0.75 = 4,582.5 -> $4,583).
+ * [multiplier] scales weighed goods exactly as the shelf price is scaled.
+ */
+internal fun cardOfferOf(
+    offer: VtexOffer,
+    multiplier: BigDecimal,
+    shelfPrice: BigDecimal,
+): com.luis.dealstracker.model.CardOffer? {
+    val base = listOf(offer.PriceWithoutDiscount, offer.ListPrice, offer.Price)
+        .firstOrNull { it != null && it.signum() > 0 }?.multiply(multiplier) ?: return null
+    return offer.teasers.orEmpty().mapNotNull { teaser ->
+        val conditions = teaser.conditions ?: return@mapNotNull null
+        if ((conditions.minimumQuantity ?: 0) > 0) return@mapNotNull null
+        val params = conditions.parameters
+        if (params.isEmpty() || params.any { it.name != "PaymentMethodId" }) return@mapNotNull null
+        val ids = params.flatMap { it.value.orEmpty().split(',') }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        if (ids.isEmpty()) return@mapNotNull null
+        val percent = teaser.effects?.parameters
+            ?.firstOrNull { it.name == "PercentualDiscount" }?.value?.trim()?.toBigDecimalOrNull()
+            ?.takeIf { it > BigDecimal.ZERO && it < BigDecimal(100) }
+            ?: return@mapNotNull null
+        val scope = when {
+            MASTERCARD_ID in ids -> com.luis.dealstracker.model.CardScope.MASTERCARD
+            ids == setOf(STORE_CARD_ID) -> com.luis.dealstracker.model.CardScope.STORE_CARD
+            else -> com.luis.dealstracker.model.CardScope.OTHER
+        }
+        val price = base.multiply(BigDecimal.ONE - percent.movePointLeft(2))
+            .setScale(0, java.math.RoundingMode.HALF_UP).asMoney()
+        com.luis.dealstracker.model.CardOffer(price, percent.setScale(2, java.math.RoundingMode.HALF_UP), scope).takeIf { price < shelfPrice }
+    }.minByOrNull { it.price }
+}
 
 /** Reads a JSON number as BigDecimal from its literal text, bypassing Double entirely. */
 object BigDecimalSerializer : KSerializer<BigDecimal> {

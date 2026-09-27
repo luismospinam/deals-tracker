@@ -108,6 +108,12 @@ internal enum class GrocerySort(val key: String, val label: String) {
 
     /** The store's own advertised discount, deepest first; rows with none last. */
     STORE("store", "Store %"),
+
+    /**
+     * Deepest card-only discount first, measured against the shelf price -- how much the card saves
+     * over paying cash today. Rows with no card price last.
+     */
+    CARD("card", "Card"),
     PRICE("price", "Price"),
 
     /** Default on All items, where there is no deal to rank by. */
@@ -182,6 +188,9 @@ internal fun groceryComparator(sort: GrocerySort): Comparator<GroceryRow> = when
         .thenBy { it.size?.measure }
         .thenBy { it.unitPrice }
         .thenBy { it.deal.title }
+    GrocerySort.CARD -> compareByDescending<GroceryRow> { r ->
+        r.card?.let { BigDecimal.ONE - it.price.divide(r.deal.price, 6, java.math.RoundingMode.HALF_UP) } ?: BigDecimal("-1")
+    }.thenBy { it.deal.title }
     GrocerySort.STORE -> compareByDescending<GroceryRow> { it.deal.storeDiscountPercent ?: -1 }
         .thenBy { it.deal.title }
     GrocerySort.PRICE -> compareBy<GroceryRow> { it.deal.price }.thenBy { it.deal.title }
@@ -344,7 +353,20 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                 th(classes = "col-thumb") { attributes["aria-label"] = "image" }
                 sortableTh("Item", GrocerySort.NAME, controls, null)
                 th(classes = "col-size") { +"Store" }
-                sortableTh("Price", GrocerySort.PRICE, controls, "col-price")
+                // Two sorts in one header: by the shelf price, or by how much a card saves on it today.
+                th(classes = "col-price") {
+                    title = "Shelf price, what anyone pays. The chip beneath is the card-only price where the store runs one."
+                    a(href = controls.url(sort = GrocerySort.PRICE), classes = if (controls.sort == GrocerySort.PRICE) "sorted" else null) {
+                        +"Price"
+                        if (controls.sort == GrocerySort.PRICE) span("dir") { +" ↓" }
+                    }
+                    +" "
+                    a(href = controls.url(sort = GrocerySort.CARD), classes = if (controls.sort == GrocerySort.CARD) "sorted" else null) {
+                        title = "Biggest card saving over the shelf price first"
+                        +"· card"
+                        if (controls.sort == GrocerySort.CARD) span("dir") { +" ↓" }
+                    }
+                }
                 sortableTh(
                     "Unit price", GrocerySort.UNIT, controls, "col-price",
                     "Per 100 g, per litre or per unit, from the pack size in the listing. Blank when the " +
@@ -443,7 +465,12 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 }
             }
         }
-        td(classes = "col-price") { div("price") { +formatMoney(deal.price, deal.currency) } }
+        // The shelf price stays the main number -- what anyone pays. The card price sits under it as
+        // a chip, because it is conditional: only a Mastercard (or only the store's own card) gets it.
+        td(classes = "col-price") {
+            div("price") { +formatMoney(deal.price, deal.currency) }
+            row.card?.let { card -> cardChip(card, deal.currency) }
+        }
         td(classes = "col-price") {
             val unit = row.unitPrice
             if (unit == null) span("muted") { +"—" } else {
@@ -607,5 +634,29 @@ internal fun grocerySyncLines(
             next = hours?.let { com.luis.dealstracker.ingest.nextSlot(it, now, zone) },
             schedule = hours?.joinToString(", ") { "%02d:00".format(it) },
         )
+    }
+}
+
+/**
+ * "Mastercard −20% → $3,280", or "Store card only −30% → $7,000".
+ *
+ * Store-card-only offers are marked in words and in colour, since most Mastercards will not get them:
+ * the store's own card is a Mastercard, but not every Mastercard is the store's card.
+ */
+private fun FlowContent.cardChip(card: com.luis.dealstracker.model.CardOffer, currency: String) {
+    val storeOnly = card.scope == com.luis.dealstracker.model.CardScope.STORE_CARD
+    val pct = card.percent.stripTrailingZeros().toPlainString()
+    div(if (storeOnly) "card-price store-only" else "card-price") {
+        title = when (card.scope) {
+            com.luis.dealstracker.model.CardScope.MASTERCARD ->
+                "With any Mastercard, including Tarjeta Éxito y Carulla / Carulla Mastercard. " +
+                    "$pct% off the price before any shelf promotion — card promotions change daily."
+            com.luis.dealstracker.model.CardScope.STORE_CARD ->
+                "Only with the store's own card (Tarjeta Éxito y Carulla / Carulla Mastercard), " +
+                    "not other Mastercards. Card promotions change daily."
+            com.luis.dealstracker.model.CardScope.OTHER ->
+                "With a specific payment method this app does not recognise yet. Card promotions change daily."
+        }
+        +"${if (storeOnly) "Store card only" else card.scope.label} −$pct% → ${formatMoney(card.price, currency)}"
     }
 }

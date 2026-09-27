@@ -30,6 +30,7 @@ class GroceryViewsTest {
         pinned: Boolean = false,
         source: String = "carulla-grocery",
         product: String = "$id",
+        card: com.luis.dealstracker.model.CardOffer? = null,
     ) = GroceryRow(
         deal = Deal(
             id = id, source = source, sourceDealId = product, title = title,
@@ -45,6 +46,7 @@ class GroceryViewsTest {
         ),
         size = size, group = "Pantry", pinnedAt = if (pinned) Instant.EPOCH else null,
         usual = usual?.let(::BigDecimal), low = usual?.let(::BigDecimal), days = days, onShelf = onShelf,
+        card = card,
     )
 
     @Test
@@ -303,5 +305,55 @@ class GroceryViewsTest {
         val fresh = status("2026-09-25T12:50:00Z", finished = false)
         assertTrue(fresh.running)
         assertFalse(fresh.interrupted)
+    }
+
+    private fun card(price: String, percent: String, scope: com.luis.dealstracker.model.CardScope = com.luis.dealstracker.model.CardScope.MASTERCARD) =
+        com.luis.dealstracker.model.CardOffer(BigDecimal(price), BigDecimal(percent), scope)
+
+    /** The pinned Gatorade: shelf 4,100, "$3.280 Mastercard" on exito.com. */
+    @Test
+    fun `the card price is a chip under the shelf price`() {
+        val html = createHTML().main {
+            groceryPage(
+                listOf(row(price = "4100", usual = "4100", card = card("3280", "20.00"))),
+                listOf("Drinks" to 1), GroceryControls.from(parametersOf("view" to listOf("all"))), listOf("exito-grocery"),
+            )
+        }
+        val tr = html.substringAfterLast("<tbody>").substringBefore("</tr>")
+        val price = tr.substringAfter("class=\"price\">").substringBefore("</td>")
+        assertTrue(price.startsWith("$4,100"), price)
+        assertTrue("Mastercard −20% → $3,280" in price, price)
+    }
+
+    @Test
+    fun `a store-card-only offer says so`() {
+        val html = createHTML().main {
+            groceryPage(
+                listOf(row(price = "10000", usual = "10000", card = card("7000", "30.00", com.luis.dealstracker.model.CardScope.STORE_CARD))),
+                listOf("Drinks" to 1), GroceryControls.from(parametersOf("view" to listOf("all"))), listOf("exito-grocery"),
+            )
+        }
+        assertTrue("card-price store-only" in html)
+        assertTrue("Store card only −30% → $7,000" in html)
+    }
+
+    /** A one-day card promotion is not the item getting cheaper: nobody without that card can pay it. */
+    @Test
+    fun `vs usual and the deal rule ignore the card price`() {
+        val r = row(price = "20000", usual = "20000", card = card("12000", "40.00"))
+        assertEquals(BigDecimal("0.0"), r.belowUsual)
+        assertFalse(r.isDeal)
+        assertEquals(emptyList(), groceryShown(listOf(r), GroceryControls.from(parametersOf())))
+    }
+
+    @Test
+    fun `card sort puts the biggest saving over the shelf first`() {
+        val rows = listOf(
+            row(id = 1, price = "10000", card = card("9000", "10.00")),  // saves 10%
+            row(id = 2, price = "10000"),                                 // no card price
+            row(id = 3, price = "4100", card = card("3280", "20.00")),   // saves 20%
+        )
+        val shown = groceryShown(rows, GroceryControls.from(parametersOf("view" to listOf("all"), "sort" to listOf("card"))))
+        assertEquals(listOf(3L, 1L, 2L), shown.map { it.deal.id })
     }
 }

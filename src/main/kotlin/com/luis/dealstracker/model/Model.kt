@@ -35,6 +35,25 @@ fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) 
  */
 enum class DealState { NEW, SEEN, DISMISSED, FAVORITE }
 
+/**
+ * Who can pay a card-only price. See `V17__card_price`.
+ *
+ * [MASTERCARD] includes the store's own card, which is a Mastercard; [STORE_CARD] is that card alone.
+ */
+enum class CardScope(val label: String) {
+    MASTERCARD("Mastercard"),
+    STORE_CARD("Store card"),
+    OTHER("Card");
+}
+
+/**
+ * The price with a particular card, as the store's page shows it ("$3.280 Mastercard / $4.100 Otros").
+ *
+ * [percent] is taken off the price before any shelf promotion, not the shelf price -- the two do not
+ * stack. [price] is kept only when it beats the shelf price.
+ */
+data class CardOffer(val price: BigDecimal, val percent: BigDecimal, val scope: CardScope)
+
 /** Whether the item can be shipped to Colombia. */
 enum class CoShipping { UNKNOWN, YES, NO }
 
@@ -103,6 +122,8 @@ data class RawDeal(
     val unitQuantity: BigDecimal? = null,
     /** The grocery tab's subcategory label, e.g. "Meat & fish". Null outside the grocery providers. */
     val groceryGroup: String? = null,
+    /** A card-only price, where the store runs one on this item today. See [CardOffer]. */
+    val cardOffer: CardOffer? = null,
 ) {
     /**
      * Advertised discount as a percentage, or null when there's no usable list price.

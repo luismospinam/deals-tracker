@@ -1552,3 +1552,15 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 
 /* A pinned staple Laureles no longer stocks: kept, but visibly not buyable. */
 .grocery tr.paused td { opacity: 0.55; }
+
+/* Groceries: the card-only price under the shelf price ("Mastercard −20% → $3,280").
+ * Quieter than the price above it -- it is conditional -- and it carries the card's name, so colour
+ * is never the only cue. Store-card-only offers get the warmer tone: most Mastercards cannot pay them. */
+.card-price {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  white-space: nowrap;
+  color: var(--good);
+}
+.card-price.store-only { color: var(--accent); }

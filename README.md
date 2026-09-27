@@ -509,6 +509,33 @@ against its own list price, **rounded down the way its badge rounds**. Checked a
 pages: 11,215 against 14,160 is 20.8% and Exito shows `-20%`; 5,990 against 9,350 is 35.9% and
 Carulla shows `-35%`. It is the store's claim. **vs usual** is what we measured.
 
+### Card-only prices
+
+Exito and Carulla often charge less when paying with a particular card, shown on their pages as
+"$3.280 Mastercard / $4.100 Otros". Each grocery crawl captures that price from the offer's
+`teasers` (a `PaymentMethodId` condition with a `PercentualDiscount` effect) and stores it **per
+price observation** (V17), because these promotions change daily: a teaser named `…_sep25_sep25`
+runs for one day only. On /groceries it appears as a chip under the shelf price, for example
+`Mastercard −20% → $3,280`. The **Price · card** header sorts by the biggest card saving.
+
+- **Payment ids:** `4` is Mastercard, and `501` is the store's own card (Tarjeta Éxito y Carulla at
+  Exito, Carulla Mastercard at Carulla). A condition that includes `4` counts as any Mastercard. A
+  condition of `501` alone is marked **Store card only**, since most Mastercards can't use it.
+- **The discounts don't stack.** The percentage comes off `PriceWithoutDiscount`, the price before any
+  shelf promotion. Checked against the rendered pages:
+  - Arroz premium 1 kg: shelf 5,193, pre-promotion 6,110, card −25%. The page shows $4,583, not 3,895.
+  - Gatorade manzana: `ListPrice` 4,220 but `PriceWithoutDiscount` 4,100. The page shows $3,280, which
+    is 20% off the latter.
+- **A card price that doesn't beat the shelf price is dropped.** The page shows no card price for
+  those either.
+- **The deal rule ignores the card price.** "vs usual", "30d low" and the deal rule stay on the shelf
+  price, so a one-day card promotion never reads as the item getting cheaper.
+- **Multi-buys are left out for now.** `paguexllevey` teasers are "pay X, take Y" offers, not card
+  prices. `discountHighlights` are shelf promotions already included in `Price`.
+
+On the first capture (Exito Laureles, 2026-09-25), 5,772 of 7,257 items carried a Mastercard price:
+4,425 at −20%, 566 at −30%, 439 at −35%, 178 at −40% and 164 at −25%.
+
 ### Last sync
 
 The bottom of the tab has a **Last sync** table with one line per store:
