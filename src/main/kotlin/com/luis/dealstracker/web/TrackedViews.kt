@@ -289,6 +289,9 @@ private fun kotlinx.html.TR.sortTh(
  */
 private fun MAIN.addItemForm(notice: String?) {
     details("additem") {
+        // Open when there is a result to show. The notice lives inside the details, and a collapsed
+        // one after the redirect made a successful add look like the button did nothing.
+        if (notice != null) attributes["open"] = ""
         summary { +"Track an item by URL" }
 
         notice?.let { div("additem-notice") { +it } }
@@ -554,7 +557,7 @@ private fun MAIN.noShipToggle(
  * every row teaches you to ignore it.
  */
 internal fun MAIN.trackedPage(
-    deals: List<Deal>,
+    allDeals: List<Deal>,
     sources: List<String>,
     selected: Set<ProductType> = emptySet(),
     sort: TrackedSort = TrackedSort.PRICE,
@@ -565,6 +568,10 @@ internal fun MAIN.trackedPage(
     showNoShip: Boolean = false,
 ) {
     addItemForm(notice)
+
+    // Before anything counts rows, so the tags, the total and the table all agree on one row per
+    // product. See collapseVariants.
+    val (deals, variants) = collapseVariants(allDeals, manualAsins)
 
     p("tracked-intro") {
         +"Items tracked by name and size, with the price movement we have recorded. "
@@ -684,9 +691,54 @@ internal fun MAIN.trackedPage(
             }
         }
         tbody {
-            shown.forEach { trackedRow(it, manualAsins) }
+            shown.forEach { trackedRow(it, manualAsins, variants[it.id].orEmpty()) }
         }
     }
+}
+
+/**
+ * Tracked rows with the same product listed once, and the rows each one stands in for.
+ *
+ * [others] is keyed by the id of the row kept in [rows].
+ */
+internal data class CollapsedVariants(val rows: List<Deal>, val others: Map<Long, List<Deal>>)
+
+/**
+ * Folds rows that are the same product under several ASINs into one.
+ *
+ * A size-filtered search does not return the child ASIN in the wanted size: it returns SOME variant
+ * of each product family that offers that size, and not the same one every poll. So one shoe gathers
+ * several rows that are really different sizes, all labelled with the filter's size. The New Balance
+ * 608 V5 had three rows labelled "8", which were really 8.5, 8.5 Wide and 9.5. On the tab they read
+ * as the same item listed three times.
+ *
+ * This only tidies the DISPLAY. The kept row is still one of those variants, so its link, price and
+ * history are that variant's, not the wanted size's. The real fix is resolving the family to the
+ * right child ASIN at ingest.
+ *
+ * Same source, title (which carries the size label) and image. The image is required: two products
+ * can share a short title, but not a title and a photo. A row with no image never groups.
+ *
+ * The row kept is: one added by URL (its ASIN is exact), then one not refused for Colombia, then the
+ * most recently checked, since a variant the search stopped returning goes stale first.
+ */
+internal fun collapseVariants(deals: List<Deal>, manualAsins: Set<String>): CollapsedVariants {
+    val preference = compareByDescending<Deal> { it.asin != null && it.asin in manualAsins }
+        .thenByDescending { it.coShipping != CoShipping.NO }
+        .thenByDescending { it.lastSeenAt }
+        .thenByDescending { it.id }
+
+    val others = mutableMapOf<Long, List<Deal>>()
+    val keep = mutableSetOf<Long>()
+    deals.groupBy { d -> d.imageUrl?.let { Triple(d.source, d.title.trim().lowercase(), it) } ?: d.id }
+        .values
+        .forEach { group ->
+            val sorted = group.sortedWith(preference)
+            keep += sorted.first().id
+            if (sorted.size > 1) others[sorted.first().id] = sorted.drop(1)
+        }
+    // Filtered rather than rebuilt from the groups, so the caller's order survives.
+    return CollapsedVariants(deals.filter { it.id in keep }, others)
 }
 
 /**
@@ -721,7 +773,7 @@ internal fun trackedShown(
     }
     .sortedWith(comparatorFor(sort))
 
-private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) {
+private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, variants: List<Deal>) {
     tr {
         // htmx targets this to remove the row on hide.
         id = "tracked-${deal.id}"
@@ -756,6 +808,15 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) 
                     }
                 }
                 deal.asin?.let { span { +"ASIN $it" } }
+                if (variants.isNotEmpty()) {
+                    span("variants-note") {
+                        title = "Also returned under " +
+                            variants.joinToString(", ") { v -> v.asin ?: v.sourceDealId } +
+                            ". Same product, other variants the size filter picked; " +
+                            "listed once here. Hiding this row hides them all."
+                        +"+${variants.size} variant${if (variants.size == 1) "" else "s"}"
+                    }
+                }
                 deal.categoryGroup?.let { span("cat") { +it } }
             }
         }
@@ -842,7 +903,9 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) 
                 // re-inserted by the next poll (upsert is keyed on source + source_deal_id) and
                 // would take its price history with it. See POST /tracked/{id}/hide.
                 button(classes = "hide-btn") {
-                    attributes["hx-post"] = "/tracked/${deal.id}/hide"
+                    // The whole group, or the next variant would take this one's place on reload.
+                    attributes["hx-post"] = "/tracked/${deal.id}/hide" +
+                        if (variants.isEmpty()) "" else "?also=" + variants.joinToString(",") { it.id.toString() }
                     attributes["hx-target"] = "#tracked-${deal.id}"
                     attributes["hx-swap"] = "outerHTML"
                     // A confirm, because the row disappears and the undo lives on another page.

@@ -1437,6 +1437,18 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   padding: 0 5px;
 }
 
+/* Other ASINs of the same product folded into this row -- see collapseVariants. Muted rather than
+ * alarming: it explains a count, it is not a verdict. */
+.variants-note {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  padding: 0 5px;
+  cursor: help;
+}
+
 /* Ask Claude panel.
  *
  * Collapsed to one line by default: it is used occasionally, and the tables below are the page.

@@ -14,6 +14,7 @@ import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.ingest.ManualItemService
 import com.luis.dealstracker.model.CoShipping
+import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
 import com.luis.dealstracker.verify.AmazonVerifier
 import com.luis.dealstracker.verify.VerifyOutcome
@@ -261,11 +262,7 @@ fun Application.routes(
          */
         get("/tracked") {
             val sources = trackingSources(app)
-            val deals = if (sources.isEmpty()) {
-                emptyList()
-            } else {
-                repo.feed(FeedFilter(sources = sources, sort = "price"))
-            }
+            val deals = withContext(Dispatchers.IO) { trackedDeals(repo, sources) }
             // Unknown labels are ignored rather than rejected, so a hand-edited or stale URL
             // degrades to "no filter" instead of a 400.
             val selected = call.request.queryParameters["type"]
@@ -397,7 +394,11 @@ fun Application.routes(
             val id = call.parameters["id"]?.toLongOrNull()
                 ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
 
-            withContext(Dispatchers.IO) { repo.updateState(id, DealState.DISMISSED) }
+            // `also` carries the variants folded into this row (see collapseVariants), which must go
+            // with it. Non-numeric entries are dropped rather than failing the whole hide.
+            val also = call.request.queryParameters["also"]
+                ?.split(',')?.mapNotNull { it.trim().toLongOrNull() }.orEmpty()
+            withContext(Dispatchers.IO) { (listOf(id) + also).forEach { repo.updateState(it, DealState.DISMISSED) } }
 
             // Empty body + an outerHTML swap removes the <tr>. No reload, and no stale row left
             // claiming to be tracked.
@@ -628,6 +629,19 @@ private fun sourceNames(repo: DealRepository, app: AppConfig): List<String> =
  */
 internal fun trackingSources(app: AppConfig): List<String> =
     app.enabledProviders.filter { it.list("trackSearches").isNotEmpty() }.map { it.id }.sorted()
+
+/**
+ * Every row the tracked tab can show, for the page and the Ask panel alike.
+ *
+ * Uncapped, unlike the feed. The tab filters and sorts in Kotlin, so the feed's default
+ * `limit = 1000` truncated BEFORE any of that ran — and with the cheapest-first order the cut fell
+ * on the dearest items. At 1,850 active amazon rows, an item added by URL at US$125 ranked #1,798
+ * and was silently missing from the tab, as were two earlier additions: the add had worked, the
+ * page just never loaded it.
+ */
+internal fun trackedDeals(repo: DealRepository, sources: List<String>): List<Deal> =
+    if (sources.isEmpty()) emptyList()
+    else repo.feed(FeedFilter(sources = sources, sort = "price", limit = Int.MAX_VALUE))
 
 /**
  * Builds a [WatchDraft] from the form, or null when the two required fields are missing.

@@ -474,4 +474,50 @@ class TrackedViewsTest {
         assertTrue(sortLinks.isNotEmpty())
         sortLinks.forEach { assertTrue(it.contains("noship=show"), "sort link drops the toggle: $it") }
     }
+
+    /** The 608 V5 case: three ASINs of one shoe, all titled and pictured alike. */
+    private fun variant(id: Long, asin: String, seen: Long, image: String? = "https://img/608.jpg") =
+        trackedDeal("59.99").copy(
+            id = id, asin = asin, sourceDealId = asin, title = "Men's 608 V5 — 8",
+            imageUrl = image, lastSeenAt = Instant.ofEpochSecond(seen),
+        )
+
+    @Test
+    fun `variants of one product collapse to a single row`() {
+        val other = trackedDeal("20.00").copy(id = 9, title = "Something else — M", imageUrl = "https://img/x.jpg")
+        val a = variant(1, "B07YZRSRW9", seen = 100)
+        val b = variant(2, "B07YZR8WYF", seen = 300)
+        val c = variant(3, "B07YZR5QS3", seen = 200)
+
+        val (rows, others) = collapseVariants(listOf(other, a, b, c), emptySet())
+
+        // The most recently checked variant stands in, and the input order is kept.
+        assertEquals(listOf(9L, 2L), rows.map { it.id })
+        assertEquals(listOf(3L, 1L), others.getValue(2).map { it.id })
+        assertNull(others[9])
+    }
+
+    @Test
+    fun `a row added by URL is the one kept`() {
+        val searched = variant(1, "B07YZR8WYF", seen = 300)
+        val added = variant(2, "B07YZRKYTC", seen = 100)
+        assertEquals(listOf(2L), collapseVariants(listOf(searched, added), setOf("B07YZRKYTC")).rows.map { it.id })
+    }
+
+    @Test
+    fun `rows without an image never group`() {
+        val a = variant(1, "B1", seen = 1, image = null)
+        val b = variant(2, "B2", seen = 2, image = null)
+        assertEquals(2, collapseVariants(listOf(a, b), emptySet()).rows.size)
+    }
+
+    @Test
+    fun `the collapsed row says how many it stands for and hides them all`() {
+        val html = createHTML().main {
+            trackedPage(listOf(variant(1, "B1", 1), variant(2, "B2", 2), variant(3, "B3", 3)), listOf("amazon"))
+        }
+        assertEquals(1, Regex("""id="tracked-\d+"""").findAll(html).count())
+        assertTrue(html.contains("+2 variants"), html)
+        assertTrue(html.contains("/tracked/3/hide?also=2,1"), html)
+    }
 }

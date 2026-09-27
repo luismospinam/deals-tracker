@@ -173,7 +173,9 @@ internal fun askContextFor(
     screen == "favorites" -> feedContext("favorites", favoritesFilter(params), maxRows, repo)
     screen == "tracked" -> {
         val sources = trackingSources(app)
-        val all = if (sources.isEmpty()) emptyList() else repo.feed(FeedFilter(sources = sources, sort = "price"))
+        val manualAsins = manualItems.trackedAsins()
+        // Collapsed as the page does, so the answer is about the rows the operator sees.
+        val all = collapseVariants(trackedDeals(repo, sources), manualAsins).rows
         val selected = params["type"]?.split(',')
             ?.mapNotNull { l -> ProductType.entries.firstOrNull { it.label.equals(l.trim(), ignoreCase = true) } }
             ?.toSet().orEmpty()
@@ -182,7 +184,7 @@ internal fun askContextFor(
             selected,
             params["brand"]?.trim()?.takeIf { it.isNotEmpty() },
             TrackedOrigin.of(params["origin"]),
-            manualItems.trackedAsins(),
+            manualAsins,
             TrackedSort.of(params["sort"]),
             showNoShip = params["noship"] == "show",
         )
