@@ -667,8 +667,18 @@ class DealRepository(
      * `co_shipping_cost` yet, so the freight term is zero and the ranking rests on discount,
      * observed drop, community score and age. That is exactly the information available for
      * deciding whether a page load is worth spending.
+     *
+     * [prioritySources] come ahead of everything, and DealScore then orders within each group.
+     * Tracked rows score low by construction -- no community votes, often no list price -- so on
+     * score alone they lost nearly every slot to Slickdeals, despite being the rows whose landed
+     * cost matters most. Empty means no priority, which is the plain score order.
      */
-    fun coShippingCandidates(limit: Int, baseBackoffHours: Int = 6, maxBackoffHours: Int = 168): List<Triple<Long, String, String>> =
+    fun coShippingCandidates(
+        limit: Int,
+        baseBackoffHours: Int = 6,
+        maxBackoffHours: Int = 168,
+        prioritySources: List<String> = emptyList(),
+    ): List<Triple<Long, String, String>> =
         ds.connection.use { conn ->
             conn.prepareStatement(
                 """
@@ -689,7 +699,8 @@ class DealRepository(
                      OR d.co_shipping_checked_at < now() - make_interval(
                             hours => LEAST(? * POWER(2, d.co_shipping_attempts)::int, ?))
                    )
-                 ORDER BY ${DealScore.SQL} DESC,
+                 ORDER BY (d.source = ANY(?)) DESC,
+                          ${DealScore.SQL} DESC,
                           d.co_shipping_checked_at ASC NULLS FIRST,
                           d.id ASC
                  LIMIT ?
@@ -697,7 +708,8 @@ class DealRepository(
             ).use { st ->
                 st.setInt(1, baseBackoffHours)
                 st.setInt(2, maxBackoffHours)
-                st.setInt(3, limit)
+                st.setArray(3, conn.createArrayOf("text", prioritySources.toTypedArray()))
+                st.setInt(4, limit)
                 st.executeQuery().use { rs ->
                     buildList {
                         while (rs.next()) {

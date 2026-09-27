@@ -283,11 +283,13 @@ fun Application.routes(
             // Unknown values fall back to "no filter", same tolerance as type/sort/brand.
             val origin = TrackedOrigin.of(call.request.queryParameters["origin"])
             val manualAsins = withContext(Dispatchers.IO) { manualItems.trackedAsins() }
+            // Items Amazon refuses to ship to Colombia are hidden unless this is set.
+            val showNoShip = call.request.queryParameters["noship"] == "show"
 
             call.respondHtml {
                 page("Tracked — Deals Tracker") {
                     askPanel("tracked", "e.g. which of these has dropped the most, and is it worth buying now?")
-                    trackedPage(deals, sources, selected, sort, brand, notice, manualAsins, origin)
+                    trackedPage(deals, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip)
                 }
             }
         }

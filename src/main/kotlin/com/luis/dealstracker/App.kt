@@ -27,6 +27,7 @@ import com.luis.dealstracker.sources.shopify.ShopifySource
 import com.luis.dealstracker.sources.slickdeals.SlickdealsSource
 import com.luis.dealstracker.sources.vtex.VtexSource
 import com.luis.dealstracker.web.routes
+import com.luis.dealstracker.web.trackingSources
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import com.luis.dealstracker.verify.VerifyOutcome
@@ -420,6 +421,8 @@ internal fun verifyConfig(
     batchSize = batchSize,
     delayMillis = app.defaults.coShippingDelayMillis,
     maxPerRun = app.defaults.coShippingMaxPerRun,
+    // The Tracked tab's own providers, so the tab and the queue's priority cannot drift apart.
+    prioritySources = trackingSources(app),
     headless = headless,
     wallWaitMillis = wallWaitMillis,
 )

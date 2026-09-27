@@ -74,6 +74,16 @@ defaults:
   # Amazon rows were still UNKNOWN, against 336 YES and 173 NO -- so the queue was still
   # oversubscribed at 15 an hour (360 a day). 20 is 480 a day.
   #
+  # 40, raised from 20 (2026-09-24), with Tracked rows now taking the queue first -- see
+  # `prioritySources` in CoShippingConfig. The Tracked tab had 780 of ~970 active rows unchecked
+  # after its searches were deepened, and was getting only ~190 checks a day out of a queue shared
+  # with Slickdeals. Chrome being open ~10 minutes an hour is accepted. Watch the log for
+  # "[STOPPED EARLY: Amazon was blocking]" and step back to 30 if it appears.
+  #
+  # 50, raised from 40 (2026-09-24) after the first 40-item run came back clean: 40 checked,
+  # 0 unclear, no wall. ~13 minutes of browser time an hour. With AmazonSource's pages this is
+  # ~110 Amazon page loads per cycle, so if a wall appears, 40 is the known-good step back.
+  #
   # This is a verification knob, NOT a fetch knob: it decides how many EXISTING deals get a
   # /dp/ page load to read their Colombia delivery block. It adds no deals and no price
   # observations. It matters to the feed because an unverified row scores as though shipping
@@ -90,7 +100,7 @@ defaults:
   # Costs roughly 5 minutes of browser time per hour at the 15s spacing below. Still bounded
   # by coShippingMaxPerRun (100), and diminishing: the queue is ordered by DealScore, so item
   # 20 is by construction less attractive than item 15.
-  coShippingPollBatch: 20
+  coShippingPollBatch: 50
   # Shorter than a manual run's 180s -- nobody is necessarily watching an automatic one,
   # so it should give up and let the next cycle retry rather than hold a window open.
   coShippingPollWallWaitMillis: 45000
@@ -522,7 +532,12 @@ providers:
       # 20, raised from 8. Sizing no longer costs a request per item -- Amazon filters server-side
       # -- and a size-filtered page yields ~45 usable tiles, so 8 was throwing most of a page away.
       # Counts DISTINCT items: the same ASIN found under two terms consumes one slot, not two.
-      maxItemsPerSearch: "20"
+      #
+      # 40, raised from 20 (2026-09-23). At 20 this was the binding cap, not the page count: page 1
+      # alone filled it, so page 2 was never fetched and every poll kept ~280-350 items across 17
+      # terms. Deeper results are where Amazon's size filter is loosest, so watch for more
+      # wrong-size siblings (same title and image, different ASIN) as this goes up.
+      maxItemsPerSearch: "40"
 
       # Result pages to walk per search term.
       #
@@ -534,10 +549,12 @@ providers:
       # filter stayed applied on every one, and the overlap between pages was ZERO (130 distinct
       # items across three). So depth genuinely multiplies coverage rather than re-reading rows.
       #
-      # 2, not 3. Each extra page is another request against a host that refuses intermittently,
-      # and refusals -- not code -- are the binding constraint. Two pages already offer ~90 usable
-      # tiles per search, comfortably past maxItemsPerSearch. Raise it if the logs stay clean.
-      maxPagesPerSearch: "2"
+      # Each extra page is another request against a host that refuses intermittently, and
+      # refusals -- not code -- are the binding constraint. 3 (raised from 2 alongside
+      # maxItemsPerSearch) gives ~135 usable tiles of headroom for 40 items, allowing for tiles
+      # already claimed by another term. Pages stop early once the item cap is met, so this is a
+      # ceiling, not a cost paid on every search. Lower it again if the logs show refusals.
+      maxPagesPerSearch: "3"
 
       # Escalate to the trusted headed Chrome profile when plain HTTP is throttled. Set to
       # false to stay HTTP-only, which is quieter but will resolve very few items.
@@ -569,6 +586,11 @@ providers:
       trackSearches:
         - "nike men running shoes"
         - "adidas men shoes"
+        # Each brand gets both a general and a running search (added 2026-09-23). They return
+        # largely different items, and the overlap costs nothing: an ASIN already claimed by one
+        # term is skipped by the next rather than stored twice.
+        - "nike men shoes"
+        - "adidas men running shoes"
         - "nike men hoodie"
         - "adidas men hoodie"
         - "nike men pants"

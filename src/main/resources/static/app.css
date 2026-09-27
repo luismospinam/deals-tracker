@@ -1299,6 +1299,17 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 
 .extra { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 
+/* Shipping to Colombia not checked yet. Amber and outlined rather than muted: the row may not
+ * ship at all, so it must not read as a clean price. Dashed, like `.typetag.clear`, because it
+ * marks an absence of an answer rather than a fact -- which also keeps it distinct from the
+ * filled chips that carry a real fee. */
+.tracked .col-extra .prov { margin-left: 0; }
+.prov.unchecked-prov {
+  background: transparent;
+  border: 1px dashed rgba(217, 162, 39, 0.55);
+  color: var(--d-mid);
+}
+
 /* The landed cost. Mono like every other number, and quiet: it is a derived total, not a
  * measurement, so it must not out-shout the price it is derived from. */
 .extra-total {
@@ -1338,6 +1349,25 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 .brandpick { margin: 0 0 10px; }
 .brandpick label { flex-direction: row; align-items: center; gap: 8px; }
 .brandpick select { min-width: 13rem; }
+
+/* Tracked tab: "show items that don't ship to Colombia". Sits in the filter stack, sized like the
+ * tag labels so it reads as one more control rather than as body copy. */
+.noship-toggle { margin: 0 0 14px; }
+/* The global `label` is a stacked, uppercase form caption; this one is an inline control, so each
+ * of those is undone explicitly -- the same override `.brandpick label` makes. */
+.noship-toggle label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 0.86rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.noship-toggle input { margin: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
 
 /* Tracked tab: the hide button.
  *

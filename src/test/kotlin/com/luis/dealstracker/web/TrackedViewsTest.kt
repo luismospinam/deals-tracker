@@ -3,6 +3,8 @@ package com.luis.dealstracker.web
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
+import kotlinx.html.main
+import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
 import java.time.Instant
 import kotlin.test.Test
@@ -375,5 +377,101 @@ class TrackedViewsTest {
     fun `an unclassifiable title falls to other`() {
         assertEquals(ProductType.OTHER, ProductType.of("Nike Backpack"))
         assertEquals(ProductType.OTHER, ProductType.of("adidas Water Bottle"))
+    }
+
+    /**
+     * "Crewneck" is a neckline, not a garment. These three sat under a `hoodies` filter, every
+     * title exact, because HOODIES listed `crewneck` and is declared before SHIRTS.
+     */
+    @Test
+    fun `a crewneck tee is a shirt, not a hoodie`() {
+        listOf(
+            "Men's Small Logo Short Sleeve Crewneck T-Shirt, Standard Fit, Breathable Lightweight Stretch Knit Fabric — M",
+            "Men's Strike Short Sleeve Crewneck T-Shirt, Standard Fit, Lightweight Stretch Poly Jersey Fabric — M",
+            "Men's All Day Cotton Stretch Short Sleeve Crewneck Undershirts (2-Pack) — M",
+        ).forEach { assertEquals(ProductType.SHIRTS, ProductType.of(it), it) }
+        // A crewneck sweatshirt still says so, and stays a hoodie.
+        assertEquals(ProductType.HOODIES, ProductType.of("Crew Sweatshirt by Nike — M"))
+    }
+
+    /**
+     * Every row cell must sit under its own header. The Extra cell once rendered after Change while
+     * its header sat after Off, so Lowest, Highest, Low and Change each showed one column left.
+     */
+    @Test
+    fun `row cells line up with their headers`() {
+        val html = createHTML().main {
+            trackedPage(listOf(trackedDeal("20.00", shippingCost = "6.99", minEver = "19.00", maxEver = "25.00")), listOf("amazon"))
+        }
+        val thead = html.substringAfter("<thead>").substringBefore("</thead>")
+        val row = html.substringAfter("<tbody>").substringBefore("</tr>")
+        fun classes(tag: String, of: String) =
+            Regex("<$tag(?: class=\"([^\"]*)\")?[ >]").findAll(of).map { it.groupValues[1] }.toList()
+
+        val headers = classes("th", thead)
+        assertTrue(headers.size > 5, "expected the tracked header row, got: $headers")
+        assertEquals(headers, classes("td", row))
+    }
+
+    /**
+     * An unchecked row must say so. It rendered as a bare dash, and a T-shirt Amazon will not send
+     * to Colombia sat on the tab looking like a clean price.
+     */
+    @Test
+    fun `unchecked shipping is labelled, not a dash`() {
+        val unchecked = trackedDeal("17.41").copy(coShipping = CoShipping.UNKNOWN, coShippingImportFree = null)
+        val refused = trackedDeal("17.41").copy(coShipping = CoShipping.NO)
+        val free = trackedDeal("17.41", shippingCost = "0.00")
+
+        assertTrue(unchecked.shippingUnchecked)
+        assertFalse(refused.shippingUnchecked, "a NO is an answer, not a gap")
+        assertFalse(free.shippingUnchecked)
+
+        // Shown, since a refused row is hidden by default -- see the non-shippable test below.
+        val html = createHTML().main {
+            trackedPage(listOf(unchecked, refused.copy(id = 2), free.copy(id = 3)), listOf("amazon"), showNoShip = true)
+        }
+        assertTrue(html.contains("unchecked-prov"), "the unchecked row carries its chip")
+        assertTrue(html.contains("no ship to CO"), "a refusal is stated, not rendered as n/a")
+        assertTrue(html.contains("1 not yet checked for shipping to Colombia"), "the count matches the one unchecked row")
+    }
+
+    /**
+     * A verified "does not ship" is hidden by default and comes back with the toggle. Unchecked
+     * rows are NOT hidden: they may ship, and hiding them would empty most of the tab while the
+     * check catches up.
+     */
+    @Test
+    fun `non-shippable rows are hidden unless asked for`() {
+        val ships = trackedDeal("10.00", shippingCost = "0.00")
+        val refused = trackedDeal("11.00").copy(id = 2, coShipping = CoShipping.NO)
+        val unchecked = trackedDeal("12.00").copy(id = 3, coShipping = CoShipping.UNKNOWN, coShippingImportFree = null)
+        val all = listOf(ships, refused, unchecked)
+
+        fun shown(show: Boolean) = trackedShown(all, emptySet(), null, null, emptySet(), TrackedSort.PRICE, show).map { it.id }
+        assertEquals(listOf(1L, 3L), shown(false))
+        assertEquals(listOf(1L, 2L, 3L), shown(true))
+
+        val hidden = createHTML().main { trackedPage(all, listOf("amazon")) }
+        assertFalse(hidden.contains("tracked-2"), "the refused row is not rendered by default")
+        assertTrue(hidden.contains("noship=show"), "the toggle offers the way back")
+        assertFalse(hidden.contains("""checked="checked""""), "unticked by default")
+
+        val visible = createHTML().main { trackedPage(all, listOf("amazon"), showNoShip = true) }
+        assertTrue(visible.contains("tracked-2"))
+        assertTrue(visible.contains("""checked="checked""""), "ticked when shown")
+    }
+
+    /** Every other control keeps the toggle's state, so filtering does not silently re-hide rows. */
+    @Test
+    fun `other controls carry the toggle along`() {
+        val all = listOf(
+            trackedDeal("10.00", shippingCost = "0.00"),
+            trackedDeal("11.00").copy(id = 2, coShipping = CoShipping.NO),
+        )
+        val html = createHTML().main { trackedPage(all, listOf("amazon"), showNoShip = true) }
+        val sortLinks = Regex("""href="(/tracked[^"]*sort=[^"]*)"""").findAll(html).map { it.groupValues[1] }.toList()
+        assertTrue(sortLinks.isNotEmpty())
+        sortLinks.forEach { assertTrue(it.contains("noship=show"), "sort link drops the toggle: $it") }
     }
 }

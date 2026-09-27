@@ -56,9 +56,13 @@ internal enum class ProductType(val label: String, internal val nouns: List<Stri
         //
         // `fleece` is deliberately ABSENT. Like `jersey` it is a FABRIC — "Club Fleece Shorts" and
         // "Essentials Fleece Pants" are both real tracked products — and a fleece top nearly always
-        // says hoodie, pullover, crewneck or sweatshirt as well.
+        // says hoodie, pullover or sweatshirt as well.
+        //
+        // `crewneck` is ABSENT for the same reason: it is a NECKLINE, and tees have one too. It put
+        // "Men's Strike Short Sleeve Crewneck T-Shirt" under a `hoodies` filter, because HOODIES is
+        // declared before SHIRTS and wins a tie. A crewneck sweatshirt still says `sweatshirt`.
         listOf(
-            "hoodie", "pullover", "sweatshirt", "crewneck", "outerwear", "jacket",
+            "hoodie", "pullover", "sweatshirt", "outerwear", "jacket",
             "windbreaker", "half-zip", "quarter-zip", "track top", "vest",
         ),
     ),
@@ -221,6 +225,7 @@ private fun trackedUrl(
     sort: TrackedSort,
     brand: String? = null,
     origin: TrackedOrigin? = null,
+    showNoShip: Boolean = false,
 ): String {
     val params = buildList {
         if (types.isNotEmpty()) add("type=" + types.joinToString(",") { it.label })
@@ -228,6 +233,8 @@ private fun trackedUrl(
         if (sort != TrackedSort.PRICE) add("sort=${sort.key}")
         brand?.takeIf { it.isNotBlank() }?.let { add("brand=" + java.net.URLEncoder.encode(it, "UTF-8")) }
         origin?.let { add("origin=${it.label}") }
+        // Hidden is the default, so only the opt-in is written.
+        if (showNoShip) add("noship=show")
     }
     return if (params.isEmpty()) "/tracked" else "/tracked?" + params.joinToString("&")
 }
@@ -246,9 +253,10 @@ private fun kotlinx.html.TR.sortTh(
     classes: String,
     brand: String?,
     origin: TrackedOrigin?,
+    showNoShip: Boolean,
     tooltip: String? = null,
 ) {
-    val href = trackedUrl(selected, sort, brand, origin)
+    val href = trackedUrl(selected, sort, brand, origin, showNoShip)
 
     th(classes = classes) {
         tooltip?.let { title = it }
@@ -339,6 +347,7 @@ private fun MAIN.brandPicker(
     sort: TrackedSort,
     brand: String?,
     origin: TrackedOrigin?,
+    showNoShip: Boolean,
 ) {
     // Case-insensitive grouping: V12's backfill recovered the folded form (`adidas`) from
     // model_key while a fresh fetch stores the source's own casing (`Nike`), and the two must not
@@ -357,7 +366,7 @@ private fun MAIN.brandPicker(
                 attributes["onchange"] = "location.href=this.value"
 
                 option {
-                    value = trackedUrl(types, sort, null, origin)
+                    value = trackedUrl(types, sort, null, origin, showNoShip)
                     if (brand.isNullOrBlank()) this.selected = true
                     +"all brands"
                 }
@@ -365,7 +374,7 @@ private fun MAIN.brandPicker(
                     .forEach { (key, n) ->
                         val name = display[key] ?: key
                         option {
-                            value = trackedUrl(types, sort, name, origin)
+                            value = trackedUrl(types, sort, name, origin, showNoShip)
                             if (brand?.lowercase() == key) this.selected = true
                             +"$name ($n)"
                         }
@@ -389,6 +398,7 @@ private fun MAIN.originTags(
     sort: TrackedSort,
     brand: String?,
     origin: TrackedOrigin?,
+    showNoShip: Boolean,
 ) {
     val inBrand = deals.filter {
         brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase()
@@ -406,7 +416,7 @@ private fun MAIN.originTags(
             val on = origin == which
             a(
                 classes = if (on) "typetag on" else "typetag",
-                href = trackedUrl(selected, sort, brand, if (on) null else which),
+                href = trackedUrl(selected, sort, brand, if (on) null else which, showNoShip),
             ) {
                 +which.label
                 span("typetag-n") { +n.toString() }
@@ -431,6 +441,7 @@ private fun MAIN.typeTags(
     sort: TrackedSort,
     brand: String?,
     origin: TrackedOrigin?,
+    showNoShip: Boolean,
 ) {
     // Counted within the active BRAND, but across all types.
     //
@@ -456,7 +467,7 @@ private fun MAIN.typeTags(
 
             val on = type in selected
             val next = if (on) selected - type else selected + type
-            val href = trackedUrl(next, sort, brand, origin)
+            val href = trackedUrl(next, sort, brand, origin, showNoShip)
 
             a(classes = if (on) "typetag on" else "typetag", href = href) {
                 +type.label
@@ -467,7 +478,44 @@ private fun MAIN.typeTags(
         if (selected.isNotEmpty()) {
             // Clears the TYPE filter only. Resetting the sort too would be a second, unasked-for
             // change hiding behind one control.
-            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin)) { +"clear" }
+            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +"clear" }
+        }
+    }
+}
+
+/**
+ * "Show items that don't ship to Colombia" — hidden by default.
+ *
+ * A checkbox rather than a tag: it is a single on/off, and it is not a kind of item the way the
+ * type and origin tags are. Navigates on change, like the brand select, so the state lives in the
+ * query string and the view stays shareable with no form to submit.
+ *
+ * The count is of rows the CURRENT filters would add back, so ticking it changes the table by
+ * exactly the number it promised. Not offered when there are none.
+ */
+private fun MAIN.noShipToggle(
+    deals: List<Deal>,
+    selected: Set<ProductType>,
+    sort: TrackedSort,
+    brand: String?,
+    origin: TrackedOrigin?,
+    manualAsins: Set<String>,
+    showNoShip: Boolean,
+) {
+    val n = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip = true)
+        .count { it.coShipping == CoShipping.NO }
+    if (n == 0 && !showNoShip) return
+
+    div("noship-toggle") {
+        label {
+            input(type = InputType.checkBox) {
+                checked = showNoShip
+                attributes["onchange"] =
+                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, true)}'" +
+                    ":'${trackedUrl(selected, sort, brand, origin, false)}'"
+            }
+            +" show items that don't ship to Colombia"
+            span("typetag-n") { +n.toString() }
         }
     }
 }
@@ -514,6 +562,7 @@ internal fun MAIN.trackedPage(
     notice: String? = null,
     manualAsins: Set<String> = emptySet(),
     origin: TrackedOrigin? = null,
+    showNoShip: Boolean = false,
 ) {
     addItemForm(notice)
 
@@ -543,18 +592,24 @@ internal fun MAIN.trackedPage(
         return
     }
 
+    // Rows Amazon refuses to ship to Colombia are out of the population entirely unless asked for,
+    // tags included: a tag counting rows the table then hides is the mismatch the brand and type
+    // counts were built to avoid.
+    val pool = if (showNoShip) deals else deals.filterNot { it.coShipping == CoShipping.NO }
+
     // Tags are built from the UNFILTERED set, so the counts stay stable and a deselected type does
     // not vanish from the row the moment you click it.
-    brandPicker(deals, selected, sort, brand, origin)
-    typeTags(deals, selected, sort, brand, origin)
-    originTags(deals, manualAsins, selected, sort, brand, origin)
+    brandPicker(pool, selected, sort, brand, origin, showNoShip)
+    typeTags(pool, selected, sort, brand, origin, showNoShip)
+    originTags(pool, manualAsins, selected, sort, brand, origin, showNoShip)
+    noShipToggle(deals, selected, sort, brand, origin, manualAsins, showNoShip)
 
-    val shown = trackedShown(deals, selected, brand, origin, manualAsins, sort)
+    val shown = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip)
 
     if (shown.isEmpty()) {
         div("empty") {
             +"No tracked items of that type. "
-            a(href = trackedUrl(emptySet(), sort, brand, origin)) { +"Show all" }
+            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +"Show all" }
             +"."
         }
         return
@@ -564,7 +619,7 @@ internal fun MAIN.trackedPage(
         +if (selected.isEmpty()) {
             "${shown.size} item(s) tracked"
         } else {
-            "${shown.size} of ${deals.size} item(s) tracked"
+            "${shown.size} of ${pool.size} item(s) tracked"
         }
         val awaiting = shown.count { it.observationCount < 2 }
         if (awaiting > 0) {
@@ -572,6 +627,13 @@ internal fun MAIN.trackedPage(
             // full of dashes otherwise reads as broken rather than as young.
             span("tracked-note") {
                 +" · $awaiting awaiting a second price check before movement can be shown"
+            }
+        }
+        // Counted for the same reason: until the check runs, a row may not ship at all.
+        val unchecked = shown.count { it.shippingUnchecked }
+        if (unchecked > 0) {
+            span("tracked-note") {
+                +" · $unchecked not yet checked for shipping to Colombia"
             }
         }
     }
@@ -582,13 +644,13 @@ internal fun MAIN.trackedPage(
                 th(classes = "col-thumb") { attributes["aria-label"] = "image" }
                 th { +"Item" }
                 th(classes = "col-size") { +"Size" }
-                sortTh("Now", TrackedSort.PRICE, sort, selected, "col-price", brand, origin)
+                sortTh("Now", TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip)
                 th(classes = "col-price") {
                     title = "Amazon's own \"List:\" price, where it publishes one"
                     +"List"
                 }
                 sortTh(
-                    "Off", TrackedSort.OFF, sort, selected, "col-disc", brand, origin,
+                    "Off", TrackedSort.OFF, sort, selected, "col-disc", brand, origin, showNoShip,
                     tooltip = "Discount against Amazon's list price — its claim about its own " +
                         "former price, not a decline we observed. Blank where no list price is " +
                         "shown; those rows sort last.",
@@ -608,7 +670,7 @@ internal fun MAIN.trackedPage(
                     +"Highest"
                 }
                 sortTh(
-                    "Low", TrackedSort.LOWEST, sort, selected, "col-low", brand, origin,
+                    "Low", TrackedSort.LOWEST, sort, selected, "col-low", brand, origin, showNoShip,
                     tooltip = "At the lowest price we have ever recorded, AND genuinely down from " +
                         "a higher one we saw. A price that never moved does not qualify.",
                 )
@@ -617,7 +679,7 @@ internal fun MAIN.trackedPage(
                         "observation exists — one price is not a trend."
                     +"Change"
                 }
-                sortTh("Checked", TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin)
+                sortTh("Checked", TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip)
                 th(classes = "col-act") { +"" }
             }
         }
@@ -640,7 +702,12 @@ internal fun trackedShown(
     origin: TrackedOrigin?,
     manualAsins: Set<String>,
     sort: TrackedSort,
+    showNoShip: Boolean = false,
 ): List<Deal> = deals
+    // A verified "does not ship" is not a price worth watching, so it is hidden unless asked for.
+    // Only a NO: an unchecked row stays, since it may well ship and hiding it would hide most of
+    // the tab while the check catches up.
+    .filter { showNoShip || it.coShipping != CoShipping.NO }
     .filter { selected.isEmpty() || ProductType.of(it.title) in selected }
     // Case-insensitive, for the same reason the picker groups that way: the stored casing
     // differs between a V12-backfilled row and a freshly fetched one.
@@ -724,6 +791,21 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) 
             }
         }
 
+        // What the item ACTUALLY costs delivered, which is the number a tracker is asked for.
+        //
+        // Deliberately its own column rather than a chip beside the price. On the verified rows the
+        // freight is ~$6.99 against items of $20-45, so it moves a 51%-off tee to roughly 33% off --
+        // enough to change a decision, which is the test for whether a fact earns a column.
+        //
+        // The project already measured the extreme of this: of 27 verified deals carrying a quoted
+        // fee, 23 had freight above half the item's price and 10 above the whole price -- $248.68 to
+        // ship a $267.99 television. Every one of those displayed as a plain green "ships".
+        //
+        // Must stay in the same position as its header, right after Off. It once rendered after
+        // Change while the header sat here, which shifted Lowest, Highest, Low and Change one
+        // column left and left every value under the wrong heading.
+        td(classes = "col-extra") { extraCosts(deal) }
+
         // Blank, not the current price, when there is nothing to compare against.
         td(classes = "col-price") { priceOrDash(deal.minPriceEver, deal) }
         td(classes = "col-price") { priceOrDash(deal.maxPriceEver, deal) }
@@ -748,17 +830,6 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) 
         }
 
         td(classes = "col-chg") { changeCell(deal) }
-
-        // What the item ACTUALLY costs delivered, which is the number a tracker is asked for.
-        //
-        // Deliberately its own column rather than a chip beside the price. On the verified rows the
-        // freight is ~$6.99 against items of $20-45, so it moves a 51%-off tee to roughly 33% off --
-        // enough to change a decision, which is the test for whether a fact earns a column.
-        //
-        // The project already measured the extreme of this: of 27 verified deals carrying a quoted
-        // fee, 23 had freight above half the item's price and 10 above the whole price -- $248.68 to
-        // ship a $267.99 television. Every one of those displayed as a plain green "ships".
-        td(classes = "col-extra") { extraCosts(deal) }
 
         td(classes = "col-seen") { +relativeTime(deal.lastSeenAt) }
 
@@ -802,8 +873,10 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>) 
  * already renders these and the two views must not disagree about what a fee means.
  */
 private fun kotlinx.html.TD.extraCosts(deal: Deal) {
+    // Stated as a chip, not a quiet "n/a": a row that cannot reach Colombia is not a price worth
+    // watching, and the tab keeps it listed only so the verdict is visible rather than silent.
     if (deal.coShipping == CoShipping.NO) {
-        span("muted") { title = "Amazon will not ship this to Colombia"; +"n/a" }
+        span("prov kill-prov") { title = "Amazon will not ship this to Colombia"; +"no ship to CO" }
         return
     }
 
@@ -811,11 +884,14 @@ private fun kotlinx.html.TD.extraCosts(deal: Deal) {
     val importFees = deal.coShippingImportFree == false
 
     if (cost == null && !importFees) {
-        // Never "$0". Unchecked and free-of-charges are different facts.
-        span("muted") {
-            title = "The Colombia shipping check has not run for this item yet, so Amazon's " +
-                "shipping and import charges are unknown — not known to be zero."
-            +"—"
+        // Never "$0", and never a bare dash either. Unchecked, free-of-charges and "does not
+        // ship" are three different facts. A dash read as "nothing to add", which is how a
+        // T-shirt Amazon refuses to send to Colombia sat on this tab looking like a clean price.
+        span("prov unchecked-prov") {
+            title = "The Colombia shipping check has not run for this item yet, so whether it " +
+                "ships at all — and what freight and import charges apply — is unknown, not " +
+                "known to be fine."
+            +"unchecked"
         }
         return
     }
@@ -906,6 +982,14 @@ private fun kotlinx.html.TD.priceOrDash(amount: BigDecimal?, deal: Deal) {
  * writes, so a product whose own name happens to contain an em dash is not mistaken for a
  * tracked size. Returns null rather than guessing, and the column then shows a dash.
  */
+/**
+ * No Colombia verdict and no quoted charge: the check has not run, so the row might not ship at
+ * all. The same condition [extraCosts] renders as "unchecked", kept in one place so the chip and
+ * the count above the table cannot disagree.
+ */
+internal val Deal.shippingUnchecked: Boolean
+    get() = coShipping != CoShipping.NO && coShippingCost == null && coShippingImportFree != false
+
 internal fun sizeOf(title: String): String? =
     title.substringAfterLast(SIZE_SEPARATOR, "").trim().takeIf {
         it.isNotEmpty() && it.length <= MAX_SIZE_LABEL && title.contains(SIZE_SEPARATOR)

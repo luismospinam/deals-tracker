@@ -7,6 +7,7 @@ import com.microsoft.playwright.BrowserContext
 import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.Playwright
+import com.microsoft.playwright.TimeoutError
 import java.io.File
 import java.nio.file.Paths
 
@@ -23,6 +24,16 @@ data class CoShippingConfig(
     val delayMillis: Long = 15_000,
     /** Hard ceiling per run, regardless of batchSize. */
     val maxPerRun: Int = 100,
+    /**
+     * Sources whose deals are checked before any other, whatever their score.
+     *
+     * The Tracked tab's providers. Those rows are items chosen by name and size, so an unknown
+     * shipping cost there is a hole in a price the operator is actively watching -- whereas a
+     * Slickdeals row is one of hundreds of offers and mostly retires within two days either way.
+     * Ranking them together by DealScore gave Tracked about 190 checks a day while its
+     * unchecked count stood at 780.
+     */
+    val prioritySources: List<String> = emptyList(),
     /** Headed by default: Amazon periodically wants a human, and headless cannot ask. */
     val headless: Boolean = false,
     val profileDir: String = ".amazon-profile",
@@ -30,6 +41,16 @@ data class CoShippingConfig(
     val wallWaitMillis: Long = 180_000,
     /** `#availability` and `#deliveryBlockMessage` are both AJAX-filled; they must be polled. */
     val signalTimeoutMillis: Long = 20_000,
+    /**
+     * How long one product page may take to reach `load` before it is skipped.
+     *
+     * 20s, down from Playwright's 30s default. A page that slow is one this run gives up on, not
+     * one worth a further 10s: a timeout is recorded as an unclear attempt and retried after the
+     * usual backoff, and the run moves on to the next deal. It used to END the run -- two
+     * consecutive 50-deal runs died on their last page (2026-09-24 and 09-25) -- which is why a
+     * shorter limit is only safe now that a timeout costs one deal rather than the rest of a batch.
+     */
+    val navigationTimeoutMillis: Long = 20_000,
     /**
      * Discard the profile's HTTP cache once it exceeds this many megabytes. 0 disables.
      *
@@ -83,7 +104,7 @@ class AmazonVerifier(
             listOfNotNull(repo.coShippingCandidate(only))
         } else {
             val take = (limit ?: config.batchSize).coerceAtMost(config.maxPerRun)
-            repo.coShippingCandidates(take)
+            repo.coShippingCandidates(take, prioritySources = config.prioritySources)
         }
 
         // Never a silent skip: deals with no ASIN cannot be looked up by this route and
@@ -113,6 +134,7 @@ class AmazonVerifier(
                     .setViewportSize(1400, 950),
             )
             val page = ctx.pages().firstOrNull() ?: ctx.newPage()
+            page.setDefaultNavigationTimeout(config.navigationTimeoutMillis.toDouble())
             try {
                 if (!ensureCountry(ctx, page)) {
                     println("[verify] destination country is not set — stopping before any check")
@@ -151,7 +173,21 @@ class AmazonVerifier(
                     }
                     lastHitAmazon = true
 
-                    val signals = readSignals(page, asin)?.copy(title = title)
+                    val signals = try {
+                        readSignals(page, asin)?.copy(title = title)
+                    } catch (e: TimeoutError) {
+                        // One slow page is that deal's problem, not the batch's. Recorded as an
+                        // unclear attempt so it backs off like any other inconclusive read,
+                        // rather than staying a fresh candidate that stalls every run.
+                        repo.recordCoShippingCheck(
+                            dealId, CoShipping.UNKNOWN, unclear = true,
+                            evidence = "page did not load within ${config.navigationTimeoutMillis / 1000}s",
+                            importFree = null, shippingCost = null,
+                        )
+                        println("[verify] $asin → UNCLEAR  page did not load within ${config.navigationTimeoutMillis / 1000}s — skipped, will retry after backoff")
+                        outcome = outcome.copy(checked = outcome.checked + 1, unclear = outcome.unclear + 1)
+                        continue
+                    }
                     if (signals == null) {
                         // Record the failed attempt before leaving. Without this the deal
                         // keeps checked_at=NULL and attempts=0, so it stays a fresh

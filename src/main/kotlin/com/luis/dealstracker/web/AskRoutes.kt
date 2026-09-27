@@ -179,6 +179,7 @@ internal fun askContextFor(
             TrackedOrigin.of(params["origin"]),
             manualItems.trackedAsins(),
             TrackedSort.of(params["sort"]),
+            showNoShip = params["noship"] == "show",
         )
         AskContext(
             label = "tracked Amazon items (one size each)",

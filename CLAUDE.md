@@ -34,7 +34,12 @@ just a change that isn't loaded. The exception is CSS, which is read from disk p
 So after editing, restart it:
 
     pkill -f 'com.luis.dealstracker.AppKt'    # see the warning below before running this
-    nohup ./dt run > logs/app.log 2>&1 &
+    nohup caffeinate -i ./dt run > logs/app.log 2>&1 &
+
+`caffeinate -i` stops the Mac idle-sleeping for as long as the app runs, and no longer. Without
+it the poller simply stops when the lid is idle: on 2026-09-25 the Mac slept from ~09:30 to 14:03,
+and in those four and a half hours no poll finished and no shipping check ran. It does not keep
+the display on, and a closed lid on battery still sleeps.
 
 Leave the app running when you're done — Luis keeps it up on 8080, and the hourly poller only
 collects prices while the process lives. A dead app is not a neutral state: price history has
