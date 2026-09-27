@@ -31,11 +31,21 @@ import kotlinx.html.tr
 import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
 
-/** The providers the grocery tab reads: every enabled `vtex-grocery` one. */
+/** The providers the grocery tab reads: every enabled one of a [GROCERY_TYPES] type. */
 internal fun grocerySources(app: AppConfig): List<String> =
-    app.enabledProviders.filter { it.type == GROCERY_TYPE }.map { it.id }.sorted()
+    app.enabledProviders.filter { it.type in GROCERY_TYPES }.map { it.id }.sorted()
 
 internal const val GROCERY_TYPE = "vtex-grocery"
+
+/**
+ * Every provider type whose rows belong on the grocery tab rather than the feed.
+ *
+ * A set, not one type, since PriceSmart (2026-09-27) is not VTEX: its adapter differs, but its rows are
+ * the same kind of thing -- a store's whole food catalogue, priced at one physical store -- and go
+ * through the same tab, merge, usual price and schedule. Lives with the adapters' types in
+ * [com.luis.dealstracker.sources.GROCERY_PROVIDER_TYPES] so ingest can read it without the web layer.
+ */
+internal val GROCERY_TYPES: Set<String> get() = com.luis.dealstracker.sources.GROCERY_PROVIDER_TYPES
 
 /**
  * Each grocery provider's physical store, for the Store tag, and its chain, for [mergeStores].
@@ -46,12 +56,29 @@ internal const val GROCERY_TYPE = "vtex-grocery"
 internal data class GroceryStore(val label: String, val chain: String)
 
 internal fun groceryStores(app: AppConfig): Map<String, GroceryStore> =
-    app.enabledProviders.filter { it.type == GROCERY_TYPE }.associate { p ->
+    app.enabledProviders.filter { it.type in GROCERY_TYPES }.associate { p ->
         val fallback = p.id.removeSuffix("-grocery")
         p.id to GroceryStore(
             label = p.options["storeLabel"]?.takeIf { it.isNotBlank() } ?: fallback.replaceFirstChar { it.uppercase() },
             chain = p.options["chain"]?.takeIf { it.isNotBlank() } ?: fallback,
         )
+    }
+
+/**
+ * The providers to read for [chains], or all of [stores] when none is chosen. An unknown chain matches
+ * nothing, so a stale or hand-edited URL shows an empty page with a way back, rather than every store.
+ */
+internal fun sourcesForChains(stores: Map<String, GroceryStore>, chains: Set<String>): List<String> =
+    if (chains.isEmpty()) stores.keys.sorted() else stores.filterValues { it.chain in chains }.keys.sorted()
+
+/**
+ * Each chain's name for the store filter: the first word its stores' labels share -- "Exito Laureles"
+ * and "Exito Colombia" give "Exito", "PriceSmart Las Américas" gives "PriceSmart".
+ */
+internal fun chainNames(stores: Map<String, GroceryStore>): Map<String, String> =
+    stores.values.groupBy { it.chain }.mapValues { (chain, members) ->
+        members.map { it.label.substringBefore(' ') }.distinct().singleOrNull()
+            ?: chain.replaceFirstChar { it.uppercase() }
     }
 
 /**
@@ -132,15 +159,25 @@ internal data class GroceryControls(
     val groups: Set<String>,
     val search: String?,
     val sort: GrocerySort,
+    /**
+     * Chains to show -- `exito`, `carulla`, `pricesmart` -- or empty for all. By CHAIN, not provider:
+     * the tab already shows one row per product per chain at its cheaper store, so "Exito" means both
+     * Exitos, and the row keeps the other Exito's price beneath it.
+     */
+    val chains: Set<String> = emptySet(),
 ) {
     fun url(
         view: GroceryView = this.view,
         groups: Set<String> = this.groups,
         sort: GrocerySort? = this.sort,
         search: String? = this.search,
+        chains: Set<String> = this.chains,
     ): String {
         val params = buildList {
             if (view != GroceryView.DEALS) add("view=${view.key}")
+            // Unlike the aisle, the store filter applies on Pinned too: "my staples at PriceSmart" is a
+            // shopping list for one trip.
+            if (chains.isNotEmpty()) add("store=" + chains.sorted().joinToString(",").encodeURLParameter())
             if (groups.isNotEmpty() && view != GroceryView.PINNED) add("group=" + groups.sorted().joinToString(",").encodeURLParameter())
             // Search belongs to All items; carrying it onto Deals would filter a view with no box.
             if (view == GroceryView.ALL) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
@@ -157,6 +194,7 @@ internal data class GroceryControls(
                 groups = params["group"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
                 search = params["q"]?.trim()?.takeIf { it.isNotEmpty() && view == GroceryView.ALL },
                 sort = GrocerySort.of(params["sort"], view),
+                chains = params["store"]?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
             )
         }
     }
@@ -215,8 +253,10 @@ internal fun MAIN.groceryPage(
     pinnedCount: Int = 0,
     sync: List<SyncLine> = emptyList(),
     storage: com.luis.dealstracker.db.StorageLine? = null,
+    /** Chain id -> (display name, products on the shelf), for the store filter. */
+    chainCounts: List<Triple<String, String, Int>> = emptyList(),
 ) {
-    groceryBody(rows, groupCounts, controls, sources, pinnedCount)
+    groceryBody(rows, groupCounts, controls, sources, pinnedCount, chainCounts)
     // After the table, whichever early return the body took: "when were these prices read?" matters
     // most on exactly the screens that show nothing, like an empty Deals view or a first run.
     syncFooter(sync)
@@ -236,11 +276,12 @@ private fun MAIN.groceryBody(
     controls: GroceryControls,
     sources: List<String>,
     pinnedCount: Int,
+    chainCounts: List<Triple<String, String, Int>>,
 ) {
     p("tracked-intro") {
-        +"Exito and Carulla's grocery aisles, priced and stocked at "
-        span("strong") { +"Exito Laureles, Exito Colombia and Carulla Laureles" }
-        +". Each Exito item is shown at the cheaper of the two Exitos, tagged with which. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its "
+        +"Exito, Carulla and PriceSmart's grocery aisles, priced and stocked at "
+        span("strong") { +"Exito Laureles and Colombia, Carulla Laureles, and PriceSmart Las Américas and El Poblado" }
+        +". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its "
         +"daily prices over the last 30 days — never the store's \"before\" price. Read at 07:00 and 15:00."
     }
 
@@ -284,6 +325,9 @@ private fun MAIN.groceryBody(
             if (controls.groups.isNotEmpty()) {
                 input(type = InputType.hidden, name = "group") { value = controls.groups.sorted().joinToString(",") }
             }
+            if (controls.chains.isNotEmpty()) {
+                input(type = InputType.hidden, name = "store") { value = controls.chains.sorted().joinToString(",") }
+            }
             input(type = InputType.search, name = "q") {
                 value = controls.search.orEmpty()
                 placeholder = "leche | huevos | café"
@@ -293,6 +337,8 @@ private fun MAIN.groceryBody(
         }
     }
 
+    // Store above aisle: which shop you are going to is the first decision, the aisle the second.
+    storeTags(chainCounts, controls)
     // Not on Pinned, which is the whole list whatever aisle is picked.
     if (controls.view != GroceryView.PINNED) groupTags(groupCounts, controls)
 
@@ -334,6 +380,28 @@ private fun MAIN.groceryBody(
     groceryTable(shown.take(cap), controls)
     if (shown.size > cap) {
         p("tracked-note") { +"Showing the first $cap of ${shown.size}. Narrow with a subcategory or a search." }
+    }
+}
+
+/**
+ * Exito / Carulla / PriceSmart tags, the same controls as the aisle row. Hidden with only one chain,
+ * where a filter could not change anything.
+ */
+private fun MAIN.storeTags(chainCounts: List<Triple<String, String, Int>>, controls: GroceryControls) {
+    if (chainCounts.size < 2) return
+    div("typetags") {
+        span("typetags-label") { +"Store" }
+        chainCounts.forEach { (chain, name, n) ->
+            val on = chain in controls.chains
+            val next = if (on) controls.chains - chain else controls.chains + chain
+            a(classes = if (on) "typetag on" else "typetag", href = controls.url(chains = next)) {
+                +name
+                span("typetag-n") { +String.format("%,d", n) }
+            }
+        }
+        if (controls.chains.isNotEmpty()) {
+            a(classes = "typetag clear", href = controls.url(chains = emptySet())) { +"clear" }
+        }
     }
 }
 
@@ -634,7 +702,7 @@ internal fun grocerySyncLines(
 ): List<SyncLine> {
     val stores = groceryStores(app)
     val bySource = statuses.associateBy { it.source }
-    return app.enabledProviders.filter { it.type == GROCERY_TYPE }.mapNotNull { p ->
+    return app.enabledProviders.filter { it.type in GROCERY_TYPES }.mapNotNull { p ->
         val status = bySource[p.id] ?: return@mapNotNull null
         val windows = com.luis.dealstracker.ingest.runWindows(p)
         val hours = com.luis.dealstracker.ingest.runAtHours(p)

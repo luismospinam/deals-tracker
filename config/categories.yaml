@@ -135,6 +135,9 @@ categories:
   - name: "Groceries"
     sourcePatterns:
       - "mercado"
+      # PriceSmart's food department (2026-09-27). Its rows carry "Alimentos > <aisle>", and without
+      # this 81% of them fell to Other and a smoked-in-firewood ("leña") bacon to Tools & Outdoor.
+      - "^alimentos"
       - "despensa"
       - "frutas y verduras"
       - "lacteos"

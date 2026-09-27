@@ -239,6 +239,30 @@ class GroceryRepository(private val ds: DataSource) {
         }
     }
 
+    /**
+     * Distinct products on the shelf per source, for the store filter's counts.
+     *
+     * Per source; the view sums a chain's stores and cannot simply add them, since most products are at
+     * both -- so it also needs [chainProductCounts].
+     */
+    fun chainProductCounts(chains: Map<String, String>): Map<String, Int> {
+        if (chains.isEmpty()) return emptyMap()
+        return ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT c.chain, count(DISTINCT d.merchant || ':' || d.source_deal_id)
+                FROM deals d JOIN unnest(?::text[], ?::text[]) AS c(source, chain) ON c.source = d.source
+                WHERE d.is_active
+                GROUP BY 1
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("text", chains.keys.toTypedArray()))
+                st.setArray(2, conn.createArrayOf("text", chains.values.toTypedArray()))
+                st.executeQuery().use { rs -> buildMap { while (rs.next()) put(rs.getString(1), rs.getInt(2)) } }
+            }
+        }
+    }
+
     /** Subcategory labels with their active row counts, largest first, for the filter tags. */
     fun groups(sources: List<String>): List<Pair<String, Int>> {
         if (sources.isEmpty()) return emptyList()

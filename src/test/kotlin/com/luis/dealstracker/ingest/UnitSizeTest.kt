@@ -67,4 +67,12 @@ class UnitSizeTest {
         assertEquals(BigDecimal("1000"), unitPrice(BigDecimal("12000"), UnitSize("un", BigDecimal(12))))
         assertNull(unitPrice(BigDecimal("12000"), null))
     }
+
+    /** PriceSmart titles put a non-breaking space between the number and the unit. */
+    @Test
+    fun `a non-breaking space before the unit still reads as a size`() {
+        assertEquals("g" to "680", size("Badia Ajo Granulado 680\u00a0g"))
+        assertEquals("ml" to "2000", size("Aceite de Oliva Extra Virgen 2\u00a0L"))
+        assertEquals("g" to "1130", size("Mantequilla de Maní Crocante 1.13\u00a0kg"))
+    }
 }

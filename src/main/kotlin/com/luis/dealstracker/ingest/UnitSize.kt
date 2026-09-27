@@ -57,7 +57,9 @@ data class UnitSize(val measure: String, val quantity: BigDecimal) {
         }
 
         internal fun fromTitle(title: String): UnitSize? {
-            val match = SIZE.findAll(title).lastOrNull() ?: return null
+            // A non-breaking space between number and unit is a space. PriceSmart writes "680\u00a0g" and
+            // "2\u00a0L", and `\s` does not match U+00A0 by default, so those titles read as unsized.
+            val match = SIZE.findAll(title.replace('\u00a0', ' ').replace('\u202f', ' ')).lastOrNull() ?: return null
             val amount = parseAmount(match.groupValues[1]) ?: return null
             val (measure, factor) = UNIT_WORDS[match.groupValues[2].lowercase()] ?: return null
             return amount.multiply(factor).takeIf { it.signum() > 0 }?.let { UnitSize(measure, it.stripTrailingZeros()) }

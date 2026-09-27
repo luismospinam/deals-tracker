@@ -40,3 +40,9 @@ class SourceRegistry(sources: List<DealSource>) {
             .filter { it.type !in byType }
             .map { "provider '${it.id}' has unknown type '${it.type}' (known: ${byType.keys.sorted()})" }
 }
+
+/**
+ * Provider types that crawl a store's whole food catalogue for the grocery tab: kept off the feed, never
+ * given watch terms, and scheduled by `runWindows`. One list, so a new grocery adapter is one entry here.
+ */
+val GROCERY_PROVIDER_TYPES: Set<String> = setOf("vtex-grocery", "pricesmart")

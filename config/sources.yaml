@@ -398,6 +398,107 @@ providers:
         - "bebidas-snacks-y-dulces/galletas = Snacks & sweets"
         - "comidas-preparadas = Prepared"
 
+  # ---------------------------------------------------------------------------------------
+  # PriceSmart -- groceries at two Medellín warehouse clubs (added 2026-09-27). See PriceSmartSource
+  # and README "PriceSmart".
+  #
+  # Not VTEX: Bloomreach Discovery behind the site's own POST /api/br_discovery/getProductsByKeyword.
+  # The club is chosen by asking for per-club fields (`price_CO_6106`), so no cookie or browser. Clubs
+  # found in the site's own config:
+  #   Medellín Las Américas  6106  (Carrera 70 con Calle Primera)
+  #   Medellín El Poblado    6110  (Carrera 32 # 11 Sur - 220)
+  # Prices are member prices, and are in CENTS in the API (the adapter converts).
+  #
+  # Alimentos only, like the Exito and Carulla crawls. DELIBERATELY NOT CRAWLED (2026-09-27), in case
+  # they are wanted later -- counts at Las Américas:
+  #   Hogar H30D22: Productos de limpieza H30D52002 (68), Suministros de lavandería H30D52013 (45),
+  #     Productos de papelería para el hogar H30D05011 (15)
+  #   Salud y belleza H20D09 (170) -- personal care, oral care, vitamins
+  #   Licor, cerveza y vino G10D08014 (143)
+  #   Bebé B10D27: Pañales B10D09013 (18), Fórmula B10D09004 (8), Alimento para bebé B10D03003 (2)
+  #   Mascotas P10D51: dog food P10D51004 (11), cat food P10D51001 (7)
+  #
+  # One chain, "pricesmart": the tab shows each product once, at whichever club is cheaper, like the two
+  # Exitos. robots.txt allows /api/ for generic agents; it blocks named AI agents, curl and
+  # python-requests outright -- proceeding was Luis's call, see README.
+  #
+  # ~23 requests per club per crawl (48 products a page). Windows are well clear of the Exito and Carulla
+  # ones, and the two clubs never overlap: they share www.pricesmart.com.
+  # ---------------------------------------------------------------------------------------
+  - id: pricesmart-americas-grocery
+    type: pricesmart
+    enabled: true
+    baseUrl: "https://www.pricesmart.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      club: "6106"
+      storeLabel: "PriceSmart Las Américas"
+      chain: "pricesmart"
+      staleAfterHours: "60"
+    listOptions:
+      runWindows: ["08:40-09:10", "17:40-18:10"]
+      # Every Alimentos (G10D03) subcategory, mapped to the tab's shared aisle labels so PriceSmart's meat
+      # filters with Exito's and Carulla's. Sizes are Las Américas on 2026-09-27.
+      categories:
+        - "G10D07010 = Dairy & eggs"         # Lácteos y Huevos, 144
+        - "G10D59015 = Meat & fish"          # Carnes, 114
+        - "Poultry = Meat & fish"            # Aves, 40
+        - "Seafood = Meat & fish"            # Mariscos y pescado, 30
+        - "deli_meat = Deli"                 # Embutidos, 54
+        - "G10D03009 = Pantry"               # Aceites, harinas y condimentos, 113
+        - "G10D33005 = Pantry"               # Enlatados, 46
+        - "G10D35013 = Pantry"               # Granos y pasta, 27
+        - "G10D03007 = Pantry"               # Café y té, 28
+        - "G10D03003 = Pantry"               # Cereales y granolas, 14
+        - "G10D53001 = Drinks"               # Bebidas, 92
+        - "G10D04018 = Fruit & veg"          # Frutas y vegetales, 89
+        - "G10D02019 = Snacks & sweets"      # Snacks, 77
+        - "G10D02004 = Snacks & sweets"      # Dulces, chocolates y chicles, 40
+        - "G10D63008 = Snacks & sweets"      # Galletas, postres, y helados, 32
+        - "Fresh_Bakery = Bakery"            # Panadería y repostería, 54
+        - "G10D63002 = Bakery"               # Panes y tortillas, 21
+        - "G10D06011 = Frozen"               # Comida congelada, 45
+        - "G10D07017 = Prepared"             # Comidas preparadas, 17
+        - "ready_to_eat = Prepared"          # Listo para comer, 15
+
+  - id: pricesmart-poblado-grocery
+    type: pricesmart
+    enabled: true
+    baseUrl: "https://www.pricesmart.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      club: "6110"
+      storeLabel: "PriceSmart El Poblado"
+      chain: "pricesmart"
+      staleAfterHours: "60"
+    listOptions:
+      runWindows: ["09:15-09:45", "18:15-18:45"]
+      # Every Alimentos (G10D03) subcategory, mapped to the tab's shared aisle labels so PriceSmart's meat
+      # filters with Exito's and Carulla's. Same aisles as Las Américas.
+      categories:
+        - "G10D07010 = Dairy & eggs"         # Lácteos y Huevos, 144
+        - "G10D59015 = Meat & fish"          # Carnes, 114
+        - "Poultry = Meat & fish"            # Aves, 40
+        - "Seafood = Meat & fish"            # Mariscos y pescado, 30
+        - "deli_meat = Deli"                 # Embutidos, 54
+        - "G10D03009 = Pantry"               # Aceites, harinas y condimentos, 113
+        - "G10D33005 = Pantry"               # Enlatados, 46
+        - "G10D35013 = Pantry"               # Granos y pasta, 27
+        - "G10D03007 = Pantry"               # Café y té, 28
+        - "G10D03003 = Pantry"               # Cereales y granolas, 14
+        - "G10D53001 = Drinks"               # Bebidas, 92
+        - "G10D04018 = Fruit & veg"          # Frutas y vegetales, 89
+        - "G10D02019 = Snacks & sweets"      # Snacks, 77
+        - "G10D02004 = Snacks & sweets"      # Dulces, chocolates y chicles, 40
+        - "G10D63008 = Snacks & sweets"      # Galletas, postres, y helados, 32
+        - "Fresh_Bakery = Bakery"            # Panadería y repostería, 54
+        - "G10D63002 = Bakery"               # Panes y tortillas, 21
+        - "G10D06011 = Frozen"               # Comida congelada, 45
+        - "G10D07017 = Prepared"             # Comidas preparadas, 17
+        - "ready_to_eat = Prepared"          # Listo para comer, 15
+
   - id: easy
     type: vtex
     # Cencosud's Colombian home-improvement chain, and the only one of the five retailers

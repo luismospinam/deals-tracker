@@ -346,8 +346,18 @@ fun Application.routes(
          * is a plain column and the one that makes a full-catalogue view small.
          */
         get("/groceries") {
-            val sources = grocerySources(app)
+            val stores = groceryStores(app)
             val controls = GroceryControls.from(call.request.queryParameters)
+            // The store filter narrows the sources read, so the aisle counts, the pinned badge and the
+            // rows all describe the chosen stores. The sync footer keeps every store: it is about the
+            // crawls, not the page's selection.
+            val allSources = grocerySources(app)
+            val sources = sourcesForChains(stores, controls.chains)
+            val chainCounts = withContext(Dispatchers.IO) {
+                val counts = groceries.chainProductCounts(stores.mapValues { it.value.chain })
+                chainNames(stores).map { (chain, name) -> Triple(chain, name, counts[chain] ?: 0) }
+                    .sortedByDescending { it.third }
+            }
             val (rows, groups, pinnedCount) = withContext(Dispatchers.IO) {
                 // The Pinned view ignores the aisle filter and search: it is the whole shopping list.
                 val filter = if (controls.view == GroceryView.PINNED) {
@@ -355,15 +365,15 @@ fun Application.routes(
                 } else {
                     GroceryFilter(sources, controls.groups.toList(), controls.search)
                 }
-                Triple(mergeStores(groceries.rows(filter), groceryStores(app)), groceries.groups(sources), groceries.pinnedCount(sources))
+                Triple(mergeStores(groceries.rows(filter), stores), groceries.groups(sources), groceries.pinnedCount(sources))
             }
             val (sync, storage) = withContext(Dispatchers.IO) {
-                grocerySyncLines(app, groceries.syncStatus(sources)) to runCatching { groceries.storage() }.getOrNull()
+                grocerySyncLines(app, groceries.syncStatus(allSources)) to runCatching { groceries.storage() }.getOrNull()
             }
             call.respondHtml {
                 page("Groceries — Deals Tracker") {
                     askPanel("groceries", "e.g. what meat is well under its usual price this week?")
-                    groceryPage(rows, groups, controls, sources, pinnedCount, sync, storage)
+                    groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
                 }
             }
         }
@@ -736,7 +746,7 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
  * whole food catalogue of two stores, ~15,000 rows that would bury the feed's cap, judged on its own
  * tab against its own history. By type rather than by id, so a second provider of either kind stays off the feed without a code change.
  */
-private val FEED_HIDDEN_TYPES = setOf("amazon", "amazon-watch", GROCERY_TYPE)
+private val FEED_HIDDEN_TYPES = setOf("amazon", "amazon-watch") + GROCERY_TYPES
 
 /** The provider ids [FEED_HIDDEN_TYPES] resolves to, enabled or not — disabling one keeps its rows. */
 internal fun feedHiddenSources(app: AppConfig): List<String> =

@@ -27,6 +27,7 @@ import com.luis.dealstracker.sources.prestashop.PrestashopSource
 import com.luis.dealstracker.sources.shopify.ShopifySource
 import com.luis.dealstracker.sources.slickdeals.SlickdealsSource
 import com.luis.dealstracker.sources.vtex.VtexGrocerySource
+import com.luis.dealstracker.sources.pricesmart.PriceSmartSource
 import com.luis.dealstracker.sources.vtex.VtexSource
 import com.luis.dealstracker.web.routes
 import com.luis.dealstracker.web.trackingSources
@@ -69,6 +70,9 @@ fun main(args: Array<String>) {
             // The same stores' grocery aisles, priced at one physical store (Laureles) through
             // Intelligent Search rather than at the national catalogue price.
             VtexGrocerySource(recordBanners = { host, banners -> DealRepository(Db.dataSource).recordBanners(host, banners) }),
+            // PriceSmart's food catalogue, priced at one warehouse club. Not VTEX -- Bloomreach Discovery
+            // behind the site's own API -- but its rows go through the same grocery tab.
+            PriceSmartSource(),
             // Serves homecenter.com.co and falabella.com.co: same Next.js build, same product
             // record shape, so the two stores differ only in config.
             FalabellaNextSource(),

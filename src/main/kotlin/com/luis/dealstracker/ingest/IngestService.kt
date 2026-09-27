@@ -215,7 +215,7 @@ class IngestService(
     internal fun withWatchTerms(provider: ProviderConfig): ProviderConfig {
         // The grocery crawl reads a whole store's aisles and never searches, so watch terms would
         // only print a misleading "searching for televisor" against a supermarket.
-        if (provider.type == "vtex-grocery") return provider
+        if (provider.type in com.luis.dealstracker.sources.GROCERY_PROVIDER_TYPES) return provider
         val terms = watchTerms() ?: return provider
         val merged = (provider.list("searches") + terms).distinct()
         if (merged.isEmpty()) return provider

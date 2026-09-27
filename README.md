@@ -51,6 +51,8 @@ Tests (no database or network needed — they run against captured fixtures):
 | `exito-grocery` | `vtex-grocery` | working — whole food catalogue **priced at Exito Laureles**, twice daily |
 | `exito-colombia-grocery` | `vtex-grocery` | working — the same **at Exito Colombia** (Suramericana) |
 | `carulla-grocery` | `vtex-grocery` | working — whole food catalogue **priced at Carulla Laureles**, twice daily |
+| `pricesmart-americas-grocery` | `pricesmart` | working — PriceSmart food catalogue **at Medellín Las Américas**, twice daily |
+| `pricesmart-poblado-grocery` | `pricesmart` | working — the same **at Medellín El Poblado** |
 | `mercadolibre-co` | `mercadolibre` | **disabled** — search API policy-blocked |
 | `rappi-medellin` | `rappi` | **disabled** — no adapter |
 | Makro | — | **deferred** — RSC payload, store-scoped, see BLOCKERS.md |
@@ -593,6 +595,69 @@ list:
 | Exito | `mercado/aseo-del-hogar` | 2,336 |
 | Exito | `cuidado-personal`, `vinos-y-licores` | not counted |
 | Carulla | `mascotas`, `aseo-del-hogar`, `salud-y-belleza`, `vinos-y-licores` | not counted |
+
+## PriceSmart
+
+PriceSmart is the grocery tab's third chain, after Exito and Carulla, and covers two Medellín clubs:
+**Las Américas** (club 6106) and **El Poblado** (6110). It uses the same tab, merge, usual price, pins and
+schedule, but not the same adapter: the site runs Bloomreach Discovery behind its own
+`POST /api/br_discovery/getProductsByKeyword`, not VTEX. Its prices are member prices.
+
+### Choosing the club
+
+No cookie or browser is needed. Every field that varies by club is published per club, suffixed with the
+club id (`price_CO_6106`, `inventory_CO_6106`, `sold_by_weight_CO_6106`), and a request asks for the
+suffixed fields it wants. The club ids and the site's public Bloomreach identifiers come from the page's
+own config (`__NUXT__`), and the request mirrors what the category page's script builds. Other
+Colombian clubs, in case one is wanted: 6101 Barranquilla, 6102/6103 Cali, 6104 Pereira, 6105/6108
+Bogotá, 6107 Chía, 6109 Bucaramanga.
+
+### Things that are easy to get wrong here
+
+- **Prices are in cents and savings in pesos.** `price_CO_6106: 4850000` is $48,500, while the
+  instant-saving fields are in pesos. For Silk almond milk, 48,500 + 11,400 = 59,900 (`original_price`).
+  The pre-saving price becomes the row's list price, which shows as **Store %**.
+- **A product without a club price is not sold at that club.** The national `price_CO` is a different
+  number and is never used as a stand-in. That's the same mistake the Exito and Carulla adapters avoid.
+- **Meat trays are sold by weight.** `price_CO_<club>` is the tray's price, `sign_price` the per-kg
+  price, and `weight` the tray's kg. Price = sign price × weight held on all 35 trays checked. The tray
+  weight is its pack size.
+- **Titles give the metric size first** (`508 g / 1.12 lb`), so the part before ` / ` is read first.
+  Titles use a **non-breaking space** before the unit (`680 g`); size parsing now treats that as a
+  space for every source.
+- **Crawled aisle by aisle.** A category page's products don't say which subcategory they're in, so each
+  Alimentos subcategory is its own query with its own aisle label. All 20 add up to the 1,092 in
+  Alimentos.
+
+### robots.txt
+
+For generic agents (`User-agent: *`), PriceSmart's robots.txt allows `/api/`, disallowing only cart,
+checkout, account and `?fq=` paths. The adapter sends none of those and identifies as `deals-tracker`.
+The same file blocks **named AI agents** (ClaudeBot, Claude-User, GPTBot), **`curl`** and
+**`python-requests`** with `Disallow: /`. Proceeding was decided explicitly on 2026-09-27, knowing that.
+Each crawl is about 23 requests per club.
+
+### First crawl, 2026-09-27
+
+| | items |
+|---|---|
+| read at Las Américas / El Poblado | 954 / 964 (810 / 812 in stock) |
+| at both clubs, same price | 689 of 753 |
+| cheaper at Las Américas / El Poblado | 34 / 30 |
+| only at Las Américas / El Poblado | 57 / 59 |
+| with an instant saving (Las Américas) | 14 |
+
+### Not crawled, on purpose
+
+Alimentos only, like the other two chains. These are left out, with counts at Las Américas:
+
+- **Hogar:** cleaning products (68), laundry (45), household paper (15).
+- **Salud y belleza:** 170.
+- **Licor, cerveza y vino:** 143.
+- **Bebé:** diapers (18), formula (8), baby food (2).
+- **Mascotas:** dog and cat food (18).
+
+The category ids are in `config/sources.yaml`, and adding one is one line.
 
 ## Ask Claude about the rows on screen
 

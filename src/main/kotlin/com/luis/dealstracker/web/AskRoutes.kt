@@ -200,17 +200,22 @@ internal fun askContextFor(
     }
     screen == "groceries" && groceries != null -> {
         val controls = GroceryControls.from(params)
+        // The same store selection the page applied, so the answer is about the rows on screen.
+        val stores = groceryStores(app)
+        val sources = sourcesForChains(stores, controls.chains)
         val rows = groceries.rows(
-            if (controls.view == GroceryView.PINNED) GroceryFilter(grocerySources(app), pinnedOnly = true)
-            else GroceryFilter(grocerySources(app), controls.groups.toList(), controls.search),
+            if (controls.view == GroceryView.PINNED) GroceryFilter(sources, pinnedOnly = true)
+            else GroceryFilter(sources, controls.groups.toList(), controls.search),
         )
-        val shown = groceryShown(mergeStores(rows, groceryStores(app)), controls)
+        val shown = groceryShown(mergeStores(rows, stores), controls)
         AskContext(
-            label = "groceries at Laureles (${controls.view.label.lowercase()})",
+            label = "groceries (${controls.view.label.lowercase()}" +
+                (if (controls.chains.isEmpty()) "" else ", " + controls.chains.sorted().joinToString("/")) + ")",
             preamble = buildList {
                 add(
-                    "Grocery items at Exito Laureles, Exito Colombia and Carulla Laureles; each Exito product is " +
-                        "shown once, at the cheaper of the two Exitos, and 'source' names that store. 'low' and 'high' are over all " +
+                    "Grocery items at Medellín stores: Exito Laureles and Colombia, Carulla Laureles, and PriceSmart " +
+                        "Las Américas and El Poblado (member prices). A product sold at two stores of one chain is " +
+                        "shown once, at the cheaper one, and 'source' names that store. 'low' and 'high' are over all " +
                         "recorded days; a deal on this screen means at least ${GroceryRow.DEAL_PERCENT}% under the " +
                         "item's own 30-day median daily price. Compare pack sizes from the title before " +
                         "calling one item cheaper than another.",

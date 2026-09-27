@@ -356,4 +356,64 @@ class GroceryViewsTest {
         val shown = groceryShown(rows, GroceryControls.from(parametersOf("view" to listOf("all"), "sort" to listOf("card"))))
         assertEquals(listOf(3L, 1L, 2L), shown.map { it.deal.id })
     }
+
+    private val allStores = mapOf(
+        "exito-grocery" to GroceryStore("Exito Laureles", "exito"),
+        "exito-colombia-grocery" to GroceryStore("Exito Colombia", "exito"),
+        "carulla-grocery" to GroceryStore("Carulla Laureles", "carulla"),
+        "pricesmart-americas-grocery" to GroceryStore("PriceSmart Las Américas", "pricesmart"),
+        "pricesmart-poblado-grocery" to GroceryStore("PriceSmart El Poblado", "pricesmart"),
+    )
+
+    @Test
+    fun `chain names come from the stores' labels`() {
+        assertEquals(mapOf("exito" to "Exito", "carulla" to "Carulla", "pricesmart" to "PriceSmart"), chainNames(allStores))
+    }
+
+    /** "Exito" means both Exitos; no chain means every store; an unknown chain means none. */
+    @Test
+    fun `a chain selects all of its stores`() {
+        assertEquals(listOf("exito-colombia-grocery", "exito-grocery"), sourcesForChains(allStores, setOf("exito")))
+        assertEquals(5, sourcesForChains(allStores, emptySet()).size)
+        assertEquals(emptyList(), sourcesForChains(allStores, setOf("olimpica")))
+        assertEquals(
+            listOf("carulla-grocery", "pricesmart-americas-grocery", "pricesmart-poblado-grocery"),
+            sourcesForChains(allStores, setOf("carulla", "pricesmart")),
+        )
+    }
+
+    @Test
+    fun `the store filter round-trips through the url, alongside aisle and view`() {
+        val c = GroceryControls.from(parametersOf("view" to listOf("all"), "store" to listOf("pricesmart,Exito"), "group" to listOf("Pantry")))
+        assertEquals(setOf("pricesmart", "exito"), c.chains)
+        assertEquals("/groceries?view=all&store=exito%2Cpricesmart&group=Pantry", c.url())
+        // Kept on Pinned, where the aisle is dropped.
+        assertEquals("/groceries?view=pinned&store=exito%2Cpricesmart", c.url(view = GroceryView.PINNED, sort = null))
+    }
+
+    @Test
+    fun `store tags sit above the aisle tags, and toggle`() {
+        val html = createHTML().main {
+            groceryPage(
+                listOf(row()), listOf("Pantry" to 1), GroceryControls.from(parametersOf("store" to listOf("pricesmart"))),
+                listOf("carulla-grocery"),
+                chainCounts = listOf(Triple("exito", "Exito", 7300), Triple("carulla", "Carulla", 4800), Triple("pricesmart", "PriceSmart", 870)),
+            )
+        }
+        val store = html.indexOf("typetags-label\">Store<"); val aisle = html.indexOf("typetags-label\">Aisle<")
+        assertTrue(store in 0 until aisle, "store $store, aisle $aisle")
+        val tags = html.substring(store, aisle)
+        assertTrue("href=\"/groceries\" class=\"typetag on\">PriceSmart" in tags, tags)
+        assertTrue("href=\"/groceries?store=exito%2Cpricesmart\" class=\"typetag\">Exito" in tags, tags)
+        assertTrue("7,300" in tags)
+    }
+
+    @Test
+    fun `no store row with a single chain`() {
+        val html = createHTML().main {
+            groceryPage(listOf(row()), listOf("Pantry" to 1), GroceryControls.from(parametersOf()), listOf("carulla-grocery"),
+                chainCounts = listOf(Triple("carulla", "Carulla", 4800)))
+        }
+        assertFalse("typetags-label\">Store<" in html)
+    }
 }
