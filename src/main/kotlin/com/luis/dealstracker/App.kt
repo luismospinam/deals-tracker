@@ -51,6 +51,9 @@ import java.io.File
  */
 private const val POLL_TICK_MILLIS = 60_000L
 
+/** How often the scheduled grocery crawls check whether a window's minute has come. */
+private const val SCHEDULE_TICK_MILLIS = 5 * 60_000L
+
 fun main(args: Array<String>) {
     val projectDir = File(System.getProperty("user.dir"))
     val app = AppConfig.load(projectDir)
@@ -65,7 +68,7 @@ fun main(args: Array<String>) {
             VtexSource(),
             // The same stores' grocery aisles, priced at one physical store (Laureles) through
             // Intelligent Search rather than at the national catalogue price.
-            VtexGrocerySource(),
+            VtexGrocerySource(recordBanners = { host, banners -> DealRepository(Db.dataSource).recordBanners(host, banners) }),
             // Serves homecenter.com.co and falabella.com.co: same Next.js build, same product
             // record shape, so the two stores differ only in config.
             FalabellaNextSource(),
@@ -270,6 +273,16 @@ fun main(args: Array<String>) {
             if (everyN > 0 && cycle % everyN == 0) {
                 verifyPeriodically(repo, app)
             }
+        }
+    }
+
+    // The scheduled grocery crawls, on their own short tick. Separate from the hourly loop above so a
+    // 40-minute run window cannot fall between two hourly polls, and so a 6-minute crawl never delays
+    // the rest of the cycle. `runScheduled` does nothing unless a window's chosen minute has passed.
+    scope.launch {
+        while (true) {
+            runCatching { ingest.runScheduled() }.onFailure { println("[schedule] failed: ${it.message}") }
+            delay(SCHEDULE_TICK_MILLIS)
         }
     }
 

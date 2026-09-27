@@ -491,16 +491,50 @@ send no alerts.
 
 ### Cadence
 
-The grocery providers crawl **twice a day** at fixed local hours (`runAtHours`): Exito Laureles and
-Carulla at **07:00 and 15:00**, and Exito Colombia at **08:00 and 16:00**. The two Exitos are an hour
-apart because they share one website, www.exito.com. Two crawls a day are there so a
-promotion that starts or ends mid-day is caught. The hours are fixed on the clock rather than set
-as an interval, because an interval drifts with poll timing and would land at 3am as readily as at
-7am. A slot missed while the Mac slept runs once at the next poll. A failed run retries on the next
-poll, and `--fetch-once` always runs. Providers can still use `intervalHours` for a plain interval.
+Each grocery store is crawled inside daily **windows**, at a minute picked per store per day
+(`runWindows`). The minute is random-looking but fixed for that day, so a restart doesn't re-roll it,
+and requests don't land on the same :00 every morning. A dedicated check runs every **5 minutes**,
+separate from the hourly cycle, so a 40-minute window can't fall between two polls. A window missed
+while the Mac slept runs once at the next check.
 
-With two readings a day, the usual price takes each day's **cheapest** reading, which is the price a
-shopper could have paid that day.
+| Store | Morning | Midday | Evening |
+|---|---|---|---|
+| Exito Laureles | 07:00–07:40 | 10:30–11:10 | 17:00–17:40 |
+| Exito Colombia | 07:45–08:30 | 11:15–11:55 | 17:45–18:30 |
+| Carulla Laureles | 07:00–08:00 | — | 17:00–18:00 |
+
+The windows come from 2026-09-25's morning-vs-afternoon comparison:
+
+- **Exito reprices during the day.** 220 of 7,202 Laureles items changed, and 204 of those went **up**:
+  morning promotions ending. Its homepage said so: "30% con Mastercard en frutas y verduras 6:00 am a
+  11:59 am". That's why the midday Exito window ends **before noon**; a 12:00 run would miss exactly
+  those promotions.
+- **Carulla barely moved** (7 of 4,736), so it runs twice a day.
+- **The two Exitos share one website**, so their windows sit side by side and never overlap.
+
+Fixed `runAtHours` and `intervalHours` still work for other providers; `runWindows` wins when a
+provider sets more than one of them.
+
+### Kept for analysis: promotions, stock, banners
+
+Price readings say *that* a price moved, never *why*. Each grocery crawl also records the "why", with
+no extra requests to the stores' APIs:
+
+- **`promotions`:** one row per promotion name per store, such as
+  `cmp_20_prov_mcdo_fruver_franja_ID19665_1ene_31dic`. The kind (shelf, card, multi-buy), percentage,
+  card ids and date range are decoded from the name, and the raw name is always kept. Stored dates are
+  the store's claim; `first_seen_at` and `last_seen_at` are what we observed.
+- **`observation_promotions`:** which promotions were live on which price reading. This is the join
+  that answers "which promotion ended at 11:59?".
+- **`stock_qty`** on each reading. Almost every grocery offer reads **10,000**, VTEX's cap for
+  "plenty", so only a value under the cap means anything.
+- **`site_banners`:** the homepage announcement-bar configs, fetched once per crawl from the
+  storefront root (which robots.txt allows), on one provider per website. **Caution:** the homepage
+  embeds a *library* of these configs, not just the live one (11 at Exito, 6 at Carulla), each with
+  its own `initialDate`/`endDate`, and every such date seen was in 2025. So a row means "configured",
+  not "on screen today".
+
+The Last sync footer shows the database size and these counts, so growth stays visible.
 
 ### The store's own discount
 

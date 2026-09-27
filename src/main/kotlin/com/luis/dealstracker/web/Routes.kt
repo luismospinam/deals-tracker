@@ -360,11 +360,13 @@ fun Application.routes(
                 }
                 Triple(mergeStores(groceries.rows(filter), groceryStores(app)), groceries.groups(sources), groceries.pinnedCount(sources))
             }
-            val sync = withContext(Dispatchers.IO) { grocerySyncLines(app, groceries.syncStatus(sources)) }
+            val (sync, storage) = withContext(Dispatchers.IO) {
+                grocerySyncLines(app, groceries.syncStatus(sources)) to runCatching { groceries.storage() }.getOrNull()
+            }
             call.respondHtml {
                 page("Groceries — Deals Tracker") {
                     askPanel("groceries", "e.g. what meat is well under its usual price this week?")
-                    groceryPage(rows, groups, controls, sources, pinnedCount, sync)
+                    groceryPage(rows, groups, controls, sources, pinnedCount, sync, storage)
                 }
             }
         }

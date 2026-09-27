@@ -49,8 +49,12 @@ class IngestService(
     private val lastSuccess: (String) -> Instant? = { repo.lastSuccessfulRun(it) },
 ) {
 
+    /**
+     * Providers with `runWindows` -- the grocery crawls -- are left to [runScheduled], which is checked
+     * every few minutes. Running them here as well would tie a 40-minute window to an hourly poll.
+     */
     suspend fun runAll(): List<IngestReport> =
-        app.enabledProviders.filter { isDue(it) }.map { provider ->
+        app.enabledProviders.filter { runWindows(it) == null && isDue(it) }.map { provider ->
             // One provider failing must not take the others down; the whole point of
             // fetch_runs is that a broken adapter is visible without being fatal.
             runCatching { run(provider) }.getOrElse { e ->
@@ -76,6 +80,7 @@ class IngestService(
         now: Instant = Instant.now(),
         zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
     ): Boolean {
+        runWindows(provider)?.let { windows -> return isWindowDue(provider, windows, now, zone) }
         runAtHours(provider)?.let { hours -> return isSlotDue(provider, hours, now, zone) }
         val hours = provider.int("intervalHours", 0)
         if (hours <= 0) return true
@@ -85,6 +90,16 @@ class IngestService(
         val due = !last.plus(hours.toLong(), ChronoUnit.HOURS).minus(10, ChronoUnit.MINUTES).isAfter(now)
         if (!due) println("[${provider.id}] skipped: last read $last, runs every ${hours}h")
         return due
+    }
+
+    /**
+     * Due when today's chosen minute in a window has passed since the last successful run -- see
+     * [slotIn]. Like [isSlotDue], a slot missed while the Mac slept runs once at the next check.
+     */
+    private fun isWindowDue(provider: ProviderConfig, windows: List<RunWindow>, now: Instant, zone: java.time.ZoneId): Boolean {
+        val latest = slotsAround(windows, provider.id, now, zone).lastOrNull { !it.isAfter(now) } ?: return true
+        val last = lastSuccess(provider.id) ?: return true
+        return last.isBefore(latest)
     }
 
     /**
@@ -109,6 +124,28 @@ class IngestService(
         if (!due) println("[${provider.id}] skipped: last read $last, next at ${hours.joinToString { "%02d:00".format(it) }}")
         return due
     }
+
+    /**
+     * Runs every provider with `runWindows` whose slot has come, one at a time.
+     *
+     * Checked every few minutes by the poller -- a window is 40 minutes wide and the regular cycle is
+     * hourly, so riding on that cycle could skip a window whole. [running] guards against a check
+     * arriving while the previous crawl (5-10 minutes) is still going.
+     */
+    suspend fun runScheduled(): List<IngestReport> {
+        if (!running.compareAndSet(false, true)) return emptyList()
+        try {
+            return app.enabledProviders.filter { runWindows(it) != null && isDue(it) }.map { provider ->
+                runCatching { run(provider) }.getOrElse { e ->
+                    IngestReport(provider.id, error = e.message ?: e::class.simpleName ?: "unknown").also { println(it.summary()) }
+                }
+            }
+        } finally {
+            running.set(false)
+        }
+    }
+
+    private val running = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * Warns when the share of deals stuck in `Other` has drifted past the configured threshold.
@@ -292,6 +329,8 @@ class IngestService(
         var promotedCount = 0
         var dropCount = 0
         val byCategory = mutableMapOf<String, Int>()
+        // Promotion name -> id, for this ingest only. See DealRepository.linkPromotions.
+        val promotionIds = mutableMapOf<String, Long>()
 
         repo.withTransaction { conn ->
             deals.forEach { raw ->
@@ -305,7 +344,8 @@ class IngestService(
                 // otherwise the new price is inside its own minimum and a genuine
                 // drop can never be detected.
                 val previousMin = repo.minPriceEver(conn, upsert.dealId)
-                repo.recordObservation(conn, upsert.dealId, raw)
+                val observationId = repo.recordObservation(conn, upsert.dealId, raw)
+                repo.linkPromotions(conn, provider.id, observationId, raw, promotionIds)
 
                 val reason = promotionReason(raw, previousMin, floor, curated, upsert.isNew)
                 if (reason == PromotionReason.PRICE_DROP) dropCount++

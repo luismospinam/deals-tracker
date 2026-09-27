@@ -69,6 +69,8 @@ data class GroceryRow(
     }
 }
 
+data class StorageLine(val databaseBytes: Long, val observations: Long, val promotions: Long, val banners: Long)
+
 /** One grocery source's crawl history, for the page's footer. */
 data class SyncStatus(
     val source: String,
@@ -296,6 +298,28 @@ class GroceryRepository(private val ds: DataSource) {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * The database's size and what the analysis tables hold, for the Last sync footer.
+     *
+     * Shown because the grocery crawls are the bulk of new rows -- ~60,000 observations a day -- and on
+     * 2026-09-25 this Mac's disk was 95% full. Growth should be visible, not discovered.
+     */
+    fun storage(): StorageLine = ds.connection.use { conn ->
+        conn.prepareStatement(
+            """
+            SELECT pg_database_size(current_database()),
+                   (SELECT count(*) FROM price_observations),
+                   (SELECT count(*) FROM promotions),
+                   (SELECT count(*) FROM site_banners)
+            """.trimIndent(),
+        ).use { st ->
+            st.executeQuery().use { rs ->
+                rs.next()
+                StorageLine(rs.getLong(1), rs.getLong(2), rs.getLong(3), rs.getLong(4))
             }
         }
     }

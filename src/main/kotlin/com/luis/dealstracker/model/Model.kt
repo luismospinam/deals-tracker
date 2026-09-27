@@ -54,6 +54,26 @@ enum class CardScope(val label: String) {
  */
 data class CardOffer(val price: BigDecimal, val percent: BigDecimal, val scope: CardScope)
 
+/** What a promotion does. See `V18__promotions`. */
+enum class PromotionKind { SHELF, CARD, MULTIBUY, OTHER }
+
+/**
+ * One promotion attached to an offer, e.g. `cmp_20_prov_mcdo_fruver_franja_ID19665_1ene_31dic`.
+ *
+ * [name] is the store's own identifier and the only field taken as given; the rest is decoded from
+ * it or from the teaser's structure, and is null wherever the name does not say.
+ */
+data class PromotionTag(
+    val name: String,
+    val kind: PromotionKind,
+    val percent: BigDecimal? = null,
+    val cardIds: String? = null,
+    val payQty: Int? = null,
+    val takeQty: Int? = null,
+    val validFrom: java.time.LocalDate? = null,
+    val validTo: java.time.LocalDate? = null,
+)
+
 /** Whether the item can be shipped to Colombia. */
 enum class CoShipping { UNKNOWN, YES, NO }
 
@@ -124,6 +144,17 @@ data class RawDeal(
     val groceryGroup: String? = null,
     /** A card-only price, where the store runs one on this item today. See [CardOffer]. */
     val cardOffer: CardOffer? = null,
+    /**
+     * Every promotion the store attached to this offer, by its own name. Recorded for analysis, not
+     * used for pricing -- see `V18__promotions`.
+     */
+    val promotions: List<PromotionTag> = emptyList(),
+    /**
+     * Units the store reports in stock for this offer. VTEX caps it at 10,000, which is what almost
+     * every grocery row reads -- so only a value under the cap says anything. Null where the source
+     * publishes no count.
+     */
+    val stockQty: Int? = null,
 ) {
     /**
      * Advertised discount as a percentage, or null when there's no usable list price.

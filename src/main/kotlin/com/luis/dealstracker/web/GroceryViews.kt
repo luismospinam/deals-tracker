@@ -214,11 +214,20 @@ internal fun MAIN.groceryPage(
     sources: List<String>,
     pinnedCount: Int = 0,
     sync: List<SyncLine> = emptyList(),
+    storage: com.luis.dealstracker.db.StorageLine? = null,
 ) {
     groceryBody(rows, groupCounts, controls, sources, pinnedCount)
     // After the table, whichever early return the body took: "when were these prices read?" matters
     // most on exactly the screens that show nothing, like an empty Deals view or a first run.
     syncFooter(sync)
+    storage?.let { st ->
+        p("tracked-note") {
+            title = "Price readings, distinct promotions and banner configs kept for later analysis"
+            +("Database ${"%.0f".format(st.databaseBytes / 1_048_576.0)} MB · " +
+                "${String.format("%,d", st.observations)} price readings · " +
+                "${String.format("%,d", st.promotions)} promotions · ${String.format("%,d", st.banners)} banner configs")
+        }
+    }
 }
 
 private fun MAIN.groceryBody(
@@ -627,12 +636,15 @@ internal fun grocerySyncLines(
     val bySource = statuses.associateBy { it.source }
     return app.enabledProviders.filter { it.type == GROCERY_TYPE }.mapNotNull { p ->
         val status = bySource[p.id] ?: return@mapNotNull null
+        val windows = com.luis.dealstracker.ingest.runWindows(p)
         val hours = com.luis.dealstracker.ingest.runAtHours(p)
         SyncLine(
             store = stores[p.id]?.label ?: storeName(p.id),
             status = status,
-            next = hours?.let { com.luis.dealstracker.ingest.nextSlot(it, now, zone) },
-            schedule = hours?.joinToString(", ") { "%02d:00".format(it) },
+            // Windows win over fixed hours, as they do in IngestService.isDue.
+            next = windows?.let { com.luis.dealstracker.ingest.nextWindowSlot(it, p.id, now, zone) }
+                ?: hours?.let { com.luis.dealstracker.ingest.nextSlot(it, now, zone) },
+            schedule = windows?.joinToString(", ") ?: hours?.joinToString(", ") { "%02d:00".format(it) },
         )
     }
 }

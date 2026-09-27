@@ -295,6 +295,7 @@ class VtexSource : DealSource {
             val listPrice: BigDecimal?,
             val qty: Int,
             val card: com.luis.dealstracker.model.CardOffer? = null,
+            val promotions: List<com.luis.dealstracker.model.PromotionTag> = emptyList(),
         )
 
         val offers = product.items.flatMap { item ->
@@ -325,6 +326,7 @@ class VtexSource : DealSource {
                     // The card price of THIS offer, so it travels with the offer chosen below rather
                     // than being read off a different seller's teasers.
                     card = cardOfferOf(o, multiplier, price),
+                    promotions = promotionsOf(o),
                 )
             }
         }
@@ -360,6 +362,8 @@ class VtexSource : DealSource {
             imageUrl = imageUrl,
             available = inStock.isNotEmpty(),
             cardOffer = best.card,
+            promotions = best.promotions,
+            stockQty = best.qty,
         )
     }
 
@@ -434,7 +438,15 @@ data class VtexOffer(
      * `catalog_system` leaves it empty. See [cardOfferOf].
      */
     val teasers: List<VtexTeaser>? = null,
+    /**
+     * Shelf promotions, by name (`cmp_20_prov_mercado_...`). Already reflected in [Price], so they are
+     * not a second discount -- they are recorded for analysis only. See `V18__promotions`.
+     */
+    val discountHighlights: List<VtexHighlight>? = null,
 )
+
+@Serializable
+data class VtexHighlight(val name: String? = null)
 
 /**
  * One conditional promotion, e.g. `mastercard_20_aliado_..._sep25_sep25`: condition
@@ -455,6 +467,15 @@ data class VtexTeaserEffects(val parameters: List<VtexParam> = emptyList())
 
 @Serializable
 data class VtexParam(val name: String? = null, val value: String? = null)
+
+/**
+ * Every promotion on an offer, shelf and conditional, decoded as far as its name allows. Distinct by
+ * name, since a store occasionally lists the same highlight twice.
+ */
+internal fun promotionsOf(offer: VtexOffer): List<com.luis.dealstracker.model.PromotionTag> =
+    (offer.discountHighlights.orEmpty().mapNotNull { h -> h.name?.takeIf { it.isNotBlank() }?.let(PromotionNames::shelf) } +
+        offer.teasers.orEmpty().mapNotNull(PromotionNames::teaser))
+        .distinctBy { it.name }
 
 /** VTEX payment system ids, as `Installments[].PaymentSystemName` names them at both stores. */
 private const val MASTERCARD_ID = "4"

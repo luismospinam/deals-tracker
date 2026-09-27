@@ -44,6 +44,12 @@ import java.util.Base64
  */
 class VtexGrocerySource(
     private val vtex: VtexSource = VtexSource(),
+    /**
+     * Where the homepage banner configs go, keyed by host. A callback rather than a repository, the
+     * same seam `IngestService` uses for watch terms, so the adapter stays free of the database and a
+     * test can pass nothing.
+     */
+    private val recordBanners: (host: String, banners: List<SiteBanner>) -> Unit = { _, _ -> },
 ) : DealSource {
     override val type = "vtex-grocery"
 
@@ -58,6 +64,8 @@ class VtexGrocerySource(
             println("[${cfg.id}] no grocery categories configured; nothing to fetch")
             return emptyList()
         }
+
+        readBanners(cfg, base, http)
 
         val all = LinkedHashMap<String, RawDeal>()
         for ((path, group) in groups) {
@@ -77,6 +85,26 @@ class VtexGrocerySource(
         val available = all.values.filter { it.available }
         println("[${cfg.id}] ${all.size} unique products at seller $seller, ${available.size} in stock")
         return available
+    }
+
+    /**
+     * The homepage's announcement-bar configs, once per crawl -- the only place time-of-day promotions
+     * ("6:00 am a 11:59 am") are written out. Kept for later analysis; see `site_banners` in V18.
+     *
+     * Opt-in per provider (`options.readBanners`), and best-effort: a failure here is logged and the
+     * crawl goes on, since prices are the point and banners are context. Only the storefront root is
+     * requested, which both stores' robots.txt allow, and one store per host is enough -- the two
+     * Exitos share one homepage.
+     */
+    private suspend fun readBanners(cfg: ProviderConfig, base: String, http: PoliteHttp) {
+        if (cfg.options["readBanners"]?.toBoolean() != true) return
+        runCatching {
+            val result = http.get("$base/", mapOf("Accept" to "text/html"))
+            val html = result.body?.takeIf { result.ok } ?: return@runCatching println("[${cfg.id}] banners -> HTTP ${result.status}")
+            val banners = SiteBanners.parse(html)
+            recordBanners(base.removePrefix("https://").removePrefix("www."), banners)
+            println("[${cfg.id}] ${banners.size} banner config(s) on the homepage, ${banners.count { it.shown == true }} marked shown")
+        }.onFailure { println("[${cfg.id}] banners failed: ${it.message}") }
     }
 
     /**

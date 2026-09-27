@@ -224,10 +224,13 @@ class DealRepository(
             st.executeQuery().use { rs -> if (rs.next()) rs.getBigDecimal(1) else null }
         }
 
-    fun recordObservation(conn: Connection, dealId: Long, raw: RawDeal) {
+    /**
+     * Records one price reading, and returns its id so [linkPromotions] can attach what was live on it.
+     */
+    fun recordObservation(conn: Connection, dealId: Long, raw: RawDeal): Long =
         conn.prepareStatement(
-            "INSERT INTO price_observations (deal_id, price, list_price, currency, card_price, card_percent, card_scope) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO price_observations (deal_id, price, list_price, currency, card_price, card_percent, card_scope, stock_qty) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         ).use { st ->
             st.setLong(1, dealId)
             st.setBigDecimal(2, raw.price)
@@ -237,7 +240,91 @@ class DealRepository(
             st.setBigDecimal(5, raw.cardOffer?.price)
             st.setBigDecimal(6, raw.cardOffer?.percent)
             st.setString(7, raw.cardOffer?.scope?.name)
-            st.executeUpdate()
+            raw.stockQty?.let { st.setInt(8, it.coerceAtLeast(0)) } ?: st.setNull(8, java.sql.Types.INTEGER)
+            st.executeQuery().use { rs -> rs.next(); rs.getLong(1) }
+        }
+
+    /**
+     * Upserts [raw]'s promotions for [source] and links each to [observationId]. See `V18__promotions`.
+     *
+     * [cache] maps a promotion name to its id for the length of one ingest, so a crawl touching 7,000
+     * rows upserts each of its ~100 distinct names once rather than once per row. The upsert refreshes
+     * `last_seen_at`, which is what dates a promotion's end.
+     */
+    fun linkPromotions(
+        conn: Connection,
+        source: String,
+        observationId: Long,
+        raw: RawDeal,
+        cache: MutableMap<String, Long>,
+    ) {
+        if (raw.promotions.isEmpty()) return
+        val ids = raw.promotions.map { tag ->
+            cache.getOrPut(tag.name) {
+                conn.prepareStatement(
+                    """
+                    INSERT INTO promotions (source, name, kind, percent, card_ids, pay_qty, take_qty, valid_from, valid_to)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (source, name) DO UPDATE SET last_seen_at = now()
+                    RETURNING id
+                    """.trimIndent(),
+                ).use { st ->
+                    st.setString(1, source)
+                    st.setString(2, tag.name)
+                    st.setString(3, tag.kind.name)
+                    st.setBigDecimal(4, tag.percent)
+                    st.setString(5, tag.cardIds)
+                    tag.payQty?.let { st.setInt(6, it) } ?: st.setNull(6, java.sql.Types.INTEGER)
+                    tag.takeQty?.let { st.setInt(7, it) } ?: st.setNull(7, java.sql.Types.INTEGER)
+                    st.setObject(8, tag.validFrom)
+                    st.setObject(9, tag.validTo)
+                    st.executeQuery().use { rs -> rs.next(); rs.getLong(1) }
+                }
+            }
+        }.distinct()
+        conn.prepareStatement(
+            "INSERT INTO observation_promotions (observation_id, promotion_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+        ).use { st ->
+            ids.forEach { id ->
+                st.setLong(1, observationId)
+                st.setLong(2, id)
+                st.addBatch()
+            }
+            st.executeBatch()
+        }
+    }
+
+    /**
+     * Records the homepage banner configs seen on one crawl. A config already known has its span and
+     * count extended rather than a row added -- see `site_banners` in V18.
+     */
+    fun recordBanners(host: String, banners: List<com.luis.dealstracker.sources.vtex.SiteBanner>) {
+        if (banners.isEmpty()) return
+        tx { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO site_banners (host, text, shown, stated_from, stated_to, link) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (host, text) DO UPDATE SET
+                    last_seen_at = now(),
+                    seen_count   = site_banners.seen_count + 1,
+                    -- The store edits a config's dates and visibility in place; keep the latest.
+                    shown        = EXCLUDED.shown,
+                    stated_from  = EXCLUDED.stated_from,
+                    stated_to    = EXCLUDED.stated_to,
+                    link         = EXCLUDED.link
+                """.trimIndent(),
+            ).use { st ->
+                banners.distinctBy { it.text }.forEach { b ->
+                    st.setString(1, host)
+                    st.setString(2, b.text)
+                    b.shown?.let { st.setBoolean(3, it) } ?: st.setNull(3, java.sql.Types.BOOLEAN)
+                    st.setObject(4, b.statedFrom)
+                    st.setObject(5, b.statedTo)
+                    st.setString(6, b.link)
+                    st.addBatch()
+                }
+                st.executeBatch()
+            }
         }
     }
 

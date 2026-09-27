@@ -279,12 +279,23 @@ providers:
   # items (Lechuga crespa 6,780 at Laureles vs 4,120 at Colombia; Juan Valdez 454 g 29,925 vs 37,050),
   # dairy was identical, and 5-25% of items were stocked at only one of the two.
   #
-  # Read twice a day at fixed local hours (`runAtHours`, changed from once daily 2026-09-24): 07:00 and
-  # 15:00, except Exito Colombia at 08:00 and 16:00 so the two Exitos never share www.exito.com. So a
-  # promotion that starts or ends mid-day is seen. Morning catches the day's opening prices, the
-  # afternoon one what changed since, both while there is still time to shop. Each crawl is ~250
-  # requests per store, ~5 minutes. A slot missed while the Mac slept runs at the next poll, once.
+  # Read inside daily WINDOWS, at a minute picked per store per day (`runWindows`, 2026-09-25; before
+  # that fixed `runAtHours` 07:00/15:00). The minute is random-looking but fixed for the day, so a
+  # restart does not re-roll it, and requests stop landing on the same :00 every morning. Checked every
+  # 5 minutes, apart from the hourly cycle. A window missed while the Mac slept runs once at the next
+  # check. Each crawl is ~250 requests per store, ~6 minutes.
+  #
+  # Why these windows. Exito reprices during the day: on 2026-09-25, 220 of 7,202 Laureles items
+  # changed between the morning and afternoon crawls, 204 of them UP -- morning promotions ending, and
+  # the homepage said so ("30% con Mastercard en frutas y verduras 6:00 am a 11:59 am"). Carulla moved
+  # on 7 of 4,736. So Exito gets three runs and Carulla two, and the midday Exito run is at 10:30-11:55,
+  # BEFORE noon -- a 12:00 run would miss exactly the promotions that end at 11:59.
+  #
+  # The two Exitos share www.exito.com, so their windows sit side by side and never overlap.
   # `staleAfterHours` is above 48 so a row is not retired if a whole day's crawls fail.
+  #
+  # `readBanners` fetches the storefront homepage once per crawl for its announcement-bar configs -- see
+  # `site_banners` in V18. Set on ONE provider per host: the two Exitos share one homepage.
   #
   # `categories` entries are `path = Aisle label`; the label is what the tab filters by, and the
   # same aisle at both stores shares one label.
@@ -306,10 +317,10 @@ providers:
       storeLabel: "Exito Laureles"
       chain: "exito"
       staleAfterHours: "60"
+      readBanners: "true"
     listOptions:
-      # Twice a day, at fixed local hours, to catch promotions that start or end mid-day. See the
-      # header comment above for why these hours.
-      runAtHours: ["7", "15"]
+      # Three windows; see the header comment for why the midday one ends before noon.
+      runWindows: ["07:00-07:40", "10:30-11:10", "17:00-17:40"]
       # Sizes at Laureles on 2026-09-24. `despensa` (2,965) is over the 2,500-per-query cap and
       # is split into its children automatically.
       categories:
@@ -338,10 +349,9 @@ providers:
       chain: "exito"
       staleAfterHours: "60"
     listOptions:
-      # Same aisles as exito-grocery, one hour later (2026-09-24). Both Exitos are the one host,
-      # www.exito.com, so running them together meant ~12 minutes of back-to-back requests; an hour
-      # apart it is two ~6-minute crawls. 08:00 and 16:00 are still early enough to shop that day.
-      runAtHours: ["8", "16"]
+      # Same aisles as exito-grocery, in the windows right after its own. Both Exitos are the one host,
+      # www.exito.com, and adjacent non-overlapping windows keep their two ~6-minute crawls apart.
+      runWindows: ["07:45-08:30", "11:15-11:55", "17:45-18:30"]
       categories:
         - "mercado/pollo-carne-y-pescado = Meat & fish"
         - "mercado/frutas-y-verduras = Fruit & veg"
@@ -367,8 +377,10 @@ providers:
       storeLabel: "Carulla Laureles"
       chain: "carulla"
       staleAfterHours: "60"
+      readBanners: "true"
     listOptions:
-      runAtHours: ["7", "15"]
+      # Twice, not three times: Carulla barely reprices during the day (7 of 4,736 on 2026-09-25).
+      runWindows: ["07:00-08:00", "17:00-18:00"]
       # Top-level at Carulla, which has no `mercado` parent. Note `pollo-carnes-y-pescado` (plural)
       # against Exito's singular.
       categories:
