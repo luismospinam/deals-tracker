@@ -20,7 +20,7 @@ import java.util.Locale
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "39"
+private const val CSS_VERSION = "40"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -95,6 +95,9 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             // percentage and a community vote are noise and the movement of the price is the
             // whole point. Same rows underneath, different columns and a different default sort.
             span("sub") { a(href = "/tracked") { +"tracked" } }
+            // Its own tab for the same reason as tracked: a different question ("cheaper than this
+            // item usually is at my store?") with different columns -- unit price, usual price.
+            span("sub") { a(href = "/groceries") { +"groceries" } }
             span("sub") { a(href = "/watches") { +"watches" } }
             // Holds the right rail apart from the nameplate, so the serif sits alone
             // instead of being crowded by the mono labels.
@@ -982,6 +985,15 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
         deal.listPrice?.let {
             +" "
             span("was") { +formatMoney(it, deal.currency) }
+        }
+        // The retailer's own advertised discount, written the way its page writes it, so the two can
+        // be checked against each other. Still the retailer's claim -- see the Off column's notes.
+        deal.storeDiscountPercent?.let {
+            +" "
+            span("disc disc-s${discountTier(BigDecimal(it))}") {
+                title = "The store's advertised discount against its own list price, rounded down as its page shows it"
+                +"−$it%"
+            }
         }
         deal.minPriceEver?.let {
             +" "

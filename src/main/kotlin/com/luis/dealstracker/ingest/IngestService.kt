@@ -45,10 +45,12 @@ class IngestService(
      * ingest transaction commits, so the deal rows exist. See `V15__watch_amazon_terms`.
      */
     private val linkWatchDeals: (Map<Long, Set<Long>>) -> Unit = {},
+    /** When a provider last finished without error; see [isDue]. A lambda so tests need no database. */
+    private val lastSuccess: (String) -> Instant? = { repo.lastSuccessfulRun(it) },
 ) {
 
     suspend fun runAll(): List<IngestReport> =
-        app.enabledProviders.map { provider ->
+        app.enabledProviders.filter { isDue(it) }.map { provider ->
             // One provider failing must not take the others down; the whole point of
             // fetch_runs is that a broken adapter is visible without being fatal.
             runCatching { run(provider) }.getOrElse { e ->
@@ -57,6 +59,56 @@ class IngestService(
                 report
             }
         }.also { reportCategoryDrift() }
+
+    /**
+     * Whether a provider's `intervalHours` has elapsed since its last successful run.
+     *
+     * Every provider runs every poll unless it sets `intervalHours`. The grocery providers set 24:
+     * a full store catalogue is ~250 requests, and a shelf price moves daily at most, so an hourly
+     * crawl would multiply the load on the store for no new information.
+     *
+     * Keyed on the last SUCCESSFUL run, so a failed crawl is retried next poll rather than a day
+     * later, and on the database rather than memory, so a restart does not re-crawl a store that
+     * was read an hour ago. Only the poller asks this -- `--fetch-once` calls [run] and always runs.
+     */
+    internal fun isDue(
+        provider: ProviderConfig,
+        now: Instant = Instant.now(),
+        zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    ): Boolean {
+        runAtHours(provider)?.let { hours -> return isSlotDue(provider, hours, now, zone) }
+        val hours = provider.int("intervalHours", 0)
+        if (hours <= 0) return true
+        val last = lastSuccess(provider.id) ?: return true
+        // Ten minutes of slack, so a crawl that took a while yesterday does not slip a whole poll
+        // cycle today because it finished at 03:04 and the poll came round at 03:03.
+        val due = !last.plus(hours.toLong(), ChronoUnit.HOURS).minus(10, ChronoUnit.MINUTES).isAfter(now)
+        if (!due) println("[${provider.id}] skipped: last read $last, runs every ${hours}h")
+        return due
+    }
+
+    /**
+     * Due when a scheduled hour has passed since the last successful run.
+     *
+     * Fixed hours rather than `intervalHours: 12`, because the grocery crawl is there to catch a
+     * store's promotions while a person could still shop them. An interval is anchored to whenever
+     * the app first ran and then drifts by up to a poll each cycle -- it would settle on 3am as
+     * readily as on 7am. A slot is anchored to the clock.
+     *
+     * A slot missed while the machine was asleep runs at the next poll, once, not once per missed
+     * slot: only the most recent slot matters, since a crawl reads the store as it is now.
+     */
+    private fun isSlotDue(provider: ProviderConfig, hours: List<Int>, now: Instant, zone: java.time.ZoneId): Boolean {
+        val local = now.atZone(zone)
+        val latestSlot = (0L..1L).flatMap { back ->
+            val day = local.toLocalDate().minusDays(back)
+            hours.map { day.atTime(it, 0).atZone(zone).toInstant() }
+        }.filter { !it.isAfter(now) }.maxOrNull() ?: return true
+        val last = lastSuccess(provider.id) ?: return true
+        val due = last.isBefore(latestSlot)
+        if (!due) println("[${provider.id}] skipped: last read $last, next at ${hours.joinToString { "%02d:00".format(it) }}")
+        return due
+    }
 
     /**
      * Warns when the share of deals stuck in `Other` has drifted past the configured threshold.
@@ -95,7 +147,7 @@ class IngestService(
         try {
             val source = registry.forType(provider.type)
             val fetched = source.fetch(withWatchTerms(provider), app, http)
-            val deals = applyAgeLimit(provider, applyExclusions(provider, fetched))
+            val deals = applyAgeLimit(provider, applyCategoryExclusions(provider, applyExclusions(provider, fetched)))
             val report = ingest(provider, deals)
             repo.finishRun(runId, report.fetched, report.newDeals, null)
             println(report.summary())
@@ -124,6 +176,9 @@ class IngestService(
      * a system nobody is using yet.
      */
     internal fun withWatchTerms(provider: ProviderConfig): ProviderConfig {
+        // The grocery crawl reads a whole store's aisles and never searches, so watch terms would
+        // only print a misleading "searching for televisor" against a supermarket.
+        if (provider.type == "vtex-grocery") return provider
         val terms = watchTerms() ?: return provider
         val merged = (provider.list("searches") + terms).distinct()
         if (merged.isEmpty()) return provider
@@ -146,6 +201,31 @@ class IngestService(
         if (excluded.isNotEmpty()) {
             // Report rather than drop silently, so an over-broad pattern is visible.
             println("[${provider.id}] ${excluded.size} excluded by title patterns (e.g. ${excluded.take(2).map { it.title.take(48) }})")
+        }
+        return kept
+    }
+
+    /**
+     * Drops deals filed under one of the provider's `excludeCategories`, matched against the TOP level
+     * of the source's own category path, accent- and case-insensitively.
+     *
+     * Exists for the feed's `exito` and `carulla` providers, whose groceries moved to the grocery tab.
+     * Taking the aisles out of `categories` was not enough on its own: the watch terms these providers
+     * also search reach the whole store, and `sanitario` kept bringing back toilet brushes, cleaners and
+     * pet mats filed under Exito's `Mercado`. Filtering on the store's own taxonomy catches those
+     * whatever query found them, where a title pattern would have to guess.
+     *
+     * The top level only, so `Mercado` excludes everything beneath it and cannot be confused with a
+     * deeper segment that happens to share the name.
+     */
+    internal fun applyCategoryExclusions(provider: ProviderConfig, deals: List<RawDeal>): List<RawDeal> {
+        val excluded = provider.list("excludeCategories").map { Categorizer.normalize(it.trim()) }.toSet()
+        if (excluded.isEmpty()) return deals
+        val (dropped, kept) = deals.partition { deal ->
+            deal.category?.substringBefore(" > ")?.trim()?.let { Categorizer.normalize(it) in excluded } ?: false
+        }
+        if (dropped.isNotEmpty()) {
+            println("[${provider.id}] ${dropped.size} excluded by category (e.g. ${dropped.take(2).map { it.title.take(40) }})")
         }
         return kept
     }
@@ -294,4 +374,23 @@ class IngestService(
 
         return PromotionReason.NONE
     }
+}
+
+/**
+ * `listOptions.runAtHours`, as local hours of the day, or null when the provider sets none.
+ *
+ * File-level so the grocery page reads the schedule the poller obeys, rather than a second parse
+ * that could disagree about when the next crawl is.
+ */
+internal fun runAtHours(provider: ProviderConfig): List<Int>? =
+    provider.list("runAtHours").mapNotNull { it.trim().toIntOrNull()?.takeIf { h -> h in 0..23 } }
+        .distinct().sorted().takeIf { it.isNotEmpty() }
+
+/** The next scheduled slot after [now], or null when [hours] is empty. */
+internal fun nextSlot(hours: List<Int>, now: Instant, zone: java.time.ZoneId): Instant? {
+    val local = now.atZone(zone)
+    return (0L..1L).flatMap { ahead ->
+        val day = local.toLocalDate().plusDays(ahead)
+        hours.map { day.atTime(it, 0).atZone(zone).toInstant() }
+    }.filter { it.isAfter(now) }.minOrNull()
 }

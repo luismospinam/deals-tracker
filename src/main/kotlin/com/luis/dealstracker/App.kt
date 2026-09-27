@@ -5,6 +5,7 @@ import com.luis.dealstracker.ask.ClaudeCli
 import com.luis.dealstracker.ask.SYSTEM_PROMPT
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
+import com.luis.dealstracker.db.GroceryRepository
 import com.luis.dealstracker.db.Db
 import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
@@ -25,6 +26,7 @@ import com.luis.dealstracker.sources.mercadolibre.MercadoLibreSource
 import com.luis.dealstracker.sources.prestashop.PrestashopSource
 import com.luis.dealstracker.sources.shopify.ShopifySource
 import com.luis.dealstracker.sources.slickdeals.SlickdealsSource
+import com.luis.dealstracker.sources.vtex.VtexGrocerySource
 import com.luis.dealstracker.sources.vtex.VtexSource
 import com.luis.dealstracker.web.routes
 import com.luis.dealstracker.web.trackingSources
@@ -61,6 +63,9 @@ fun main(args: Array<String>) {
         listOf(
             SlickdealsSource(),
             VtexSource(),
+            // The same stores' grocery aisles, priced at one physical store (Laureles) through
+            // Intelligent Search rather than at the national catalogue price.
+            VtexGrocerySource(),
             // Serves homecenter.com.co and falabella.com.co: same Next.js build, same product
             // record shape, so the two stores differ only in config.
             FalabellaNextSource(),
@@ -287,7 +292,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource))
     }.start(wait = true)
 }
 

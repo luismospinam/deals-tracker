@@ -48,6 +48,9 @@ Tests (no database or network needed — they run against captured fixtures):
 | `falabella` | `falabella-next` | working — keyword search allowed |
 | `amazon` | `amazon` | working — tracks named items **in your size**; heavily rate-limited |
 | `amazon-watches` | `amazon-watch` | working — searches amazon.com for each watch's **Amazon terms** |
+| `exito-grocery` | `vtex-grocery` | working — whole food catalogue **priced at Exito Laureles**, twice daily |
+| `exito-colombia-grocery` | `vtex-grocery` | working — the same **at Exito Colombia** (Suramericana) |
+| `carulla-grocery` | `vtex-grocery` | working — whole food catalogue **priced at Carulla Laureles**, twice daily |
 | `mercadolibre-co` | `mercadolibre` | **disabled** — search API policy-blocked |
 | `rappi-medellin` | `rappi` | **disabled** — no adapter |
 | Makro | — | **deferred** — RSC payload, store-scoped, see BLOCKERS.md |
@@ -394,6 +397,141 @@ trivially. Without a floor the feature is pure noise on day one.
 - **Alerts are announced once.** The `watch_matches` ledger re-announces only on a *lower*
   price, so a standing bargain does not banner every hour. A failed send leaves
   `notified_at` null so the next cycle retries.
+
+## Groceries at Laureles
+
+`/groceries` covers Exito's and Carulla's whole food catalogue, priced and stocked at **Exito
+Laureles** and **Carulla Laureles**, and checks each item against its own history. The providers
+are `exito-grocery` and `carulla-grocery`, of type `vtex-grocery`. Groceries no longer appear on
+the feed, which keeps tech and appliances from Exito and Carulla.
+
+### Store-scoped prices without a browser
+
+The national catalogue gives the wrong price for a grocer, or no price at all.
+`catalog_system`, the API `VtexSource` reads, returned *Mix de brotes 30 gr* at `Price 0, qty 0`.
+At Carulla Laureles the same item costs **5,838** (list 8,340). Exito's pork cut cost 13,350
+nationally and 14,160 at Exito Laureles.
+
+The site's "¿Cómo quieres recibir tu pedido?" picker needs no cookie. Each store is its own VTEX
+seller, and **Intelligent Search** takes a `regionId` equal to `base64("SW#<seller>")`, which
+prices and stocks every product at that one seller:
+
+| Store | `regionSeller` | how it was found |
+|---|---|---|
+| Carulla Laureles | `carulla729` | `/api/checkout/pub/pickup-points?geoCoordinates=-75.59;6.245` |
+| Exito Laureles | `exitocol037` | same endpoint on exito.com |
+| Exito Colombia | `exitocol031` | same endpoint on exito.com |
+
+To change stores, change `regionSeller` in `config/sources.yaml`.
+
+### Two Exitos, one row
+
+Exito Laureles and Exito Colombia are separate providers, but the tab shows **one row per product
+per chain**, priced at the cheaper store that has it in stock today. The **Store** column names
+that store and lists the other store's price underneath. Stores join a chain through
+`options.chain` and get their tag from `options.storeLabel`.
+
+Each store keeps its own rows and price history, so **vs usual always compares a store with
+itself**. Merging the histories would read Colombia's normal shelf price as a 39% drop from
+Laureles'. Pinning a product pins it at both stores, so the pin survives when the cheaper store
+changes. If one store's copy is out of stock, the other store's copy is shown, whatever the price.
+
+The first full crawl of both stores, on 2026-09-24:
+
+| | items |
+|---|---|
+| at both stores | 6,021 |
+| — same price | 5,815 |
+| — cheaper at Laureles | 178 |
+| — cheaper at Colombia | 28 |
+| only at Laureles | 1,166 |
+| only at Colombia | 1,587 |
+
+Prices mostly match, and the gaps are in meat and produce. The bigger gain is **stock**: the second
+store adds 1,587 items that Laureles doesn't carry.
+
+### Things that are easy to get wrong here
+
+- **Every Intelligent Search response is HTTP 406, successful ones included.** This holds whatever
+  the headers are. The first live run trusted the status code and read 0 products, so the adapter
+  judges a response by whether its body parses.
+- **50 pages is a hard cap.** Page 51 returns 400 `"Page should not exceed 50 pages."`, which limits
+  one query to 2,500 items. Exito's `despensa` holds 2,967, so any category over the cap is split
+  into its children via the facets endpoint.
+- **`hideUnavailableItems=true` means in stock at this store.** It cut Exito `mercado` from 66,214
+  products to 12,891. An item missing from its store's latest crawl disappears from the tab the
+  next day instead of lingering until `staleAfterHours`. A pinned one stays, greyed out as
+  `unavailable`.
+- **Weighed goods are priced per kg** on this API too. The existing `unitMultiplier` scaling
+  applies unchanged, and the multiplier is also the pack weight used for unit pricing.
+
+### What counts as a deal
+
+An item is a deal when it is **at least 10% under its usual price**. The usual price is the
+**median of its daily prices over the previous 30 days**. Today is excluded, and each day counts
+once, using its last reading. Items with fewer than **3** earlier days are shown as `new` and never
+count as deals, so **the Deals view is empty for the first three days by design**. The store's list
+price is not used, because Exito flags ~94% of its catalogue as discounted.
+
+### Unit price
+
+The unit price is shown per 100 g, per litre, or per unit, and is sortable. The pack size comes
+from the weighed multiplier or from the title (`(600  gr)`, `Espinaca Baby  150  gr`, `(12  und)`);
+when a title names more than one size, the last one wins. A title with no unit word gets no size
+rather than a guess. Coverage on the first crawl was 99.8% at Carulla and 98.9% at Exito.
+
+### Pins
+
+The ☆ pin button adds a staple to the **Pinned** screen, the third tab beside Deals and All items,
+the way Favorites sits beside the feed. Pinned shows every pin whatever aisle is picked, and it
+keeps a staple that Laureles stopped stocking, greyed out as `unavailable`. Unpinning there
+removes the row immediately. Pins use their own column
+(`pinned_at`, V16) rather than a `DealState`, so it never overwrites a favorite or a hide. Pins
+send no alerts.
+
+### Cadence
+
+The grocery providers crawl **twice a day** at fixed local hours (`runAtHours`): Exito Laureles and
+Carulla at **07:00 and 15:00**, and Exito Colombia at **08:00 and 16:00**. The two Exitos are an hour
+apart because they share one website, www.exito.com. Two crawls a day are there so a
+promotion that starts or ends mid-day is caught. The hours are fixed on the clock rather than set
+as an interval, because an interval drifts with poll timing and would land at 3am as readily as at
+7am. A slot missed while the Mac slept runs once at the next poll. A failed run retries on the next
+poll, and `--fetch-once` always runs. Providers can still use `intervalHours` for a plain interval.
+
+With two readings a day, the usual price takes each day's **cheapest** reading, which is the price a
+shopper could have paid that day.
+
+### The store's own discount
+
+The **Store %** column, also shown on each item's detail page, is the discount the store advertises
+against its own list price, **rounded down the way its badge rounds**. Checked against the rendered
+pages: 11,215 against 14,160 is 20.8% and Exito shows `-20%`; 5,990 against 9,350 is 35.9% and
+Carulla shows `-35%`. It is the store's claim. **vs usual** is what we measured.
+
+### Last sync
+
+The bottom of the tab has a **Last sync** table with one line per store:
+
+- **Prices read:** when the store was last read successfully (local time and how long ago), and how many items it returned.
+- **Latest run:** how the most recent attempt went. `failed` covers zero-item runs as well as errors. `interrupted` means a run started but never finished because the app was stopped mid-crawl.
+- **Next:** the next scheduled run.
+
+When the latest attempt fails, the line still gives the last successful read, because those are the prices on screen.
+
+A run counts as done when it **finishes**, not when it starts. On 2026-09-25 a catch-up crawl started at 06:43, before the 07:00 slot, and finished at 07:51. Counted by its start time, the store was crawled again at 07:57.
+
+### Not crawled, on purpose
+
+These categories were left out for now; each one is a single line in the provider's `categories`
+list:
+
+| Store | Category | In stock at Laureles, 2026-09-24 |
+|---|---|---|
+| Exito | `mercado/mascotas` | 3,310 |
+| Exito | `mercado/aseo-del-hogar` | 2,336 |
+| Exito | `cuidado-personal`, `vinos-y-licores` | not counted |
+| Carulla | `mascotas`, `aseo-del-hogar`, `salud-y-belleza`, `vinos-y-licores` | not counted |
 
 ## Ask Claude about the rows on screen
 

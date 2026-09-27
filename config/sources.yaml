@@ -209,37 +209,16 @@ providers:
       # sorting them by discount surfaces marketplace listings with inflated list prices --
       # `tecnologia` leads with a 95%-off webcam.
       #
-      # Mercado is listed last deliberately: it is the largest and fastest-churning
-      # catalog, so if it gets throttled the other two have already landed. It is kept
-      # despite the subcategories below because its best-seller view is the popular-staples
-      # baseline (leche, huevos, arroz) that a discount sort never returns.
-      categories: ["tecnologia", "electrodomesticos", "mercado"]
+      # Groceries moved to `exito-grocery` (2026-09-24). This provider used to walk `mercado` plus
+      # eight discount-sorted grocery subcategories at 3 pages of 24 -- 0.1% of a 66k catalogue,
+      # and priced at the NATIONAL catalogue rather than at a store. See the grocery providers.
+      categories: ["tecnologia", "electrodomesticos"]
 
-      # Walked sorted by advertised discount (O=OrderByBestDiscountDESC).
-      #
-      # This is how the store's actual promotions get in. Measured: `mercado` holds 65,966
-      # products, so 3 pages of 24 reaches 0.1% of it -- and in best-seller order that 0.1%
-      # is a fixed set of full-price staples, re-fetched unchanged every hour. Meanwhile a
-      # real 40%-off meat promotion (picanha, New York strip, entraña) sat permanently out
-      # of reach. Giving each grocery subcategory its own budget AND sorting it by discount
-      # is what surfaces those; `pollo-carne-y-pescado` alone has 2,406 products.
-      #
-      # Discount sort stays trustworthy here in a way it does not for `tecnologia`, because
-      # these are narrow single-purpose categories of ordinary supermarket goods with few
-      # third-party sellers to inflate a list price.
-      #
-      # NOTE these are NESTED paths -- Exito files groceries under `mercado/`, while Carulla
-      # has the equivalents at top level. Slug validation walks the full tree, so a typo
-      # still gets caught rather than silently returning unfiltered products.
-      bestDiscountCategories:
-        - "mercado/pollo-carne-y-pescado"
-        - "mercado/frutas-y-verduras"
-        - "mercado/lacteos-huevos-y-refrigerados"
-        - "mercado/despensa"
-        - "mercado/congelados"
-        - "mercado/charcuteria-y-delicatessen"
-        - "mercado/panaderia-y-reposteria"
-        - "mercado/bebidas"
+      # The grocery aisles, dropped whichever query returned them (2026-09-25). Removing `mercado`
+      # from `categories` was not enough: watch terms are also searched store-wide, and `sanitario`
+      # kept bringing toilet brushes, cleaners and pet mats filed under Mercado back onto the feed.
+      # Matched against the top level of Exito's own category path.
+      excludeCategories: ["Mercado"]
 
   - id: carulla
     type: vtex
@@ -261,25 +240,151 @@ providers:
       maxPagesPerCategory: "2"
     listOptions:
       # Broad categories, so default (best-seller) order -- see the note on Exito's.
+      #
+      # Groceries moved to `carulla-grocery` (2026-09-24), for the same reason as Exito's. Worth
+      # knowing: nationally, Carulla's catalogue API priced some produce at 0 with 0 stock, and
+      # only a store-scoped request returns the real shelf price.
       categories: ["tecnologia", "electrodomesticos"]
 
-      # Sorted by advertised discount, same reasoning as Exito's. `despensa` moves here
-      # from `categories`: it holds 10,545 products, so best-seller order was returning a
-      # fixed sliver of full-price staples.
-      #
-      # These are TOP-LEVEL here, unlike Exito, because Carulla is grocery-first and has no
-      # `mercado` parent at all. Note the meat slug also differs by a letter -- Carulla's is
-      # `pollo-carnes-y-pescado` (plural), Exito's is `pollo-carne-y-pescado`. Both verified
-      # against each store's live tree.
-      bestDiscountCategories:
-        - "pollo-carnes-y-pescado"
-        - "frutas-y-verduras"
-        - "lacteos-huevos-y-refrigerados"
-        - "despensa"
-        - "congelados"
-        - "panaderia"
-        - "delicatessen"
-        - "bebidas-snacks-y-dulces"
+      # Same reason as Exito's. Carulla has no `Mercado` parent, so each grocery top level is named.
+      # Aseo del hogar and Mascotas are listed too: they are grocery-store aisles, not feed items.
+      excludeCategories:
+        - "Frutas y verduras"
+        - "Delicatessen"
+        - "Lacteos, huevos y refrigerados"
+        - "Panaderia"
+        - "Despensa"
+        - "Bebidas, snacks y dulces"
+        - "Pollo, Carnes y pescado"
+        - "Congelados"
+        - "Comidas preparadas"
+        - "Aseo del hogar"
+        - "Mascotas"
+
+  # ---------------------------------------------------------------------------------------
+  # Groceries at Laureles -- the /groceries tab. See VtexGrocerySource and README "Groceries".
+  #
+  # One provider per physical store. `regionSeller` is that store's VTEX seller, which is what the
+  # site's "¿Cómo quieres recibir tu pedido?" picker selects; prices and stock are that store's own.
+  # Found via /api/checkout/pub/pickup-points?geoCoordinates=<lng>;<lat>:
+  #   Carulla Laureles  carulla729   (Cq. 73B #39-20)
+  #   Exito Laureles    exitocol037  (Cra. 81 #37-100)
+  #   Exito Colombia    exitocol031  (Cra. 66 #49-1, Suramericana) -- added 2026-09-24
+  #
+  # `chain` groups stores of one retailer: the tab shows one row per product per chain, at the
+  # cheaper of its stores, tagged with the store it came from. Each store keeps its own price
+  # history, so "vs usual" always compares a store against itself. `storeLabel` is the tag.
+  #
+  # Why both Exitos: on a 400-item sample their prices differed on 7-17 of every 50 meat and produce
+  # items (Lechuga crespa 6,780 at Laureles vs 4,120 at Colombia; Juan Valdez 454 g 29,925 vs 37,050),
+  # dairy was identical, and 5-25% of items were stocked at only one of the two.
+  #
+  # Read twice a day at fixed local hours (`runAtHours`, changed from once daily 2026-09-24): 07:00 and
+  # 15:00, except Exito Colombia at 08:00 and 16:00 so the two Exitos never share www.exito.com. So a
+  # promotion that starts or ends mid-day is seen. Morning catches the day's opening prices, the
+  # afternoon one what changed since, both while there is still time to shop. Each crawl is ~250
+  # requests per store, ~5 minutes. A slot missed while the Mac slept runs at the next poll, once.
+  # `staleAfterHours` is above 48 so a row is not retired if a whole day's crawls fail.
+  #
+  # `categories` entries are `path = Aisle label`; the label is what the tab filters by, and the
+  # same aisle at both stores shares one label.
+  #
+  # DELIBERATELY NOT CRAWLED (2026-09-24), kept here in case they are wanted later. In-stock counts
+  # at Laureles on that date:
+  #   exito:   mercado/mascotas (3,310), mercado/aseo-del-hogar (2,336), cuidado-personal, vinos-y-licores
+  #   carulla: mascotas, aseo-del-hogar, salud-y-belleza, vinos-y-licores
+  # Adding one is a line below with a label.
+  # ---------------------------------------------------------------------------------------
+  - id: exito-grocery
+    type: vtex-grocery
+    enabled: true
+    baseUrl: "https://www.exito.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      regionSeller: "exitocol037"
+      storeLabel: "Exito Laureles"
+      chain: "exito"
+      staleAfterHours: "60"
+    listOptions:
+      # Twice a day, at fixed local hours, to catch promotions that start or end mid-day. See the
+      # header comment above for why these hours.
+      runAtHours: ["7", "15"]
+      # Sizes at Laureles on 2026-09-24. `despensa` (2,965) is over the 2,500-per-query cap and
+      # is split into its children automatically.
+      categories:
+        - "mercado/pollo-carne-y-pescado = Meat & fish"
+        - "mercado/frutas-y-verduras = Fruit & veg"
+        - "mercado/lacteos-huevos-y-refrigerados = Dairy & eggs"
+        - "mercado/despensa = Pantry"
+        - "mercado/charcuteria-y-delicatessen = Deli"
+        - "mercado/panaderia-y-reposteria = Bakery"
+        - "mercado/congelados = Frozen"
+        - "mercado/bebidas = Drinks"
+        - "mercado/pasabocas-y-snacks = Snacks & sweets"
+        - "mercado/dulces-y-chocolateria = Snacks & sweets"
+        - "mercado/comidas-preparadas = Prepared"
+        - "mercado/alimentacion-para-bebes = Baby food"
+
+  - id: exito-colombia-grocery
+    type: vtex-grocery
+    enabled: true
+    baseUrl: "https://www.exito.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      regionSeller: "exitocol031"
+      storeLabel: "Exito Colombia"
+      chain: "exito"
+      staleAfterHours: "60"
+    listOptions:
+      # Same aisles as exito-grocery, one hour later (2026-09-24). Both Exitos are the one host,
+      # www.exito.com, so running them together meant ~12 minutes of back-to-back requests; an hour
+      # apart it is two ~6-minute crawls. 08:00 and 16:00 are still early enough to shop that day.
+      runAtHours: ["8", "16"]
+      categories:
+        - "mercado/pollo-carne-y-pescado = Meat & fish"
+        - "mercado/frutas-y-verduras = Fruit & veg"
+        - "mercado/lacteos-huevos-y-refrigerados = Dairy & eggs"
+        - "mercado/despensa = Pantry"
+        - "mercado/charcuteria-y-delicatessen = Deli"
+        - "mercado/panaderia-y-reposteria = Bakery"
+        - "mercado/congelados = Frozen"
+        - "mercado/bebidas = Drinks"
+        - "mercado/pasabocas-y-snacks = Snacks & sweets"
+        - "mercado/dulces-y-chocolateria = Snacks & sweets"
+        - "mercado/comidas-preparadas = Prepared"
+        - "mercado/alimentacion-para-bebes = Baby food"
+
+  - id: carulla-grocery
+    type: vtex-grocery
+    enabled: true
+    baseUrl: "https://www.carulla.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      regionSeller: "carulla729"
+      storeLabel: "Carulla Laureles"
+      chain: "carulla"
+      staleAfterHours: "60"
+    listOptions:
+      runAtHours: ["7", "15"]
+      # Top-level at Carulla, which has no `mercado` parent. Note `pollo-carnes-y-pescado` (plural)
+      # against Exito's singular.
+      categories:
+        - "pollo-carnes-y-pescado = Meat & fish"
+        - "frutas-y-verduras = Fruit & veg"
+        - "lacteos-huevos-y-refrigerados = Dairy & eggs"
+        - "despensa = Pantry"
+        - "delicatessen = Deli"
+        - "panaderia = Bakery"
+        - "congelados = Frozen"
+        - "bebidas-snacks-y-dulces/gaseosas-y-bebidas = Drinks"
+        - "bebidas-snacks-y-dulces/dulces-y-chocolates = Snacks & sweets"
+        - "bebidas-snacks-y-dulces/snacks = Snacks & sweets"
+        - "bebidas-snacks-y-dulces/frutos-secos = Snacks & sweets"
+        - "bebidas-snacks-y-dulces/galletas = Snacks & sweets"
+        - "comidas-preparadas = Prepared"
 
   - id: easy
     type: vtex

@@ -138,8 +138,9 @@ class DealRepository(
             INSERT INTO deals (source, source_deal_id, title, url, merchant, asin, category,
                                image_url, currency, co_shipping, community_score, posted_at,
                                category_group, gtin, model_code, match_key, model_key, brand,
+                               unit_measure, unit_quantity, grocery_group,
                                is_active, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
             ON CONFLICT (source, source_deal_id) DO UPDATE SET
                 title      = EXCLUDED.title,
                 url        = EXCLUDED.url,
@@ -166,6 +167,11 @@ class DealRepository(
                 -- (including correcting the folded form V12's backfill recovered from model_key),
                 -- while a poll that publishes none leaves the stored value alone.
                 brand      = COALESCE(EXCLUDED.brand, deals.brand),
+                -- Pack size is a fact of the listing, so a size the store now publishes replaces an
+                -- older reading, and a poll that yields none keeps what was known.
+                unit_measure  = COALESCE(EXCLUDED.unit_measure, deals.unit_measure),
+                unit_quantity = COALESCE(EXCLUDED.unit_quantity, deals.unit_quantity),
+                grocery_group = COALESCE(EXCLUDED.grocery_group, deals.grocery_group),
                 is_active  = TRUE,
                 last_seen_at = now()
             RETURNING id, (first_seen_at = last_seen_at) AS is_new
@@ -192,6 +198,12 @@ class DealRepository(
             // Trimmed and blank-to-null: a tile occasionally yields an empty brand element, and
             // "" would show up in the dropdown as a nameless option.
             st.setString(18, raw.brand?.trim()?.takeIf { it.isNotEmpty() })
+            // Both or neither: a quantity without its unit is meaningless, and the CHECKs in V16
+            // would reject half a pair only after the whole transaction had been built.
+            val sized = raw.unitMeasure != null && raw.unitQuantity != null
+            st.setString(19, raw.unitMeasure.takeIf { sized })
+            st.setBigDecimal(20, raw.unitQuantity.takeIf { sized })
+            st.setString(21, raw.groceryGroup)
             st.executeQuery().use { rs ->
                 rs.next()
                 return UpsertResult(rs.getLong("id"), rs.getBoolean("is_new"))
@@ -870,6 +882,25 @@ class DealRepository(
         }
     }
 
+    /**
+     * When [source] last FINISHED a fetch without error, or null if it never has. Asked by the
+     * scheduler, so a run is judged by when it completed.
+     *
+     * `finished_at`, not `started_at`: a catch-up crawl that started at 06:43 and, slowed by a
+     * sleeping Mac, finished at 07:51 had read the store past the 07:00 slot -- keyed on its start it
+     * counted as "before 07:00" and the same store was crawled again at 07:57.
+     */
+    fun lastSuccessfulRun(source: String): Instant? =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT max(finished_at) FROM fetch_runs " +
+                    "WHERE source = ? AND finished_at IS NOT NULL AND error IS NULL AND item_count > 0",
+            ).use { st ->
+                st.setString(1, source)
+                st.executeQuery().use { rs -> if (rs.next()) rs.getTimestamp(1)?.toInstant() else null }
+            }
+        }
+
     fun recentRuns(limit: Int = 20): List<Map<String, Any?>> =
         ds.connection.use { conn ->
             conn.prepareStatement(
@@ -909,42 +940,49 @@ class DealRepository(
             }
         }
     }
-
-    private fun ResultSet.toDeal() = Deal(
-        id = getLong("id"),
-        source = getString("source"),
-        sourceDealId = getString("source_deal_id"),
-        title = getString("title"),
-        url = getString("url"),
-        merchant = getString("merchant"),
-        asin = getString("asin"),
-        category = getString("category"),
-        imageUrl = getString("image_url"),
-        currency = getString("currency"),
-        firstSeenAt = getTimestamp("first_seen_at").toInstant(),
-        lastSeenAt = getTimestamp("last_seen_at").toInstant(),
-        isActive = getBoolean("is_active"),
-        state = DealState.valueOf(getString("state")),
-        coShipping = CoShipping.valueOf(getString("co_shipping")),
-        promoted = getBoolean("promoted"),
-        promotedAt = getTimestamp("promoted_at")?.toInstant(),
-        communityScore = getInt("community_score").takeIf { !wasNull() },
-        postedAt = getTimestamp("posted_at")?.toInstant(),
-        categoryGroup = getString("category_group"),
-        brand = getString("brand"),
-        gtin = getString("gtin"),
-        modelCode = getString("model_code"),
-        matchKey = getString("match_key"),
-        modelKey = getString("model_key"),
-        coShippingSource = getString("co_shipping_source"),
-        coShippingEvidence = getString("co_shipping_evidence"),
-        coShippingImportFree = getBoolean("co_shipping_import_free").takeIf { !wasNull() },
-        coShippingCost = getBigDecimal("co_shipping_cost"),
-        price = getBigDecimal("price"),
-        listPrice = getBigDecimal("list_price"),
-        minPriceEver = getBigDecimal("min_price"),
-        maxPriceEver = getBigDecimal("max_price"),
-        observationCount = getInt("n"),
-        relevance = getDouble("relevance"),
-    )
 }
+
+/**
+ * One row of the shared deal select -- `d.*` plus the latest observation (`price`, `list_price`),
+ * the history aggregate (`min_price`, `max_price`, `n`) and `relevance`.
+ *
+ * File-level rather than private to [DealRepository] so the grocery query, which selects the same
+ * columns and more, builds its [Deal] the same way instead of a second mapping that could drift.
+ */
+internal fun ResultSet.toDeal() = Deal(
+    id = getLong("id"),
+    source = getString("source"),
+    sourceDealId = getString("source_deal_id"),
+    title = getString("title"),
+    url = getString("url"),
+    merchant = getString("merchant"),
+    asin = getString("asin"),
+    category = getString("category"),
+    imageUrl = getString("image_url"),
+    currency = getString("currency"),
+    firstSeenAt = getTimestamp("first_seen_at").toInstant(),
+    lastSeenAt = getTimestamp("last_seen_at").toInstant(),
+    isActive = getBoolean("is_active"),
+    state = DealState.valueOf(getString("state")),
+    coShipping = CoShipping.valueOf(getString("co_shipping")),
+    promoted = getBoolean("promoted"),
+    promotedAt = getTimestamp("promoted_at")?.toInstant(),
+    communityScore = getInt("community_score").takeIf { !wasNull() },
+    postedAt = getTimestamp("posted_at")?.toInstant(),
+    categoryGroup = getString("category_group"),
+    brand = getString("brand"),
+    gtin = getString("gtin"),
+    modelCode = getString("model_code"),
+    matchKey = getString("match_key"),
+    modelKey = getString("model_key"),
+    coShippingSource = getString("co_shipping_source"),
+    coShippingEvidence = getString("co_shipping_evidence"),
+    coShippingImportFree = getBoolean("co_shipping_import_free").takeIf { !wasNull() },
+    coShippingCost = getBigDecimal("co_shipping_cost"),
+    price = getBigDecimal("price"),
+    listPrice = getBigDecimal("list_price"),
+    minPriceEver = getBigDecimal("min_price"),
+    maxPriceEver = getBigDecimal("max_price"),
+    observationCount = getInt("n"),
+    relevance = getDouble("relevance"),
+)

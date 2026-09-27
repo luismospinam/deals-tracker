@@ -4,6 +4,8 @@ import com.luis.dealstracker.ask.AskService
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.FeedFilter
+import com.luis.dealstracker.db.GroceryFilter
+import com.luis.dealstracker.db.GroceryRepository
 import com.luis.dealstracker.db.WatchDraft
 import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
@@ -57,9 +59,10 @@ fun Application.routes(
     scope: CoroutineScope,
     ask: AskService,
     rates: ExchangeRates,
+    groceries: GroceryRepository,
 ) {
     routing {
-        askRoutes(ask, repo, watches, manualItems, app, rates)
+        askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
 
         // Serves src/main/resources/static/*. Keeping the CSS on disk rather than in a
         // Kotlin constant means style edits need only a browser refresh.
@@ -335,6 +338,57 @@ fun Application.routes(
             )
 
             call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode(outcome.message, "UTF-8"))
+        }
+
+        /**
+         * Exito and Carulla's grocery aisles at Laureles -- see [groceryPage].
+         *
+         * Every row is loaded and the view filtered in Kotlin, as `/tracked` does: the deal rule is a
+         * property of [com.luis.dealstracker.db.GroceryRow], and a second copy of it in SQL would be
+         * the drift `DealScore` exists to prevent. The subcategory filter IS pushed to SQL, since it
+         * is a plain column and the one that makes a full-catalogue view small.
+         */
+        get("/groceries") {
+            val sources = grocerySources(app)
+            val controls = GroceryControls.from(call.request.queryParameters)
+            val (rows, groups, pinnedCount) = withContext(Dispatchers.IO) {
+                // The Pinned view ignores the aisle filter and search: it is the whole shopping list.
+                val filter = if (controls.view == GroceryView.PINNED) {
+                    GroceryFilter(sources, pinnedOnly = true)
+                } else {
+                    GroceryFilter(sources, controls.groups.toList(), controls.search)
+                }
+                Triple(mergeStores(groceries.rows(filter), groceryStores(app)), groceries.groups(sources), groceries.pinnedCount(sources))
+            }
+            val sync = withContext(Dispatchers.IO) { grocerySyncLines(app, groceries.syncStatus(sources)) }
+            call.respondHtml {
+                page("Groceries — Deals Tracker") {
+                    askPanel("groceries", "e.g. what meat is well under its usual price this week?")
+                    groceryPage(rows, groups, controls, sources, pinnedCount, sync)
+                }
+            }
+        }
+
+        // Same shape as the feed's favorite toggle: on Deals and All items the row is swapped for itself
+        // with the new pin state; on Pinned an unpin answers with an empty body, so htmx's outerHTML swap
+        // removes the row -- leaving it there would put an unpinned item on the Pinned list.
+        post("/groceries/{id}/{action}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val pinned = when (call.parameters["action"]) {
+                "pin" -> true
+                "unpin" -> false
+                else -> return@post call.respondText("unknown action", status = HttpStatusCode.NotFound)
+            }
+            val view = GroceryView.of(call.request.queryParameters["view"])
+            val sources = grocerySources(app)
+            val row = withContext(Dispatchers.IO) {
+                if (groceries.setPinned(id, pinned, sources).isEmpty()) null
+                // Re-merged, so the swapped row still shows the cheaper store and the other one's price.
+                else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), groceryStores(app)).firstOrNull()
+            } ?: return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
+            val body = if (view == GroceryView.PINNED && !pinned) "" else groceryRowFragment(row, view)
+            call.respondText(body, ContentType.Text.Html)
         }
 
         post("/tracked/{id}/hide") {
@@ -662,10 +716,11 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
  *
  * The feed ranks offers. `amazon` stores the operator's clothing in their size and
  * `amazon-watch` stores whatever a watch searched Amazon for — both at full price as often as not,
- * and both already shown where they belong (Tracked, and each watch's page). By type rather than by
- * id, so a second provider of either kind stays off the feed without a code change.
+ * and both already shown where they belong (Tracked, and each watch's page). `vtex-grocery` is the
+ * whole food catalogue of two stores, ~15,000 rows that would bury the feed's cap, judged on its own
+ * tab against its own history. By type rather than by id, so a second provider of either kind stays off the feed without a code change.
  */
-private val FEED_HIDDEN_TYPES = setOf("amazon", "amazon-watch")
+private val FEED_HIDDEN_TYPES = setOf("amazon", "amazon-watch", GROCERY_TYPE)
 
 /** The provider ids [FEED_HIDDEN_TYPES] resolves to, enabled or not — disabling one keeps its rows. */
 internal fun feedHiddenSources(app: AppConfig): List<String> =

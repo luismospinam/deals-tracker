@@ -26,6 +26,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.luis.dealstracker.ask.mentionedDeals
 import com.luis.dealstracker.model.formatMoney
+import com.luis.dealstracker.db.GroceryFilter
+import com.luis.dealstracker.db.GroceryRepository
+import com.luis.dealstracker.db.GroceryRow
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -50,6 +53,7 @@ fun Routing.askRoutes(
     manualItems: ManualItemRepository,
     app: AppConfig,
     rates: ExchangeRates,
+    groceries: GroceryRepository,
 ) {
     post("/ask") {
         val form = call.receiveParameters()
@@ -63,7 +67,7 @@ fun Routing.askRoutes(
         val screen = form["screen"].orEmpty()
         val qs = form["qs"].orEmpty().removePrefix("?")
         val context = withContext(Dispatchers.IO) {
-            askContextFor(screen, parseQueryString(qs), ask.maxRows, repo, watches, manualItems, app, rates.current())
+            askContextFor(screen, parseQueryString(qs), ask.maxRows, repo, watches, manualItems, app, rates.current(), groceries)
         } ?: return@post call.respondText("unknown screen", status = HttpStatusCode.BadRequest)
 
         // The screen's identity for follow-ups: same screen, same filters. See AskService.
@@ -163,6 +167,7 @@ internal fun askContextFor(
     manualItems: ManualItemRepository,
     app: AppConfig,
     fx: FxRate,
+    groceries: GroceryRepository? = null,
 ): AskContext? = when {
     screen == "feed" -> feedContext("deal feed", feedScreenFilter(params, app), maxRows, repo)
     screen == "favorites" -> feedContext("favorites", favoritesFilter(params), maxRows, repo)
@@ -188,6 +193,32 @@ internal fun askContextFor(
                     "the question is usually about price movement, not discount.",
             ),
             deals = shown.take(maxRows),
+            omitted = (shown.size - maxRows).coerceAtLeast(0),
+        )
+    }
+    screen == "groceries" && groceries != null -> {
+        val controls = GroceryControls.from(params)
+        val rows = groceries.rows(
+            if (controls.view == GroceryView.PINNED) GroceryFilter(grocerySources(app), pinnedOnly = true)
+            else GroceryFilter(grocerySources(app), controls.groups.toList(), controls.search),
+        )
+        val shown = groceryShown(mergeStores(rows, groceryStores(app)), controls)
+        AskContext(
+            label = "groceries at Laureles (${controls.view.label.lowercase()})",
+            preamble = buildList {
+                add(
+                    "Grocery items at Exito Laureles, Exito Colombia and Carulla Laureles; each Exito product is " +
+                        "shown once, at the cheaper of the two Exitos, and 'source' names that store. 'low' and 'high' are over all " +
+                        "recorded days; a deal on this screen means at least ${GroceryRow.DEAL_PERCENT}% under the " +
+                        "item's own 30-day median daily price. Compare pack sizes from the title before " +
+                        "calling one item cheaper than another.",
+                )
+                // The per-row usual price is not a table column, so the rows that have one say it here.
+                shown.take(maxRows).filter { it.belowUsual != null }.take(60).forEach {
+                    add("#${it.deal.id} at ${it.store}: usual ${it.usual?.toPlainString()} (${it.belowUsual}% below, ${it.days} days)")
+                }
+            },
+            deals = shown.take(maxRows).map { it.deal },
             omitted = (shown.size - maxRows).coerceAtLeast(0),
         )
     }

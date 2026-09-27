@@ -1529,3 +1529,26 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 }
 .ask-product a { color: var(--accent); }
 .ask-product-meta { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); }
+
+/* ---------------------------------------------------------------------------
+ * Groceries (/groceries)
+ *
+ * Reuses the Tracked table shell -- same question shape, "what does this cost me over time" --
+ * and adds only the All items search box.
+ * ------------------------------------------------------------------------ */
+
+/* The chain's other store and its price, under the store tag: quiet, since the row's own price is the
+ * cheaper one and this is only the comparison. */
+.store-alt {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.grocery-search { display: flex; gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
+.grocery-search input[type="search"] { min-width: 22rem; }
+
+/* A pinned staple Laureles no longer stocks: kept, but visibly not buyable. */
+.grocery tr.paused td { opacity: 0.55; }

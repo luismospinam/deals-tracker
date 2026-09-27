@@ -95,6 +95,14 @@ data class RawDeal(
      * `V15__watch_amazon_terms`.
      */
     val watchIds: Set<Long> = emptySet(),
+    /**
+     * Pack size in a base unit -- `g`, `ml` or `un` -- for unit pricing. Only the grocery adapter
+     * sets these; see `V16__groceries` and [com.luis.dealstracker.ingest.UnitSize].
+     */
+    val unitMeasure: String? = null,
+    val unitQuantity: BigDecimal? = null,
+    /** The grocery tab's subcategory label, e.g. "Meat & fish". Null outside the grocery providers. */
+    val groceryGroup: String? = null,
 ) {
     /**
      * Advertised discount as a percentage, or null when there's no usable list price.
@@ -190,6 +198,17 @@ data class Deal(
                 .multiply(BigDecimal(100))
                 .setScale(1, RoundingMode.HALF_UP)
         }
+
+    /**
+     * The discount as the store's own badge shows it: a whole number, rounded DOWN.
+     *
+     * Exito and Carulla truncate rather than round. Measured against their rendered pages:
+     * 11,215 against 14,160 is 20.8% and the page reads `-20%`; 5,990 against 9,350 is 35.9% and
+     * it reads `-35%`. Rounding would show -21% and -36%, a number the operator would then fail to
+     * find on the store's own page.
+     */
+    val storeDiscountPercent: Int?
+        get() = discountPercent?.setScale(0, RoundingMode.DOWN)?.toInt()?.takeIf { it > 0 }
 
     /**
      * True when the price actually came down from something higher we recorded.
