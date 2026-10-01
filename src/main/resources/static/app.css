@@ -169,6 +169,13 @@ header h1::after {
 /* Pushes the trailing masthead items to the right rail, so the nameplate sits alone. */
 .masthead-gap { flex: 1; }
 
+/* EN / ES. The active language is full-strength and underlined, the other a quiet link, so the
+ * current choice never rests on colour alone. */
+.langswitch { display: inline-flex; gap: 5px; align-items: center; }
+.langswitch a { color: var(--text-faint); }
+.langswitch a.on { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.langsep { color: var(--line); }
+
 main { padding: 20px 22px 72px; max-width: 1500px; }
 
 /* ---------- scope row ----------
@@ -924,7 +931,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   header h1::after { height: 14px; width: 6px; }
   /* The trailing masthead labels are the first thing to go — the nameplate and the feed
    * link are the only parts that do work at this width. */
-  header .sub:last-of-type { display: none; }
+  header .sub.tagline { display: none; }
   main { padding: 15px 12px 56px; }
   .col-seen, .col-thumb { display: none; }
   /* Hiding .col-thumb takes its ::before with it, so the deal cell has to pick the gutter
@@ -1613,6 +1620,14 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   .more-grid input, .more-grid select { width: 100%; }
 
   .chip-tog, .typetag { padding-block: 7px; }
+  /* Two lines: the nameplate alone, then the four tabs with EN / ES at the right. On one line the
+   * switch was pushed off the edge. Wrapping is safe here, unlike on desktop, because cards have no
+   * sticky thead that has to sit exactly --header-h below the masthead. */
+  header { flex-wrap: wrap; height: auto; row-gap: 6px; padding-block: 10px 9px; }
+  header .masthead-gap { flex: 0 0 100%; height: 0; order: -1; }
+  header h1 { order: -2; }
+  header .langswitch { margin-left: auto; }
+  .langswitch a { padding: 6px 4px; }
   .scopes { display: flex; }
   .scope { flex: 1; justify-content: center; padding: 10px 8px; }
 

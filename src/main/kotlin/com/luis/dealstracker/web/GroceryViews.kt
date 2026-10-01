@@ -1,6 +1,10 @@
 package com.luis.dealstracker.web
 
 import com.luis.dealstracker.config.AppConfig
+import com.luis.dealstracker.i18n.I18n
+import com.luis.dealstracker.i18n.Lang
+import com.luis.dealstracker.i18n.aisleLabel
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.db.GroceryRow
 import com.luis.dealstracker.db.SyncStatus
 import com.luis.dealstracker.ingest.unitPriceLabel
@@ -116,10 +120,13 @@ internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStor
  * The grocery tab's three screens, as the feed has All deals / Favorites: Deals (the default),
  * everything on the shelf for finding a staple, and the staples pinned so far.
  */
-internal enum class GroceryView(val key: String, val label: String) {
-    DEALS("deals", "Deals"),
-    ALL("all", "All items"),
-    PINNED("pinned", "Pinned");
+internal enum class GroceryView(val key: String, val label: String, private val labelEs: String) {
+    DEALS("deals", "Deals", "Ofertas"),
+    ALL("all", "All items", "Todo"),
+    PINNED("pinned", "Pinned", "Fijados");
+
+    /** [label] in the active language. [label] itself stays English: the Ask context and tests read it. */
+    fun display(): String = tr(label, labelEs)
 
     companion object {
         fun of(value: String?) = entries.firstOrNull { it.key.equals(value?.trim(), ignoreCase = true) } ?: DEALS
@@ -262,10 +269,18 @@ internal fun MAIN.groceryPage(
     syncFooter(sync)
     storage?.let { st ->
         p("tracked-note") {
-            title = "Price readings, distinct promotions and banner configs kept for later analysis"
-            +("Database ${"%.0f".format(st.databaseBytes / 1_048_576.0)} MB · " +
-                "${String.format("%,d", st.observations)} price readings · " +
-                "${String.format("%,d", st.promotions)} promotions · ${String.format("%,d", st.banners)} banner configs")
+            title = tr(
+                "Price readings, distinct promotions and banner configs kept for later analysis",
+                "Lecturas de precio, promociones distintas y configuraciones de banners guardadas para análisis",
+            )
+            val mb = "%.0f".format(st.databaseBytes / 1_048_576.0)
+            val obs = String.format("%,d", st.observations)
+            val promos = String.format("%,d", st.promotions)
+            val banners = String.format("%,d", st.banners)
+            +tr(
+                "Database $mb MB · $obs price readings · $promos promotions · $banners banner configs",
+                "Base de datos $mb MB · $obs lecturas de precio · $promos promociones · $banners configuraciones de banners",
+            )
         }
     }
 }
@@ -279,17 +294,31 @@ private fun MAIN.groceryBody(
     chainCounts: List<Triple<String, String, Int>>,
 ) {
     p("tracked-intro") {
-        +"Exito, Carulla and PriceSmart's grocery aisles, priced and stocked at "
-        span("strong") { +"Exito Laureles and Colombia, Carulla Laureles, and PriceSmart Las Américas and El Poblado" }
-        +". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its "
-        +"daily prices over the last 30 days — never the store's \"before\" price. Read at 07:00 and 15:00."
+        +tr(
+            "Exito, Carulla and PriceSmart's grocery aisles, priced and stocked at ",
+            "Los pasillos de mercado de Exito, Carulla y PriceSmart, con precio y existencias de ",
+        )
+        span("strong") {
+            +tr(
+                "Exito Laureles and Colombia, Carulla Laureles, and PriceSmart Las Américas and El Poblado",
+                "Exito Laureles y Colombia, Carulla Laureles, y PriceSmart Las Américas y El Poblado",
+            )
+        }
+        +tr(
+            ". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its ",
+            ". Un producto que se vende en dos tiendas de la misma cadena aparece una sola vez, en la más barata, marcado con cuál es. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus ",
+        )
+        +tr(
+            "daily prices over the last 30 days — never the store's \"before\" price. Read at 07:00 and 15:00.",
+            "precios diarios de los últimos 30 días — nunca el precio \"antes\" de la tienda. Se lee a las 07:00 y 15:00.",
+        )
     }
 
     if (sources.isEmpty()) {
         div("empty") {
-            +"No grocery providers are enabled. Add one with "
+            +tr("No grocery providers are enabled. Add one with ", "No hay proveedores de mercado activos. Agrega uno con ")
             code { +"type: $GROCERY_TYPE" }
-            +" in config/sources.yaml."
+            +tr(" in config/sources.yaml.", " en config/sources.yaml.")
         }
         return
     }
@@ -297,7 +326,10 @@ private fun MAIN.groceryBody(
     // and must still show the tabs, not claim the stores have never been read.
     if (groupCounts.isEmpty()) {
         div("empty") {
-            +"Nothing read yet. The first crawl runs on the next poll, or now with "
+            +tr(
+                "Nothing read yet. The first crawl runs on the next poll, or now with ",
+                "Aún no se ha leído nada. La primera lectura corre en la próxima consulta, o ahora con ",
+            )
             code { +"./dt run --args=\"--fetch-once --source=${sources.first()}\"" }
             +"."
         }
@@ -310,7 +342,7 @@ private fun MAIN.groceryBody(
             val on = v == controls.view
             a(href = controls.url(view = v, sort = null), classes = if (on) "scope on" else "scope") {
                 if (on) attributes["aria-current"] = "page"
-                +v.label
+                +v.display()
                 // Shown only when there are some, as on Favorites: "Pinned 0" reads as a broken counter.
                 if (v == GroceryView.PINNED && pinnedCount > 0) span("scope-count") { +"$pinnedCount" }
             }
@@ -331,9 +363,12 @@ private fun MAIN.groceryBody(
             input(type = InputType.search, name = "q") {
                 value = controls.search.orEmpty()
                 placeholder = "leche | huevos | café"
-                title = "Title search, accent-insensitive. Separate terms with | to match any of them."
+                title = tr(
+                    "Title search, accent-insensitive. Separate terms with | to match any of them.",
+                    "Búsqueda por título, sin importar tildes. Separa términos con | para encontrar cualquiera de ellos.",
+                )
             }
-            button { +"Search" }
+            button { +tr("Search", "Buscar") }
         }
     }
 
@@ -345,13 +380,18 @@ private fun MAIN.groceryBody(
     val shown = groceryShown(rows, controls)
     val young = rows.count { it.onShelf && it.days < GroceryRow.MIN_DAYS }
     div("tracked-count") {
-        +"${shown.size} item(s)"
+        +tr("${shown.size} item(s)", "${shown.size} producto(s)")
         if (controls.view == GroceryView.DEALS && young > 0) {
             // On the first days almost every row is young, and an empty Deals view otherwise reads as
             // "nothing is on offer" rather than "not enough history to judge".
             span("tracked-note") {
-                +(" · $young of ${rows.count { it.onShelf }} on the shelf have under ${GroceryRow.MIN_DAYS} days of " +
-                    "history and cannot be judged yet")
+                val onShelf = rows.count { it.onShelf }
+                +tr(
+                    " · $young of $onShelf on the shelf have under ${GroceryRow.MIN_DAYS} days of " +
+                        "history and cannot be judged yet",
+                    " · $young de $onShelf en góndola tienen menos de ${GroceryRow.MIN_DAYS} días de " +
+                        "historial y aún no se pueden evaluar",
+                )
             }
         }
     }
@@ -360,16 +400,19 @@ private fun MAIN.groceryBody(
         div("empty") {
             when (controls.view) {
                 GroceryView.DEALS -> {
-                    +"Nothing is ${GroceryRow.DEAL_PERCENT}% under its usual price right now. "
-                    a(href = controls.url(view = GroceryView.ALL, sort = null)) { +"Browse all items" }
-                    +" to pin staples in the meantime."
+                    +tr(
+                        "Nothing is ${GroceryRow.DEAL_PERCENT}% under its usual price right now. ",
+                        "Nada está ${GroceryRow.DEAL_PERCENT}% por debajo de su precio habitual en este momento. ",
+                    )
+                    a(href = controls.url(view = GroceryView.ALL, sort = null)) { +tr("Browse all items", "Explora todos los productos") }
+                    +tr(" to pin staples in the meantime.", " para fijar tus básicos mientras tanto.")
                 }
                 GroceryView.PINNED -> {
-                    +"Nothing pinned yet. Use ☆ pin on "
-                    a(href = controls.url(view = GroceryView.ALL, sort = null)) { +"All items" }
-                    +" to keep staples here."
+                    +tr("Nothing pinned yet. Use ☆ pin on ", "Aún no hay nada fijado. Usa ☆ fijar en ")
+                    a(href = controls.url(view = GroceryView.ALL, sort = null)) { +GroceryView.ALL.display() }
+                    +tr(" to keep staples here.", " para tener tus básicos aquí.")
                 }
-                GroceryView.ALL -> +"No items match."
+                GroceryView.ALL -> +tr("No items match.", "Ningún producto coincide.")
             }
         }
         return
@@ -379,7 +422,12 @@ private fun MAIN.groceryBody(
     val cap = 1000
     groceryTable(shown.take(cap), controls)
     if (shown.size > cap) {
-        p("tracked-note") { +"Showing the first $cap of ${shown.size}. Narrow with a subcategory or a search." }
+        p("tracked-note") {
+            +tr(
+                "Showing the first $cap of ${shown.size}. Narrow with a subcategory or a search.",
+                "Mostrando los primeros $cap de ${shown.size}. Acota con una subcategoría o una búsqueda.",
+            )
+        }
     }
 }
 
@@ -390,7 +438,7 @@ private fun MAIN.groceryBody(
 private fun MAIN.storeTags(chainCounts: List<Triple<String, String, Int>>, controls: GroceryControls) {
     if (chainCounts.size < 2) return
     div("typetags") {
-        span("typetags-label") { +"Store" }
+        span("typetags-label") { +tr("Store", "Tienda") }
         chainCounts.forEach { (chain, name, n) ->
             val on = chain in controls.chains
             val next = if (on) controls.chains - chain else controls.chains + chain
@@ -400,7 +448,7 @@ private fun MAIN.storeTags(chainCounts: List<Triple<String, String, Int>>, contr
             }
         }
         if (controls.chains.isNotEmpty()) {
-            a(classes = "typetag clear", href = controls.url(chains = emptySet())) { +"clear" }
+            a(classes = "typetag clear", href = controls.url(chains = emptySet())) { +tr("clear", "quitar") }
         }
     }
 }
@@ -408,17 +456,17 @@ private fun MAIN.storeTags(chainCounts: List<Triple<String, String, Int>>, contr
 private fun MAIN.groupTags(groupCounts: List<Pair<String, Int>>, controls: GroceryControls) {
     if (groupCounts.isEmpty()) return
     div("typetags") {
-        span("typetags-label") { +"Aisle" }
+        span("typetags-label") { +tr("Aisle", "Pasillo") }
         groupCounts.forEach { (group, n) ->
             val on = group in controls.groups
             val next = if (on) controls.groups - group else controls.groups + group
             a(classes = if (on) "typetag on" else "typetag", href = controls.url(groups = next)) {
-                +group
+                +aisleLabel(group)
                 span("typetag-n") { +n.toString() }
             }
         }
         if (controls.groups.isNotEmpty()) {
-            a(classes = "typetag clear", href = controls.url(groups = emptySet())) { +"clear" }
+            a(classes = "typetag clear", href = controls.url(groups = emptySet())) { +tr("clear", "quitar") }
         }
     }
 }
@@ -428,56 +476,75 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
     // meaningful once there is history, but it is offered on every view, as its header is.
     sortTags(
         listOf(
-            "Item" to GrocerySort.NAME, "Price" to GrocerySort.PRICE, "Card saving" to GrocerySort.CARD,
-            "Unit price" to GrocerySort.UNIT, "Store %" to GrocerySort.STORE, "vs usual" to GrocerySort.BELOW,
+            tr("Item", "Producto") to GrocerySort.NAME, tr("Price", "Precio") to GrocerySort.PRICE,
+            tr("Card saving", "Ahorro con tarjeta") to GrocerySort.CARD, tr("Unit price", "Precio unitario") to GrocerySort.UNIT,
+            tr("Store %", "% tienda") to GrocerySort.STORE, tr("vs usual", "vs habitual") to GrocerySort.BELOW,
         ).map { (label, sort) -> SortOption(label, controls.url(sort = sort), controls.sort == sort) },
     )
     table("deals tracked grocery") {
         thead {
             tr {
-                th(classes = "col-thumb") { attributes["aria-label"] = "image" }
-                sortableTh("Item", GrocerySort.NAME, controls, "col-deal")
-                th(classes = "col-size") { +"Store" }
+                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                sortableTh(tr("Item", "Producto"), GrocerySort.NAME, controls, "col-deal")
+                th(classes = "col-size") { +tr("Store", "Tienda") }
                 // Two sorts in one header: by the shelf price, or by how much a card saves on it today.
                 th(classes = "col-price") {
-                    title = "Shelf price, what anyone pays. The chip beneath is the card-only price where the store runs one."
+                    title = tr(
+                        "Shelf price, what anyone pays. The chip beneath is the card-only price where the store runs one.",
+                        "Precio en góndola, lo que paga cualquiera. La etiqueta debajo es el precio solo con tarjeta, cuando la tienda tiene uno.",
+                    )
                     a(href = controls.url(sort = GrocerySort.PRICE), classes = if (controls.sort == GrocerySort.PRICE) "sorted" else null) {
-                        +"Price"
+                        +tr("Price", "Precio")
                         if (controls.sort == GrocerySort.PRICE) span("dir") { +" ↓" }
                     }
                     +" "
                     a(href = controls.url(sort = GrocerySort.CARD), classes = if (controls.sort == GrocerySort.CARD) "sorted" else null) {
-                        title = "Biggest card saving over the shelf price first"
-                        +"· card"
+                        title = tr("Biggest card saving over the shelf price first", "Primero el mayor ahorro con tarjeta sobre el precio en góndola")
+                        +tr("· card", "· tarjeta")
                         if (controls.sort == GrocerySort.CARD) span("dir") { +" ↓" }
                     }
                 }
                 sortableTh(
-                    "Unit price", GrocerySort.UNIT, controls, "col-price",
-                    "Per 100 g, per litre or per unit, from the pack size in the listing. Blank when the " +
-                        "listing states none — never guessed.",
+                    tr("Unit price", "Precio unitario"), GrocerySort.UNIT, controls, "col-price",
+                    tr(
+                        "Per 100 g, per litre or per unit, from the pack size in the listing. Blank when the " +
+                            "listing states none — never guessed.",
+                        "Por 100 g, por litro o por unidad, según el tamaño del empaque en la publicación. Vacío cuando " +
+                            "la publicación no lo indica — nunca se adivina.",
+                    ),
                 )
                 th(classes = "col-price") {
-                    title = "Median of this item's daily prices at this store over the last 30 days, today excluded"
-                    +"Usual"
+                    title = tr(
+                        "Median of this item's daily prices at this store over the last 30 days, today excluded",
+                        "Mediana de los precios diarios de este producto en esta tienda en los últimos 30 días, sin contar hoy",
+                    )
+                    +tr("Usual", "Habitual")
                 }
                 sortableTh(
-                    "Store %", GrocerySort.STORE, controls, "col-disc",
-                    "The store's advertised discount against its own list price, as its page shows it " +
-                        "(rounded down). A claim by the store; \"vs usual\" is what we measured.",
+                    tr("Store %", "% tienda"), GrocerySort.STORE, controls, "col-disc",
+                    tr(
+                        "The store's advertised discount against its own list price, as its page shows it " +
+                            "(rounded down). A claim by the store; \"vs usual\" is what we measured.",
+                        "El descuento que anuncia la tienda frente a su propio precio de lista, como lo muestra su página " +
+                            "(redondeado hacia abajo). Es lo que afirma la tienda; \"vs habitual\" es lo que medimos.",
+                    ),
                 )
                 sortableTh(
-                    "vs usual", GrocerySort.BELOW, controls, "col-disc",
-                    "How far today's price is under the usual one. Blank until ${GroceryRow.MIN_DAYS} " +
-                        "earlier days are recorded.",
+                    tr("vs usual", "vs habitual"), GrocerySort.BELOW, controls, "col-disc",
+                    tr(
+                        "How far today's price is under the usual one. Blank until ${GroceryRow.MIN_DAYS} " +
+                            "earlier days are recorded.",
+                        "Cuánto está el precio de hoy por debajo del habitual. Vacío hasta tener ${GroceryRow.MIN_DAYS} " +
+                            "días anteriores registrados.",
+                    ),
                 )
                 th(classes = "col-price") {
-                    title = "Cheapest daily price in the last 30 days, today excluded"
-                    +"30d low"
+                    title = tr("Cheapest daily price in the last 30 days, today excluded", "El precio diario más bajo de los últimos 30 días, sin contar hoy")
+                    +tr("30d low", "Mín. 30d")
                 }
                 th(classes = "col-chg") {
-                    title = "Earlier days of history the usual price rests on"
-                    +"Days"
+                    title = tr("Earlier days of history the usual price rests on", "Días anteriores de historial en los que se basa el precio habitual")
+                    +tr("Days", "Días")
                 }
                 th(classes = "col-act") { +"" }
             }
@@ -526,40 +593,53 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 +deal.title
             }
             div("meta") {
-                row.group?.let { span("cat") { +it } }
+                row.group?.let { span("cat") { +aisleLabel(it) } }
                 deal.brand?.let { span { +it } }
                 if (!row.onShelf) span("chip chip-expired") {
-                    title = "Not in its store's latest crawl — out of stock at Laureles, or delisted. " +
-                        "The price is the last one seen."
-                    +"unavailable"
+                    title = tr(
+                        "Not in its store's latest crawl — out of stock at Laureles, or delisted. " +
+                            "The price is the last one seen.",
+                        "No apareció en la última lectura de su tienda — agotado en Laureles, o retirado. " +
+                            "El precio es el último visto.",
+                    )
+                    +tr("unavailable", "no disponible")
                 }
             }
         }
         // Which store the price is from, and what the chain's other store charges. Both shown, because
         // "cheaper at Colombia by 2,660" is a reason to walk to Colombia, and a bare tag is not.
         td(classes = "col-size") {
-            cardLabel("Store")
+            cardLabel(tr("Store", "Tienda"))
             span("size-chip") {
-                if (row.others.isNotEmpty()) title = "Cheapest of ${row.others.size + 1} stores stocking it"
+                if (row.others.isNotEmpty()) {
+                    title = tr(
+                        "Cheapest of ${row.others.size + 1} stores stocking it",
+                        "La más barata de ${row.others.size + 1} tiendas que lo tienen",
+                    )
+                }
                 +row.store.ifEmpty { storeName(deal.source) }
             }
             row.others.forEach { other ->
                 div("store-alt") {
-                    title = if (other.onShelf) "Same product at ${other.store}" else "${other.store}: not in its latest crawl"
+                    title = if (other.onShelf) {
+                        tr("Same product at ${other.store}", "El mismo producto en ${other.store}")
+                    } else {
+                        tr("${other.store}: not in its latest crawl", "${other.store}: no apareció en su última lectura")
+                    }
                     +"${other.store.substringAfterLast(' ')} "
-                    if (other.onShelf) +formatMoney(other.deal.price, other.deal.currency) else +"out"
+                    if (other.onShelf) +formatMoney(other.deal.price, other.deal.currency) else +tr("out", "agotado")
                 }
             }
         }
         // The shelf price stays the main number -- what anyone pays. The card price sits under it as
         // a chip, because it is conditional: only a Mastercard (or only the store's own card) gets it.
         td(classes = "col-price") {
-            cardLabel("Price")
+            cardLabel(tr("Price", "Precio"))
             div("price") { +formatMoney(deal.price, deal.currency) }
             row.card?.let { card -> cardChip(card, deal.currency) }
         }
         td(classes = "col-price") {
-            cardLabel("Unit price")
+            cardLabel(tr("Unit price", "Precio unitario"))
             val unit = row.unitPrice
             if (unit == null) span("muted") { +"—" } else {
                 +formatMoney(unit, deal.currency)
@@ -567,44 +647,51 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
             }
         }
         td(classes = "col-price") {
-            cardLabel("Usual")
+            cardLabel(tr("Usual", "Habitual"))
             row.usual?.takeIf { row.days >= GroceryRow.MIN_DAYS }?.let { +formatMoney(it, deal.currency) }
                 ?: span("muted") { +"—" }
         }
         td(classes = "col-disc") {
-            cardLabel("Store %")
+            cardLabel(tr("Store %", "% tienda"))
             deal.storeDiscountPercent?.let { span("disc disc-s${discountTier(BigDecimal(it))}") { +"−$it%" } }
                 ?: span("muted") { +"—" }
         }
         td(classes = "col-disc") {
-            cardLabel("vs usual")
+            cardLabel(tr("vs usual", "vs habitual"))
             val below = row.belowUsual
             when {
-                below == null -> span("muted") { title = "Under ${GroceryRow.MIN_DAYS} days of history"; +"new" }
+                below == null -> span("muted") {
+                    title = tr("Under ${GroceryRow.MIN_DAYS} days of history", "Menos de ${GroceryRow.MIN_DAYS} días de historial")
+                    +tr("new", "nuevo")
+                }
                 below.signum() > 0 -> span(if (row.isDeal) "lowbadge" else "chg chg-down") { +"−${below.toPlainString()}%" }
                 below.signum() < 0 -> span("chg chg-up") { +"+${below.negate().toPlainString()}%" }
                 else -> span("muted") { +"0%" }
             }
         }
         td(classes = "col-price") {
-            cardLabel("30d low")
+            cardLabel(tr("30d low", "Mín. 30d"))
             row.low?.takeIf { row.days >= 1 }?.let { +formatMoney(it, deal.currency) } ?: span("muted") { +"—" }
         }
         td(classes = "col-chg") {
-            cardLabel("Days")
+            cardLabel(tr("Days", "Días"))
             +row.days.toString()
         }
         td(classes = "col-act") {
             div("actions") {
-                a(href = "/deal/${deal.id}") { +"history" }
+                a(href = "/deal/${deal.id}") { +tr("history", "historial") }
                 val pinned = row.pinnedAt != null
                 button(classes = if (pinned) "fav-btn on" else "fav-btn") {
                     attributes["hx-post"] = "/groceries/${deal.id}/${if (pinned) "unpin" else "pin"}?view=${view.key}"
                     attributes["hx-target"] = "#grocery-${deal.id}"
                     attributes["hx-swap"] = "outerHTML"
                     attributes["aria-pressed"] = pinned.toString()
-                    title = if (pinned) "Unpin this staple" else "Pin as a staple, listed under Pinned"
-                    +if (pinned) "★ pinned" else "☆ pin"
+                    title = if (pinned) {
+                        tr("Unpin this staple", "Quitar este básico de fijados")
+                    } else {
+                        tr("Pin as a staple, listed under Pinned", "Fijar como básico, aparece en Fijados")
+                    }
+                    +if (pinned) tr("★ pinned", "★ fijado") else tr("☆ pin", "☆ fijar")
                 }
             }
         }
@@ -646,15 +733,15 @@ internal data class SyncLine(
 private fun MAIN.syncFooter(lines: List<SyncLine>) {
     if (lines.isEmpty()) return
     div("runs grocery-sync") {
-        h2 { +"Last sync" }
+        h2 { +tr("Last sync", "Última sincronización") }
         table {
             thead {
                 tr {
-                    th { +"Store" }
-                    th { +"Prices read" }
-                    th { +"Items" }
-                    th { +"Latest run" }
-                    th { +"Next" }
+                    th { +tr("Store", "Tienda") }
+                    th { +tr("Prices read", "Precios leídos") }
+                    th { +tr("Items", "Productos") }
+                    th { +tr("Latest run", "Última ejecución") }
+                    th { +tr("Next", "Siguiente") }
                 }
             }
             tbody {
@@ -666,29 +753,37 @@ private fun MAIN.syncFooter(lines: List<SyncLine>) {
                             st.lastSuccess?.let {
                                 +clockTime(it)
                                 span("muted") { +" · ${relativeAgo(it)}" }
-                            } ?: span("muted") { +"never" }
+                            } ?: span("muted") { +tr("never", "nunca") }
                         }
                         td { +(st.lastSuccessItems?.let { String.format("%,d", it) } ?: "—") }
                         td {
                             when {
-                                st.running -> +"running since ${clockTime(st.lastStarted!!)}…"
+                                st.running -> +tr(
+                                    "running since ${clockTime(st.lastStarted!!)}…",
+                                    "en curso desde ${clockTime(st.lastStarted!!)}…",
+                                )
                                 st.interrupted -> span("err") {
-                                    title = "Started and never finished — the app was stopped mid-crawl. The next scheduled run retries."
-                                    +"interrupted ${clockTime(st.lastStarted!!)}"
+                                    title = tr(
+                                        "Started and never finished — the app was stopped mid-crawl. The next scheduled run retries.",
+                                        "Empezó y nunca terminó — la app se detuvo a mitad de la lectura. La próxima ejecución programada lo reintenta.",
+                                    )
+                                    +tr("interrupted ${clockTime(st.lastStarted!!)}", "interrumpida ${clockTime(st.lastStarted!!)}")
                                 }
+                                // The crawler's own error text stays as it was logged: it is a diagnostic, and
+                                // a translated one could no longer be searched for in logs/app.log.
                                 st.failed -> span("err") {
-                                    title = st.lastError ?: "The run finished with 0 items"
-                                    +"failed ${clockTime(st.lastStarted!!)}"
-                                    +": ${(st.lastError ?: "0 items read").take(80)}"
+                                    title = st.lastError ?: tr("The run finished with 0 items", "La ejecución terminó con 0 productos")
+                                    +tr("failed ${clockTime(st.lastStarted!!)}", "falló ${clockTime(st.lastStarted!!)}")
+                                    +": ${(st.lastError ?: tr("0 items read", "0 productos leídos")).take(80)}"
                                 }
-                                st.lastStarted != null -> +"ok"
+                                st.lastStarted != null -> +tr("ok", "ok")
                                 else -> span("muted") { +"—" }
                             }
                         }
                         td {
-                            line.next?.let { +clockTime(it) } ?: span("muted") { +"every poll" }
+                            line.next?.let { +clockTime(it) } ?: span("muted") { +tr("every poll", "en cada consulta") }
                             line.schedule?.let { sched ->
-                                span("muted") { +" · daily at $sched" }
+                                span("muted") { +tr(" · daily at $sched", " · a diario a las $sched") }
                             }
                         }
                     }
@@ -704,10 +799,15 @@ internal fun clockTime(at: java.time.Instant, now: java.time.Instant = java.time
     val today = now.atZone(zone).toLocalDate()
     val hm = "%02d:%02d".format(t.hour, t.minute)
     return when (t.toLocalDate()) {
-        today -> "today $hm"
-        today.minusDays(1) -> "yesterday $hm"
-        today.plusDays(1) -> "tomorrow $hm"
-        else -> t.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.ENGLISH)) + " $hm"
+        today -> tr("today $hm", "hoy $hm")
+        today.minusDays(1) -> tr("yesterday $hm", "ayer $hm")
+        today.plusDays(1) -> tr("tomorrow $hm", "mañana $hm")
+        // "23 sept" in Spanish: day before month, as Colombia writes dates.
+        else -> if (I18n.lang == Lang.ES) {
+            t.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.forLanguageTag("es-CO"))) + " $hm"
+        } else {
+            t.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.ENGLISH)) + " $hm"
+        }
     }
 }
 

@@ -20,6 +20,7 @@ import com.luis.dealstracker.verify.AmazonVerifier
 import com.luis.dealstracker.verify.VerifyOutcome
 import com.luis.dealstracker.verify.VerifySlot
 import com.luis.dealstracker.verifyConfig
+import com.luis.dealstracker.i18n.tr
 import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -27,7 +28,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
-import io.ktor.server.html.respondHtml
 import io.ktor.server.response.header
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respondBytes
@@ -64,6 +64,7 @@ fun Application.routes(
 ) {
     routing {
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
+        languageRoute()
 
         // Serves src/main/resources/static/*. Keeping the CSS on disk rather than in a
         // Kotlin constant means style edits need only a browser refresh.
@@ -81,7 +82,7 @@ fun Application.routes(
             // count that fell to 0 because of an unrelated search would read as having lost them.
             val favoriteCount = repo.countMatching(favoritesFilter(Parameters.Empty))
 
-            call.respondHtml {
+            call.respondPage {
                 page("Deals Tracker") {
                     feedScopes(q, FeedScreen.FEED, favoriteCount)
                     filterForm(sources, categorizer.categoryNames, q)
@@ -89,17 +90,23 @@ fun Application.routes(
                         // State the total explicitly when the page is capped -- showing
                         // only the page size reads as a total and hides that rows exist.
                         if (page.truncated) {
-                            +"showing "
+                            +tr("showing ", "mostrando ")
                             strong { +"${page.deals.size}" }
-                            +" of "
+                            +tr(" of ", " de ")
                             strong { +"${page.totalMatching}" }
-                            +" matching deals"
+                            +tr(" matching deals", " ofertas que coinciden")
                         } else {
                             strong { +"${page.totalMatching}" }
-                            +" deals"
+                            +tr(" deals", " ofertas")
                         }
                     }
-                    askPanel("feed", "e.g. which of these are real discounts, not inflated list prices?")
+                    askPanel(
+                        "feed",
+                        tr(
+                            "e.g. which of these are real discounts, not inflated list prices?",
+                            "p. ej. ¿cuáles de estos son descuentos reales y no precios de lista inflados?",
+                        ),
+                    )
                     dealTable(page.deals)
                     recentRuns(repo.recentRuns())
                 }
@@ -119,6 +126,7 @@ fun Application.routes(
         get("/export.xlsx") {
             val filter = feedScreenFilter(call.request.queryParameters, app)
             val zone = ZoneId.systemDefault()
+            val lang = call.lang
 
             // Both the queries and the workbook build are blocking, and an export can be
             // far larger than a rendered page, so keep all of it off the event loop.
@@ -126,7 +134,7 @@ fun Application.routes(
                 val totalMatching = repo.countMatching(filter)
                 val deals = repo.feed(filter.copy(limit = DealsExport.MAX_ROWS))
                 val meta = DealsExport.Meta(Instant.now(), filter, totalMatching, deals.size)
-                DealsExport.build(deals, meta, zone) to meta
+                DealsExport.build(deals, meta, zone, lang) to meta
             }
 
             // Counted in the log as well as in the file, matching how ingest reports
@@ -164,8 +172,8 @@ fun Application.routes(
             val page = repo.feedPage(filter)
             val sources = sourceNames(repo, app)
 
-            call.respondHtml {
-                page("Favorites — Deals Tracker") {
+            call.respondPage {
+                page(tr("Favorites — Deals Tracker", "Favoritos — Deals Tracker")) {
                     // `page.totalMatching` is this scope's own unfiltered-by-nothing total only when
                     // no filter is applied, so the badge reuses the same unscoped count the feed
                     // computes rather than the possibly-narrowed number shown below.
@@ -173,24 +181,27 @@ fun Application.routes(
                     filterForm(sources, categorizer.categoryNames, q, FeedScreen.FAVORITES)
                     p("result-count") {
                         if (page.truncated) {
-                            +"showing "
+                            +tr("showing ", "mostrando ")
                             strong { +"${page.deals.size}" }
-                            +" of "
+                            +tr(" of ", " de ")
                             strong { +"${page.totalMatching}" }
-                            +" favorites"
+                            +tr(" favorites", " favoritos")
                         } else {
                             strong { +"${page.totalMatching}" }
-                            +" favorite(s)"
+                            +tr(" favorite(s)", " favorito(s)")
                         }
                         // Stated up front rather than left to be inferred from the chips, because
                         // this page breaks the rule every other view follows: a retired deal is
                         // shown, and its price is the last one recorded rather than a live one.
                         val expired = page.deals.count { !it.isActive }
                         if (expired > 0) {
-                            span("tracked-note") { +" · $expired whose offer has since expired" }
+                            span("tracked-note") { +tr(" · $expired whose offer has since expired", " · $expired cuya oferta ya venció") }
                         }
                     }
-                    askPanel("favorites", "e.g. which of my favorites is the best buy right now?")
+                    askPanel(
+                        "favorites",
+                        tr("e.g. which of my favorites is the best buy right now?", "p. ej. ¿cuál de mis favoritos es la mejor compra ahora mismo?"),
+                    )
                     // Whether a control is NARROWING the page, which is what changes the meaning of
                     // an empty one. `sort` only reorders and `state` is pinned by favoritesFilter,
                     // so neither can be why a favorite is missing.
@@ -207,12 +218,13 @@ fun Application.routes(
         get("/favorites/export.xlsx") {
             val filter = favoritesFilter(call.request.queryParameters)
             val zone = ZoneId.systemDefault()
+            val lang = call.lang
 
             val (bytes, meta) = withContext(Dispatchers.IO) {
                 val totalMatching = repo.countMatching(filter)
                 val deals = repo.feed(filter.copy(limit = DealsExport.MAX_ROWS))
                 val meta = DealsExport.Meta(Instant.now(), filter, totalMatching, deals.size)
-                DealsExport.build(deals, meta, zone) to meta
+                DealsExport.build(deals, meta, zone, lang) to meta
             }
 
             println("[export] ${meta.rowsExported} favorite(s) of ${meta.totalMatching} matching")
@@ -286,9 +298,15 @@ fun Application.routes(
             // Items Amazon refuses to ship to Colombia are hidden unless this is set.
             val showNoShip = call.request.queryParameters["noship"] == "show"
 
-            call.respondHtml {
-                page("Tracked — Deals Tracker") {
-                    askPanel("tracked", "e.g. which of these has dropped the most, and is it worth buying now?")
+            call.respondPage {
+                page(tr("Tracked — Deals Tracker", "Seguimiento — Deals Tracker")) {
+                    askPanel(
+                        "tracked",
+                        tr(
+                            "e.g. which of these has dropped the most, and is it worth buying now?",
+                            "p. ej. ¿cuál de estos ha bajado más, y vale la pena comprarlo ahora?",
+                        ),
+                    )
                     trackedPage(deals, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip)
                 }
             }
@@ -325,13 +343,15 @@ fun Application.routes(
             val params = call.receiveParameters()
             val url = params["url"]?.trim().orEmpty()
             if (url.isEmpty()) {
-                return@post call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode("paste a URL first", "UTF-8"))
+                val msg = call.lang.tr("paste a URL first", "primero pega una URL")
+                return@post call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode(msg, "UTF-8"))
             }
 
             val outcome = manual.add(
                 url = url,
                 brand = params["brand"]?.trim()?.takeIf { it.isNotEmpty() },
                 productType = params["productType"]?.trim()?.takeIf { it.isNotEmpty() },
+                lang = call.lang,
             )
 
             call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode(outcome.message, "UTF-8"))
@@ -370,9 +390,15 @@ fun Application.routes(
             val (sync, storage) = withContext(Dispatchers.IO) {
                 grocerySyncLines(app, groceries.syncStatus(allSources)) to runCatching { groceries.storage() }.getOrNull()
             }
-            call.respondHtml {
-                page("Groceries — Deals Tracker") {
-                    askPanel("groceries", "e.g. what meat is well under its usual price this week?")
+            call.respondPage {
+                page(tr("Groceries — Deals Tracker", "Mercado — Deals Tracker")) {
+                    askPanel(
+                        "groceries",
+                        tr(
+                            "e.g. what meat is well under its usual price this week?",
+                            "p. ej. ¿qué carne está bastante por debajo de su precio habitual esta semana?",
+                        ),
+                    )
                     groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
                 }
             }
@@ -396,8 +422,7 @@ fun Application.routes(
                 // Re-merged, so the swapped row still shows the cheaper store and the other one's price.
                 else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), groceryStores(app)).firstOrNull()
             } ?: return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
-            val body = if (view == GroceryView.PINNED && !pinned) "" else groceryRowFragment(row, view)
-            call.respondText(body, ContentType.Text.Html)
+            call.respondFragment { if (view == GroceryView.PINNED && !pinned) "" else groceryRowFragment(row, view) }
         }
 
         post("/tracked/{id}/hide") {
@@ -420,7 +445,7 @@ fun Application.routes(
                 ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
             val deal = repo.findById(id)
                 ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
-            call.respondHtml { page(deal.title) { dealDetail(deal, repo.priceHistory(id)) } }
+            call.respondPage { page(deal.title) { dealDetail(deal, repo.priceHistory(id)) } }
         }
 
         post("/deal/{id}/state") {
@@ -460,7 +485,13 @@ fun Application.routes(
             // Checked before launching anything: a deal that is already decided, MANUAL, or
             // has no ASIN must not cost a browser launch to find that out.
             if (repo.coShippingCandidate(id) == null) {
-                return@post respondRow(id, repo, "nothing to check — already decided, your own verdict, or no ASIN")
+                return@post respondRow(
+                    id, repo,
+                    call.lang.tr(
+                        "nothing to check — already decided, your own verdict, or no ASIN",
+                        "nada que revisar: ya está decidido, lo marcaste tú, o no tiene ASIN",
+                    ),
+                )
             }
 
             // Bounded by the shorter poll wall-wait rather than the CLI's 180s. Someone is
@@ -485,17 +516,25 @@ fun Application.routes(
 
             // Every branch that leaves the verdict UNKNOWN needs words, or the row swaps
             // back looking untouched and the button appears broken.
+            val l = call.lang
+            val wallSeconds = app.defaults.coShippingPollWallWaitMillis / 1000
             val note = when {
-                outcome == null -> "the check failed to run — see the app log"
-                outcome === BUSY -> "a verification is already running — try again in a minute"
+                outcome == null -> l.tr("the check failed to run — see the app log", "la revisión no pudo ejecutarse; mira el log de la app")
+                outcome === BUSY -> l.tr(
+                    "a verification is already running — try again in a minute",
+                    "ya hay una verificación en curso; intenta de nuevo en un minuto",
+                )
                 // Actionable rather than merely accurate. The wall is a button in a Chrome
                 // window that is open right now, but you are looking at this page instead —
                 // so "a human check was shown" alone leaves you with nowhere to go.
-                outcome.blocked ->
+                outcome.blocked -> l.tr(
                     "Amazon asked for a human check. Clear it in the Chrome window that opened, " +
-                        "then click verify again — the window closes after ${app.defaults.coShippingPollWallWaitMillis / 1000}s."
-                outcome.unclear > 0 -> "the page did not state it either way"
-                outcome.checked == 0 -> "nothing to check"
+                        "then click verify again — the window closes after ${wallSeconds}s.",
+                    "Amazon pidió una verificación humana. Resuélvela en la ventana de Chrome que se abrió " +
+                        "y vuelve a pulsar verificar; la ventana se cierra después de ${wallSeconds}s.",
+                )
+                outcome.unclear > 0 -> l.tr("the page did not state it either way", "la página no lo indicaba en ningún sentido")
+                outcome.checked == 0 -> l.tr("nothing to check", "nada que revisar")
                 else -> null
             }
             respondRow(id, repo, note)
@@ -506,8 +545,8 @@ fun Application.routes(
         get("/watches") {
             val all = watches.all()
             val counts = watches.matchCounts()
-            call.respondHtml {
-                page("Watches") {
+            call.respondPage {
+                page(tr("Watches", "Búsquedas")) {
                     watchesPage(all, counts, sourceNames(repo, app), categorizer.categoryNames)
                 }
             }
@@ -534,17 +573,21 @@ fun Application.routes(
             val matchingSort = watchSortFrom(params, WatchSort.MATCHING_PARAM)
             val alertsSort = watchSortFrom(params, WatchSort.ALERTS_PARAM)
             val matchingPage = watchPageFrom(params)
+            val matchingSource = watchSourceFrom(params)
 
-            call.respondHtml {
+            call.respondPage {
                 page(watch.name) {
                     askPanel(
                         "watch:${watch.id}",
-                        "e.g. which is the best option for what I'm looking for, and why?",
+                        tr(
+                            "e.g. which is the best option for what I'm looking for, and why?",
+                            "p. ej. ¿cuál es la mejor opción para lo que busco, y por qué?",
+                        ),
                     )
                     watchDetail(
                         watch, candidates, matches, dealsById,
                         sourceNames(repo, app), categorizer.categoryNames,
-                        matchingSort, alertsSort, matchingPage, fx,
+                        matchingSort, alertsSort, matchingPage, fx, matchingSource,
                     )
                 }
             }
@@ -577,10 +620,7 @@ fun Application.routes(
             watches.setEnabled(id, value)
             val updated = watches.findById(id)
                 ?: return@post call.respondText("", status = HttpStatusCode.OK)
-            call.respondText(
-                watchRowFragment(updated, watches.matchCounts()[id]),
-                ContentType.Text.Html,
-            )
+            call.respondFragment { watchRowFragment(updated, watches.matchCounts()[id]) }
         }
 
         post("/watches/{id}/delete") {
@@ -617,7 +657,7 @@ private suspend fun io.ktor.util.pipeline.PipelineContext<Unit, io.ktor.server.a
         // Row vanished (e.g. deactivated mid-request); tell HTMX to remove it.
         call.respondText("", status = HttpStatusCode.OK)
     } else {
-        call.respondText(rowFragment(updated, note), ContentType.Text.Html)
+        call.respondFragment { rowFragment(updated, note) }
     }
 }
 

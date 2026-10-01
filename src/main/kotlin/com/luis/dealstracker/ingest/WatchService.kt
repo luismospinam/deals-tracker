@@ -6,6 +6,7 @@ import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.formatMoney
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.notify.Notifier
 
 data class WatchReport(
@@ -96,14 +97,22 @@ class WatchService(
             (best.alert.comparablePrice?.let { " ≈ ${formatMoney(it, watch.currency)}" } ?: "")
         val others = pending.size - 1
 
+        // The language last chosen in the UI: a banner has no request to read one from.
+        val lang = com.luis.dealstracker.i18n.AppLanguage.current
         val headline = buildString {
             append(price).append(" · ").append(best.source)
             // "undercuts <rival>" rather than "cheaper elsewhere": the comparison only ever
             // spans the sources this app polls, and a Google search for the model code will
             // routinely turn up a retailer we do not. Naming the rival keeps the claim to
             // what was actually measured.
-            append(if (best.alert.reason == MatchReason.CROSS_SITE_SPREAD) " · undercuts a rival" else " · new low")
-            if (others > 0) append(" (+$others more)")
+            append(
+                if (best.alert.reason == MatchReason.CROSS_SITE_SPREAD) {
+                    lang.tr(" · undercuts a rival", " · más barato que un rival")
+                } else {
+                    lang.tr(" · new low", " · nuevo mínimo")
+                },
+            )
+            if (others > 0) append(lang.tr(" (+$others more)", " (+$others más)"))
             append('\n').append(squashRepeats(best.title).take(80))
         }
 

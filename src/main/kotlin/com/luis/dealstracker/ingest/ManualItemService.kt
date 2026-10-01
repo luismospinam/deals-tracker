@@ -1,5 +1,7 @@
 package com.luis.dealstracker.ingest
 
+import com.luis.dealstracker.i18n.Lang
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.ManualItemRepository
@@ -50,8 +52,8 @@ class ManualItemService(
      * diagnosed by reading logs. The one exception is a transient refusal — see the message text,
      * which says the retry will happen rather than implying the URL is wrong.
      */
-    suspend fun add(url: String, brand: String?, productType: String?): AddOutcome {
-        val cfg = provider ?: return AddOutcome(false, "no amazon provider is configured")
+    suspend fun add(url: String, brand: String?, productType: String?, lang: Lang = Lang.EN): AddOutcome {
+        val cfg = provider ?: return AddOutcome(false, lang.tr("no amazon provider is configured", "no hay un proveedor de Amazon configurado"))
 
         val fetcher = AmazonFetcher(
             http = http,
@@ -64,15 +66,17 @@ class ManualItemService(
 
             return when (result) {
                 is ManualItemFetcher.Result.Failed -> {
+                    // Recorded in English, as the fetch log is; the notice is in the page's language.
                     val why = ManualItemFetcher.describe(result.reason)
+                    val shown = describeIn(lang, result.reason)
                     // A readable-but-refused URL is still worth remembering, so the poll can retry
                     // it. A malformed one is not: there is nothing to retry.
                     if (result.reason == ManualItemFetcher.Failure.Unreadable && result.asin != null) {
                         items.add(url, result.asin, brand, productType)
                         items.recordFetch(items.all().first { it.asin == result.asin }.id, why)
-                        AddOutcome(true, "added, but $why")
+                        AddOutcome(true, lang.tr("added, but $shown", "agregado, pero $shown"))
                     } else {
-                        AddOutcome(false, why)
+                        AddOutcome(false, shown)
                     }
                 }
 
@@ -83,9 +87,13 @@ class ManualItemService(
                     AddOutcome(
                         true,
                         if (isNew) {
-                            "now tracking ${result.deal.title.take(60)}"
+                            val title = result.deal.title.take(60)
+                            lang.tr("now tracking $title", "ahora en seguimiento: $title")
                         } else {
-                            "already tracking that item — refreshed its price"
+                            lang.tr(
+                                "already tracking that item — refreshed its price",
+                                "ese producto ya está en seguimiento; se actualizó su precio",
+                            )
                         },
                     )
                 }
@@ -94,6 +102,21 @@ class ManualItemService(
             fetcher.close()
         }
     }
+
+    /** [ManualItemFetcher.describe] in [lang], for the notice shown after an add. */
+    private fun describeIn(lang: Lang, reason: ManualItemFetcher.Failure): String =
+        if (lang == Lang.EN) {
+            ManualItemFetcher.describe(reason)
+        } else {
+            when (reason) {
+                ManualItemFetcher.Failure.NotAProductUrl ->
+                    "esa URL no corresponde a un producto; pega un enlace amazon.com/dp/<ASIN>"
+                ManualItemFetcher.Failure.Unreadable ->
+                    "Amazon no entregó la página en este momento; se reintentará en la próxima consulta"
+                ManualItemFetcher.Failure.NoPrice ->
+                    "la página no tiene precio de compra (agotado, o sin oferta destacada)"
+            }
+        }
 
     /**
      * Re-reads every tracked URL. Called once per poll, after the searches.

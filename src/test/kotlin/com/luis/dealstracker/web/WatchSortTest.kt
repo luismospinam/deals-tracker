@@ -21,8 +21,8 @@ class WatchSortTest {
     @Test
     fun `parses a column and an explicit direction`() {
         assertEquals(
-            WatchSort("source", desc = false),
-            watchSortFrom(params("msort" to "source"), WatchSort.MATCHING_PARAM),
+            WatchSort("floor", desc = false),
+            watchSortFrom(params("msort" to "floor"), WatchSort.MATCHING_PARAM),
         )
         assertEquals(
             WatchSort("price", desc = true),
@@ -54,8 +54,8 @@ class WatchSortTest {
     /** The two tables must not read each other's parameter. */
     @Test
     fun `each table reads only its own parameter`() {
-        val both = params("msort" to "source", "asort" to "price:desc")
-        assertEquals(WatchSort("source", false), watchSortFrom(both, WatchSort.MATCHING_PARAM))
+        val both = params("msort" to "product", "asort" to "price:desc")
+        assertEquals(WatchSort("product", false), watchSortFrom(both, WatchSort.MATCHING_PARAM))
         assertEquals(WatchSort("price", true), watchSortFrom(both, WatchSort.ALERTS_PARAM))
 
         // Setting only one leaves the other at its own default rather than borrowing.
@@ -68,7 +68,7 @@ class WatchSortTest {
         val current = WatchSort("price", desc = false)
         assertEquals(WatchSort("price", desc = true), current.toggledFor("price", defaultDesc = false))
         // A different column takes that column's own default, not the current direction.
-        assertEquals(WatchSort("source", desc = false), current.toggledFor("source", defaultDesc = false))
+        assertEquals(WatchSort("product", desc = false), current.toggledFor("product", defaultDesc = false))
         // "When" defaults to newest-first, so a first click on it should be descending.
         assertEquals(WatchSort("when", desc = true), current.toggledFor("when", defaultDesc = true))
     }
@@ -77,7 +77,7 @@ class WatchSortTest {
     fun `round-trips through its url form`() {
         assertEquals("price", WatchSort("price", desc = false).asParam())
         assertEquals("price:desc", WatchSort("price", desc = true).asParam())
-        listOf(WatchSort("source", false), WatchSort("floor", true)).forEach { sort ->
+        listOf(WatchSort("product", false), WatchSort("floor", true)).forEach { sort ->
             assertEquals(
                 sort,
                 watchSortFrom(params("msort" to sort.asParam()), WatchSort.MATCHING_PARAM),
@@ -90,6 +90,19 @@ class WatchSortTest {
         val sort = WatchSort("floor", desc = true)
         assertTrue(sort.isOn("floor"))
         assertFalse(sort.isOn("price"))
+    }
+
+    /** Source is a filter now, not a sort: an old `msort=source` bookmark falls back to price. */
+    @Test
+    fun `source is no longer a sort column`() {
+        assertEquals(WatchSort.MATCHING_DEFAULT, watchSortFrom(params("msort" to "source"), WatchSort.MATCHING_PARAM))
+    }
+
+    @Test
+    fun `the source filter is read from its own parameter`() {
+        assertEquals("falabella", watchSourceFrom(params("msource" to "falabella")))
+        assertEquals(null, watchSourceFrom(params("msource" to " ")))
+        assertEquals(null, watchSourceFrom(Parameters.Empty))
     }
 
     // --- paging ---
@@ -116,9 +129,9 @@ class WatchSortTest {
      */
     @Test
     fun `page is independent of either sort`() {
-        val all = params("msort" to "source", "asort" to "price:desc", "mpage" to "3")
+        val all = params("msort" to "product", "asort" to "price:desc", "mpage" to "3")
         assertEquals(3, watchPageFrom(all))
-        assertEquals(WatchSort("source", false), watchSortFrom(all, WatchSort.MATCHING_PARAM))
+        assertEquals(WatchSort("product", false), watchSortFrom(all, WatchSort.MATCHING_PARAM))
         assertEquals(WatchSort("price", true), watchSortFrom(all, WatchSort.ALERTS_PARAM))
     }
 }

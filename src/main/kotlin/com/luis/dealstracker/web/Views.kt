@@ -12,6 +12,8 @@ import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import com.luis.dealstracker.i18n.categoryLabel
+import com.luis.dealstracker.i18n.tr
 
 /**
  * Bumped whenever app.css changes, to defeat browser caching of the stylesheet.
@@ -20,7 +22,7 @@ import java.util.Locale
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "44"
+private const val CSS_VERSION = "45"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -86,7 +88,7 @@ internal data class SortOption(val label: String, val href: String, val on: Bool
  */
 internal fun FlowContent.sortTags(options: List<SortOption>) {
     div("typetags sorttags") {
-        span("typetags-label") { +"Sort" }
+        span("typetags-label") { +tr("Sort", "Ordenar") }
         options.forEach { o ->
             a(classes = if (o.on) "typetag on" else "typetag", href = o.href) {
                 if (o.on) attributes["aria-current"] = "true"
@@ -113,7 +115,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
     body {
         header {
             h1 { +"Deals Tracker" }
-            span("sub") { a(href = "/") { +"feed" } }
+            span("sub") { a(href = "/") { +tr("feed", "ofertas") } }
             // Favorites is deliberately NOT here. It was a fourth top-level tab, which put it beside
             // `tracked` and `watches` and so implied it was a fourth kind of thing — but it is the
             // feed with `state = FAVORITE` pinned: same query, same columns, same row renderer, same
@@ -125,32 +127,57 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             // quality; tracked items ask "what is this costing me over time?", where a discount
             // percentage and a community vote are noise and the movement of the price is the
             // whole point. Same rows underneath, different columns and a different default sort.
-            span("sub") { a(href = "/tracked") { +"tracked" } }
+            span("sub") { a(href = "/tracked") { +tr("tracked", "seguimiento") } }
             // Its own tab for the same reason as tracked: a different question ("cheaper than this
             // item usually is at my store?") with different columns -- unit price, usual price.
-            span("sub") { a(href = "/groceries") { +"groceries" } }
-            span("sub") { a(href = "/watches") { +"watches" } }
+            span("sub") { a(href = "/groceries") { +tr("groceries", "mercado") } }
+            span("sub") { a(href = "/watches") { +tr("watches", "búsquedas") } }
             // Holds the right rail apart from the nameplate, so the serif sits alone
             // instead of being crowded by the mono labels.
             div("masthead-gap") {}
-            span("sub") { +"local price monitor" }
+            span("sub tagline") { +tr("local price monitor", "monitor local de precios") }
+            languageSwitch()
         }
         main { block() }
     }
 }
 
-/** The under-a-minute case, which is a complete phrase and so cannot take a suffix. */
-private const val JUST_NOW = "just now"
+/**
+ * EN / ES in the masthead. Links, not a form: `/lang/es?back=<this page>` sets the cookie and comes
+ * straight back, so the choice works without JavaScript and keeps the filters in the URL.
+ */
+private fun HEADER.languageSwitch() {
+    val back = CurrentPath.value.encodeURLParameter()
+    span("sub langswitch") {
+        attributes["aria-label"] = tr("Language", "Idioma")
+        com.luis.dealstracker.i18n.Lang.entries.forEachIndexed { i, l ->
+            if (i > 0) span("langsep") { +"/" }
+            val on = l == com.luis.dealstracker.i18n.I18n.lang
+            a(href = "/lang/${l.code}?back=$back", classes = if (on) "on" else null) {
+                if (on) attributes["aria-current"] = "true"
+                attributes["hreflang"] = l.code
+                title = if (l == com.luis.dealstracker.i18n.Lang.ES) "Ver en español" else "View in English"
+                +l.code.uppercase()
+            }
+        }
+    }
+}
 
-fun relativeTime(instant: Instant): String {
+/** The under-a-minute case, which is a complete phrase and so cannot take a suffix. */
+private val JUST_NOW: String get() = tr("just now", "ahora mismo")
+
+/** "3m", "3h", "3d", or null under a minute -- the duration alone, before any wording. */
+private fun shortAge(instant: Instant): String? {
     val d = Duration.between(instant, Instant.now())
     return when {
-        d.toMinutes() < 1 -> JUST_NOW
+        d.toMinutes() < 1 -> null
         d.toMinutes() < 60 -> "${d.toMinutes()}m"
         d.toHours() < 24 -> "${d.toHours()}h"
         else -> "${d.toDays()}d"
     }
 }
+
+fun relativeTime(instant: Instant): String = shortAge(instant) ?: JUST_NOW
 
 /**
  * "3h ago", "2d ago" — but "just now", not "just now ago".
@@ -160,11 +187,11 @@ fun relativeTime(instant: Instant): String {
  * ones most looked at, so the broken phrasing showed up on the most-read rows.
  */
 fun relativeAgo(instant: Instant): String =
-    relativeTime(instant).let { if (it == JUST_NOW) it else "$it ago" }
+    shortAge(instant)?.let { tr("$it ago", "hace $it") } ?: JUST_NOW
 
 /** As [relativeAgo], for the age chip: "3h old", but "brand new" rather than "just now old". */
 private fun relativeOld(instant: Instant): String =
-    relativeTime(instant).let { if (it == JUST_NOW) "brand new" else "$it old" }
+    shortAge(instant)?.let { tr("$it old", "hace $it") } ?: tr("brand new", "recién publicado")
 
 /**
  * A one-click preset over an existing filter parameter.
@@ -175,7 +202,9 @@ private fun relativeOld(instant: Instant): String =
  * and no filtering capability is lost to the shorthand. The arbitrary-value controls all
  * survive; the chips just cover the values actually reached for.
  */
-private data class ChipPreset(val param: String, val value: String, val label: String)
+private data class ChipPreset(val param: String, val value: String, val en: String, val es: String) {
+    val label: String get() = tr(en, es)
+}
 
 /**
  * Note that "Lowest yet" and "Promoted" both target `only`, which is single-valued. Because
@@ -183,11 +212,11 @@ private data class ChipPreset(val param: String, val value: String, val label: S
  * is impossible to express rather than merely discouraged.
  */
 private val FILTER_CHIPS = listOf(
-    ChipPreset("minDiscount", "50", "50%+ off"),
-    ChipPreset("only", "lowest", "Lowest yet"),
-    ChipPreset("co", "YES", "Ships to CO"),
-    ChipPreset("only", "promoted", "Promoted"),
-    ChipPreset("minScore", "20", "Score 20+"),
+    ChipPreset("minDiscount", "50", "50%+ off", "50%+ dto."),
+    ChipPreset("only", "lowest", "Lowest yet", "Mínimo histórico"),
+    ChipPreset("co", "YES", "Ships to CO", "Envía a CO"),
+    ChipPreset("only", "promoted", "Promoted", "Destacadas"),
+    ChipPreset("minScore", "20", "Score 20+", "Puntaje 20+"),
 )
 
 /** Parameters that live in the collapsed panel rather than on the always-visible row. */
@@ -241,14 +270,14 @@ fun MAIN.feedScopes(q: Map<String, String>, screen: FeedScreen, favoriteCount: I
         // treatment alone conveys nothing.
         a(href = "/$suffix", classes = if (screen == FeedScreen.FEED) "scope on" else "scope") {
             if (screen == FeedScreen.FEED) attributes["aria-current"] = "page"
-            +"All deals"
+            +tr("All deals", "Todas")
         }
         a(
             href = "/favorites$suffix",
             classes = if (screen == FeedScreen.FAVORITES) "scope on" else "scope",
         ) {
             if (screen == FeedScreen.FAVORITES) attributes["aria-current"] = "page"
-            +"Favorites"
+            +tr("Favorites", "Favoritos")
             // Shown only when there are some. A "Favorites 0" badge reads as a broken counter,
             // while a bare label reads as an invitation -- and zero is the starting state.
             if (favoriteCount > 0) span("scope-count") { +"$favoriteCount" }
@@ -267,23 +296,23 @@ fun MAIN.filterForm(
         attributes["action"] = screen.action
 
         label {
-            +"Search"
+            +tr("Search", "Buscar")
             input(type = InputType.text, name = "q") {
                 value = q["q"].orEmpty()
                 // Discoverability: the pipe syntax is invisible otherwise.
                 placeholder = "airpods | airtag | ssd"
-                title = "Separate multiple terms with | to match any of them"
+                title = tr("Separate multiple terms with | to match any of them", "Separa varios términos con | para buscar cualquiera de ellos")
                 attributes["size"] = "24"
             }
         }
         label {
-            +"Source"
+            +tr("Source", "Fuente")
             select {
                 name = "source"
                 option {
                     value = ""
                     if (q["source"].isNullOrBlank()) selected = true
-                    +"all"
+                    +tr("all", "todas")
                 }
                 sources.forEach { s ->
                     option {
@@ -295,19 +324,19 @@ fun MAIN.filterForm(
             }
         }
         label {
-            +"Category"
+            +tr("Category", "Categoría")
             select {
                 name = "category"
                 option {
                     value = ""
                     if (q["category"].isNullOrBlank()) selected = true
-                    +"all"
+                    +tr("all", "todas")
                 }
                 categories.forEach { c ->
                     option {
                         value = c
                         if (q["category"] == c) selected = true
-                        +c
+                        +categoryLabel(c)
                     }
                 }
             }
@@ -315,16 +344,16 @@ fun MAIN.filterForm(
         // Sort stays on the visible row: it reorders the feed rather than narrowing it, so
         // it does not belong behind a disclosure labelled "More filters".
         label {
-            +"Sort"
+            +tr("Sort", "Ordenar")
             select {
                 name = "sort"
                 listOf(
-                    "relevance" to "relevance",
-                    "discount" to "discount",
-                    "drop" to "biggest drop",
-                    "score" to "community score",
-                    "newest" to "newest",
-                    "price" to "price",
+                    "relevance" to tr("relevance", "relevancia"),
+                    "discount" to tr("discount", "descuento"),
+                    "drop" to tr("biggest drop", "mayor caída"),
+                    "score" to tr("community score", "puntaje de la comunidad"),
+                    "newest" to tr("newest", "más recientes"),
+                    "price" to tr("price", "precio"),
                 ).forEach { (v, t) ->
                     option {
                         value = v
@@ -335,7 +364,7 @@ fun MAIN.filterForm(
             }
         }
 
-        button(classes = "primary") { type = ButtonType.submit; +"Apply" }
+        button(classes = "primary") { type = ButtonType.submit; +tr("Apply", "Aplicar") }
 
         // Export and Refresh act on the feed rather than describing it, so they sit in a
         // right-hand utility group instead of competing with Apply at the end of the row.
@@ -348,21 +377,29 @@ fun MAIN.filterForm(
                 type = ButtonType.submit
                 attributes["formaction"] = screen.exportAction
                 title = when (screen) {
-                    FeedScreen.FEED -> "Download the matching deals as an Excel file. " +
-                        "With nothing filtered this is every active deal except dismissed ones."
+                    FeedScreen.FEED -> tr(
+                        "Download the matching deals as an Excel file. " +
+                            "With nothing filtered this is every active deal except dismissed ones.",
+                        "Descarga las ofertas que coinciden como archivo de Excel. " +
+                            "Sin filtros, son todas las ofertas activas excepto las ocultas.",
+                    )
                     // Says so explicitly, because this export breaks the guarantee the feed's
                     // makes -- retired offers are included here, and the file's Export info
                     // sheet records that too.
-                    FeedScreen.FAVORITES -> "Download your favorites as an Excel file, " +
-                        "including any whose offer has since expired."
+                    FeedScreen.FAVORITES -> tr(
+                        "Download your favorites as an Excel file, " +
+                            "including any whose offer has since expired.",
+                        "Descarga tus favoritos como archivo de Excel, " +
+                            "incluidos los que ya vencieron.",
+                    )
                 }
-                +"Export to Excel"
+                +tr("Export to Excel", "Exportar a Excel")
             }
             button {
                 attributes["hx-post"] = "/refresh"
                 attributes["hx-swap"] = "none"
                 type = ButtonType.button
-                +"Refresh now"
+                +tr("Refresh now", "Actualizar ahora")
             }
         }
 
@@ -390,31 +427,34 @@ fun MAIN.filterForm(
         // the page. Hiding a control must not quietly drop the filter it holds.
         details("more") {
             summary {
-                +"More filters"
+                +tr("More filters", "Más filtros")
                 val hidden = hiddenFilterCount(q, screen)
                 if (hidden > 0) span("act-count") { +"$hidden" }
             }
             div("more-grid") {
                 label {
-                    +"Min discount %"
+                    +tr("Min discount %", "Descuento mín. %")
                     input(type = InputType.number, name = "minDiscount") {
                         value = q["minDiscount"].orEmpty(); min = "0"; max = "99"; placeholder = "0"
                         attributes["size"] = "4"
                     }
                 }
                 label {
-                    +"Max price"
+                    +tr("Max price", "Precio máx.")
                     input(type = InputType.number, name = "maxPrice") {
                         value = q["maxPrice"].orEmpty()
                         attributes["size"] = "8"
                     }
                 }
                 label {
-                    +"Min score"
+                    +tr("Min score", "Puntaje mín.")
                     input(type = InputType.number, name = "minScore") {
                         value = q["minScore"].orEmpty()
-                        placeholder = "any"
-                        title = "Slickdeals community vote score. 0 or below means downvoted."
+                        placeholder = tr("any", "cualquiera")
+                        title = tr(
+                            "Slickdeals community vote score. 0 or below means downvoted.",
+                            "Puntaje de votos de la comunidad de Slickdeals. 0 o menos significa votos negativos.",
+                        )
                         attributes["size"] = "4"
                     }
                 }
@@ -422,7 +462,12 @@ fun MAIN.filterForm(
                     +"Colombia"
                     select {
                         name = "co"
-                        listOf("" to "any", "YES" to "ships", "UNKNOWN" to "unverified", "NO" to "no").forEach { (v, t) ->
+                        listOf(
+                            "" to tr("any", "cualquiera"),
+                            "YES" to tr("ships", "envía"),
+                            "UNKNOWN" to tr("unverified", "sin verificar"),
+                            "NO" to tr("no", "no"),
+                        ).forEach { (v, t) ->
                             option {
                                 value = v
                                 if (q["co"] == v) selected = true
@@ -435,14 +480,14 @@ fun MAIN.filterForm(
                 // nothing, so it looks broken rather than inapplicable.
                 if (screen.showState) {
                     label {
-                        +"State"
+                        +tr("State", "Estado")
                         select {
                             name = "state"
                             listOf(
-                                "" to "active",
-                                "NEW" to "new",
-                                "FAVORITE" to "favorite",
-                                "DISMISSED" to "dismissed",
+                                "" to tr("active", "activas"),
+                                "NEW" to tr("new", "nuevas"),
+                                "FAVORITE" to tr("favorite", "favoritas"),
+                                "DISMISSED" to tr("dismissed", "ocultas"),
                             ).forEach { (v, t) ->
                                 option {
                                     value = v
@@ -454,10 +499,14 @@ fun MAIN.filterForm(
                     }
                 }
                 label {
-                    +"Only"
+                    +tr("Only", "Solo")
                     select {
                         name = "only"
-                        listOf("" to "everything", "promoted" to "promoted", "lowest" to "at lowest ever").forEach { (v, t) ->
+                        listOf(
+                            "" to tr("everything", "todo"),
+                            "promoted" to tr("promoted", "destacadas"),
+                            "lowest" to tr("at lowest ever", "en mínimo histórico"),
+                        ).forEach { (v, t) ->
                             option {
                                 value = v
                                 if (q["only"] == v) selected = true
@@ -503,24 +552,27 @@ fun MAIN.dealTable(
         div("empty") {
             when {
                 screen == FeedScreen.FEED -> {
-                    +"No deals match those filters. If the database is empty, run "
+                    +tr("No deals match those filters. If the database is empty, run ", "Ninguna oferta coincide con esos filtros. Si la base de datos está vacía, ejecuta ")
                     code { +"./dt run --args=\"--fetch-once\"" }
-                    +" or press Refresh now."
+                    +tr(" or press Refresh now.", " o pulsa Actualizar ahora.")
                 }
                 filtered -> {
-                    +"None of your favorites match those filters. "
-                    a(href = "/favorites") { +"Show all favorites" }
+                    +tr("None of your favorites match those filters. ", "Ninguno de tus favoritos coincide con esos filtros. ")
+                    a(href = "/favorites") { +tr("Show all favorites", "Ver todos los favoritos") }
                     +"."
                 }
                 // Says where a favorite comes from, since this page has no control that creates one.
                 // Names the scope control by its own visible label ("All deals") rather than "the
                 // feed": both scopes are the feed now, so that phrasing no longer points anywhere.
                 else -> {
-                    +"No favorites yet. Press "
-                    code { +"☆ favorite" }
-                    +" on any row under "
-                    a(href = "/") { +"All deals" }
-                    +" and it will appear here — and stay, even after the offer ends."
+                    +tr("No favorites yet. Press ", "Aún no tienes favoritos. Pulsa ")
+                    code { +tr("☆ favorite", "☆ favorita") }
+                    +tr(" on any row under ", " en cualquier fila de ")
+                    a(href = "/") { +tr("All deals", "Todas") }
+                    +tr(
+                        " and it will appear here — and stay, even after the offer ends.",
+                        " y aparecerá aquí, y se quedará incluso después de que la oferta termine.",
+                    )
                 }
             }
         }
@@ -529,28 +581,34 @@ fun MAIN.dealTable(
     table("deals") {
         thead {
             tr {
-                th(classes = "col-thumb") { attributes["aria-label"] = "image" }
-                th { +"Deal" }
-                th(classes = "col-price") { +"Price" }
-                th(classes = "col-disc") { +"Off" }
+                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                th { +tr("Deal", "Oferta") }
+                th(classes = "col-price") { +tr("Price", "Precio") }
+                th(classes = "col-disc") { +tr("Off", "Dto.") }
                 th(classes = "col-score") {
-                    title = "Community vote score, where the source publishes one"
-                    +"Score"
+                    title = tr("Community vote score, where the source publishes one", "Puntaje de votos de la comunidad, cuando la fuente lo publica")
+                    +tr("Score", "Puntaje")
                 }
                 th(classes = "col-rank") {
                     // Says plainly that the column is not strictly descending. The default sort
                     // adds a rotation offset while this column shows the true score, so without
                     // this note a row scoring 52.8 sitting below one scoring 50.9 reads as a bug.
-                    title = "Composed relevance score — the ranking behind the default sort. " +
-                        "Ordering adds a small rotation offset so comparable deals take turns near " +
-                        "the top, which is why this column is not strictly descending. " +
-                        "Hover a value for its breakdown."
-                    +"Rank"
+                    title = tr(
+                        "Composed relevance score — the ranking behind the default sort. " +
+                            "Ordering adds a small rotation offset so comparable deals take turns near " +
+                            "the top, which is why this column is not strictly descending. " +
+                            "Hover a value for its breakdown.",
+                        "Puntaje de relevancia compuesto: el ranking detrás del orden predeterminado. " +
+                            "El orden suma una pequeña rotación para que ofertas comparables se turnen " +
+                            "arriba, por eso esta columna no es estrictamente descendente. " +
+                            "Pasa el cursor sobre un valor para ver su desglose.",
+                    )
+                    +tr("Rank", "Ranking")
                 }
-                th(classes = "col-sig") { +"Signals" }
+                th(classes = "col-sig") { +tr("Signals", "Señales") }
                 th(classes = "col-co") { +"Colombia" }
-                th(classes = "col-seen") { +"Seen" }
-                th(classes = "col-act") { +"Actions" }
+                th(classes = "col-seen") { +tr("Seen", "Visto") }
+                th(classes = "col-act") { +tr("Actions", "Acciones") }
             }
         }
         tbody {
@@ -603,21 +661,34 @@ internal fun formatRank(relevance: Double): String =
  */
 internal fun rankBreakdown(deal: Deal): String {
     val parts = buildList {
-        deal.discountPercent?.let { add("$it% off list") }
-        deal.dropFromPeak?.let { add("down ${formatMoney(it, deal.currency)} from our recorded peak") }
-        deal.communityScore?.let { add("community $it") }
-        deal.coShippingCost?.let { cost ->
-            if (cost.signum() == 0) add("free shipping")
-            else add("freight ${formatMoney(cost, "USD")}${deal.shippingCostPercent?.let { " ($it% of price)" } ?: ""}")
+        deal.discountPercent?.let { add(tr("$it% off list", "$it% bajo el precio de lista")) }
+        deal.dropFromPeak?.let {
+            val m = formatMoney(it, deal.currency)
+            add(tr("down $m from our recorded peak", "bajó $m desde el máximo registrado"))
         }
-        if (deal.coShippingImportFree == false) add("import charges apply")
-        if (deal.coShipping == CoShipping.NO) add("does not ship to Colombia")
+        deal.communityScore?.let { add(tr("community $it", "comunidad $it")) }
+        deal.coShippingCost?.let { cost ->
+            if (cost.signum() == 0) add(tr("free shipping", "envío gratis"))
+            else {
+                val m = formatMoney(cost, "USD")
+                val share = deal.shippingCostPercent
+                add(
+                    tr(
+                        "freight $m${share?.let { " ($it% of price)" } ?: ""}",
+                        "flete $m${share?.let { " ($it% del precio)" } ?: ""}",
+                    ),
+                )
+            }
+        }
+        if (deal.coShippingImportFree == false) add(tr("import charges apply", "aplican impuestos de importación"))
+        if (deal.coShipping == CoShipping.NO) add(tr("does not ship to Colombia", "no envía a Colombia"))
     }
     val age = relativeAgo(deal.postedAt ?: deal.firstSeenAt)
+    val rank = formatRank(deal.relevance)
     return if (parts.isEmpty()) {
-        "Rank ${formatRank(deal.relevance)} — nothing but age to go on yet ($age)"
+        tr("Rank $rank — nothing but age to go on yet ($age)", "Ranking $rank — por ahora solo cuenta la antigüedad ($age)")
     } else {
-        "Rank ${formatRank(deal.relevance)} from: ${parts.joinToString("; ")}; $age"
+        tr("Rank $rank from: ${parts.joinToString("; ")}; $age", "Ranking $rank por: ${parts.joinToString("; ")}; $age")
     }
 }
 
@@ -679,7 +750,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                         deal.category
                             ?.takeIf { it.isNotBlank() && it.substringAfterLast(" > ") !in GENERIC_CATEGORIES }
                             ?.let { title = it }
-                        +group
+                        +categoryLabel(group)
                     }
                 }
                 deal.asin?.let { span { +"ASIN $it" } }
@@ -687,13 +758,13 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         }
 
         td(classes = "col-price") {
-            cardLabel("Price")
+            cardLabel(tr("Price", "Precio"))
             div("price") { +formatMoney(deal.price, deal.currency) }
             deal.listPrice?.let { div("was") { +formatMoney(it, deal.currency) } }
         }
 
         td(classes = "col-disc") {
-            cardLabel("Off")
+            cardLabel(tr("Off", "Dto."))
             val pct = deal.discountPercent
             if (pct != null) {
                 span("disc disc-s${discountTier(pct)}") { +"−${pct.toPlainString()}%" }
@@ -701,7 +772,10 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                 // Null, not 0%: Slickdeals publishes no list price at all, so no
                 // discount can be computed. The Score column carries the signal instead.
                 span("no-disc") {
-                    title = "This source publishes no list price, so no discount can be computed — see Score"
+                    title = tr(
+                        "This source publishes no list price, so no discount can be computed — see Score",
+                        "Esta fuente no publica precio de lista, así que no se puede calcular un descuento; mira el Puntaje",
+                    )
                     +"—"
                 }
             }
@@ -711,13 +785,13 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         // vote is the only evidence available there; a score of 0 or below means the
         // community actively voted it down.
         td(classes = "col-score") {
-            cardLabel("Score")
+            cardLabel(tr("Score", "Puntaje"))
             val score = deal.communityScore
             if (score == null) {
-                span("no-disc") { title = "This source publishes no community score"; +"—" }
+                span("no-disc") { title = tr("This source publishes no community score", "Esta fuente no publica puntaje de la comunidad"); +"—" }
             } else {
                 span("score score-${scoreTier(score)}") {
-                    title = "Slickdeals community vote score"
+                    title = tr("Slickdeals community vote score", "Puntaje de votos de la comunidad de Slickdeals")
                     +(if (score > 0) "+$score" else "$score")
                 }
             }
@@ -728,7 +802,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         // stays sparse because a badge everywhere means nothing, whereas a ranking everywhere
         // is the point of a ranking. Without it the default order is unexplainable.
         td(classes = "col-rank") {
-            cardLabel("Rank")
+            cardLabel(tr("Rank", "Ranking"))
             span(if (deal.relevance < 0) "rank rank-neg" else "rank") {
                 title = rankBreakdown(deal)
                 +formatRank(deal.relevance)
@@ -743,8 +817,9 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                 val drop = deal.dropFromPeak
                 if (deal.isAtLowestEver) {
                     span("chip chip-low") {
-                        title = "Cheapest we have recorded, down from ${deal.maxPriceEver?.let { formatMoney(it, deal.currency) }}"
-                        +"lowest yet"
+                        val peak = deal.maxPriceEver?.let { formatMoney(it, deal.currency) }
+                        title = tr("Cheapest we have recorded, down from $peak", "El más barato que hemos registrado, bajó desde $peak")
+                        +tr("lowest yet", "mínimo histórico")
                     }
                 } else if (drop != null) {
                     span("chip chip-drop") { +"↓ ${formatMoney(drop, deal.currency)}" }
@@ -752,13 +827,16 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                 // Time-bounded rather than state-based: `state` stays NEW until Luis acts
                 // on a row, so a NEW-based badge ended up on every deal forever.
                 if (Duration.between(deal.firstSeenAt, Instant.now()).toHours() < 24) {
-                    span("chip chip-new") { +"new" }
+                    span("chip chip-new") { +tr("new", "nueva") }
                 }
                 if (deal.state == DealState.FAVORITE) {
                     span("chip chip-fav") {
-                        title = "One of your favorites. It stays on /favorites even after the " +
-                            "offer expires."
-                        +"★ favorite"
+                        title = tr(
+                            "One of your favorites. It stays on /favorites even after the " +
+                                "offer expires.",
+                            "Una de tus favoritas. Se queda en /favorites incluso después de que la oferta vence.",
+                        )
+                        +tr("★ favorite", "★ favorita")
                     }
                 }
                 // Only reachable on /favorites, which is the one screen that does not filter on
@@ -767,10 +845,15 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                 // the number beside it still means anything.
                 if (!deal.isActive) {
                     span("chip chip-expired") {
-                        title = "The source stopped returning this deal, so it was retired " +
-                            "${relativeAgo(deal.lastSeenAt)}. The price shown is the last one " +
-                            "we recorded, not a current one."
-                        +"expired"
+                        val ago = relativeAgo(deal.lastSeenAt)
+                        title = tr(
+                            "The source stopped returning this deal, so it was retired " +
+                                "$ago. The price shown is the last one " +
+                                "we recorded, not a current one.",
+                            "La fuente dejó de mostrar esta oferta, así que se retiró $ago. " +
+                                "El precio mostrado es el último que registramos, no uno actual.",
+                        )
+                        +tr("expired", "vencida")
                     }
                 }
             }
@@ -782,22 +865,27 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
         }
 
         td(classes = "col-seen") {
-            cardLabel("Seen")
+            cardLabel(tr("Seen", "Visto"))
             // The source's own posting date when known, since that is what tells you the
             // deal is current -- lastSeenAt only records when *we* last polled.
             val posted = deal.postedAt
             if (posted != null) {
                 div("seen") {
-                    title = "Posted by the source ${relativeAgo(posted)}"
+                    val ago = relativeAgo(posted)
+                    title = tr("Posted by the source $ago", "Publicada por la fuente $ago")
                     +relativeOld(posted)
                 }
             } else {
                 div("seen") {
-                    title = "This source publishes no posting date; showing when we last saw it"
-                    +"seen ${relativeTime(deal.lastSeenAt)}"
+                    title = tr(
+                        "This source publishes no posting date; showing when we last saw it",
+                        "Esta fuente no publica fecha; se muestra cuándo la vimos por última vez",
+                    )
+                    val t = relativeTime(deal.lastSeenAt)
+                    +tr("seen $t", "vista $t")
                 }
             }
-            div("seen") { +"${deal.observationCount} obs" }
+            div("seen") { +tr("${deal.observationCount} obs", "${deal.observationCount} obs.") }
         }
 
         td(classes = "col-act") {
@@ -807,9 +895,9 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                 // would overwrite FAVORITE -- hiding would silently un-favorite, and the undo
                 // lives behind a dropdown on another screen. Un-favorite first, and Hide returns.
                 if (deal.state != DealState.FAVORITE) {
-                    stateButton(deal.id, DealState.DISMISSED, "Hide")
+                    stateButton(deal.id, DealState.DISMISSED, tr("Hide", "Ocultar"))
                 }
-                a(href = "/deal/${deal.id}") { +"history" }
+                a(href = "/deal/${deal.id}") { +tr("history", "historial") }
             }
         }
     }
@@ -829,36 +917,45 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
         when (deal.coShipping) {
             CoShipping.YES -> span("co-yes") {
                 provenance?.let { title = it }
-                +"✓ ships"
+                +tr("✓ ships", "✓ envía")
                 if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
                 // The shipping fee often decides whether a "deal" is still a deal: the same
                 // YES verdict covers "FREE Shipping" and "$60.66 Shipping".
                 deal.coShippingCost?.let { cost ->
                     val share = deal.shippingCostPercent
                     when {
-                        cost.signum() == 0 -> span("prov") { +"free ship" }
+                        cost.signum() == 0 -> span("prov") { +tr("free ship", "envío gratis") }
                         // A fee that is a large share of the item is not a footnote on a good
                         // deal, it is the reason it is not one -- so it states the proportion,
                         // not just the amount. $248.68 reads as merely expensive; "93% of
                         // price" reads as the answer.
                         deal.shippingCostDominates -> span("prov kill-prov") {
-                            title = "Amazon quoted ${formatMoney(cost, "USD")} to ship this — " +
-                                "$share% of the item's own price. It ships, but almost certainly " +
-                                "is not worth it."
-                            +"+${formatMoney(cost, "USD")} ship · $share% of price"
+                            val m = formatMoney(cost, "USD")
+                            title = tr(
+                                "Amazon quoted $m to ship this — " +
+                                    "$share% of the item's own price. It ships, but almost certainly " +
+                                    "is not worth it.",
+                                "Amazon cotizó $m por enviarlo, el $share% del precio del producto. " +
+                                    "Sí envía, pero casi seguro no vale la pena.",
+                            )
+                            +tr("+$m ship · $share% of price", "+$m envío · $share% del precio")
                         }
                         else -> span("prov warn-prov") {
-                            title = "Amazon quoted this international shipping fee" +
-                                (share?.let { " — $it% of the item's price" } ?: "")
-                            +"+${formatMoney(cost, "USD")} ship"
+                            title = tr(
+                                "Amazon quoted this international shipping fee" +
+                                    (share?.let { " — $it% of the item's price" } ?: ""),
+                                "Amazon cotizó este costo de envío internacional" +
+                                    (share?.let { ", el $it% del precio del producto" } ?: ""),
+                            )
+                            +tr("+${formatMoney(cost, "USD")} ship", "+${formatMoney(cost, "USD")} envío")
                         }
                     }
                 }
                 // Import charges were previously only shown when they did NOT apply, which is
                 // backwards -- charges make a deal worse, so that is the case to flag.
                 when (deal.coShippingImportFree) {
-                    true -> span("prov") { +"no import fees" }
-                    false -> span("prov warn-prov") { +"import fees" }
+                    true -> span("prov") { +tr("no import fees", "sin impuestos de importación") }
+                    false -> span("prov warn-prov") { +tr("import fees", "impuestos de importación") }
                     null -> Unit
                 }
             }
@@ -868,20 +965,20 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
                 if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
             }
             CoShipping.UNKNOWN -> {
-                span("co-unk") { +"? unverified" }
+                span("co-unk") { +tr("? unverified", "? sin verificar") }
                 div("actions") {
                     button {
                         attributes["hx-post"] = "/deal/${deal.id}/co-shipping?value=YES"
                         attributes["hx-target"] = "#deal-${deal.id}"
                         attributes["hx-swap"] = "outerHTML"
-                        title = "Mark as shippable to Colombia"
-                        +"ships"
+                        title = tr("Mark as shippable to Colombia", "Marcar como enviable a Colombia")
+                        +tr("ships", "envía")
                     }
                     button {
                         attributes["hx-post"] = "/deal/${deal.id}/co-shipping?value=NO"
                         attributes["hx-target"] = "#deal-${deal.id}"
                         attributes["hx-swap"] = "outerHTML"
-                        title = "Mark as not shippable"
+                        title = tr("Mark as not shippable", "Marcar como no enviable")
                         +"no"
                     }
                     // Only offered when there is an ASIN to look up. Amazon is reachable only
@@ -899,13 +996,16 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
                             // letting a second click start a competing browser.
                             attributes["hx-disabled-elt"] = "closest .actions button"
                             attributes["hx-indicator"] = "#spin-${deal.id}"
-                            title = "Open Amazon in a browser and read the delivery block for this ASIN"
-                            +"verify"
+                            title = tr(
+                                "Open Amazon in a browser and read the delivery block for this ASIN",
+                                "Abrir Amazon en un navegador y leer el bloque de entrega de este ASIN",
+                            )
+                            +tr("verify", "verificar")
                         }
                         span("htmx-indicator spinner") {
                             id = "spin-${deal.id}"
-                            title = "Checking Amazon — this takes up to a minute"
-                            +"checking…"
+                            title = tr("Checking Amazon — this takes up to a minute", "Revisando Amazon, esto tarda hasta un minuto")
+                            +tr("checking…", "revisando…")
                         }
                     }
                 }
@@ -960,13 +1060,16 @@ private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen) {
         // filter chips' convention.
         attributes["aria-pressed"] = on.toString()
         title = if (on) {
-            "Remove from favorites" +
-                if (screen == FeedScreen.FAVORITES) " — the row leaves this page" else ""
+            tr("Remove from favorites", "Quitar de favoritos") +
+                if (screen == FeedScreen.FAVORITES) tr(" — the row leaves this page", ": la fila sale de esta página") else ""
         } else {
-            "Keep this deal on the favorites page, even after the offer ends"
+            tr(
+                "Keep this deal on the favorites page, even after the offer ends",
+                "Guardar esta oferta en favoritos, incluso después de que termine",
+            )
         }
         // The glyph is filled or hollow AND the word changes, so the state never rests on colour.
-        +if (on) "★ favorited" else "☆ favorite"
+        +if (on) tr("★ favorited", "★ en favoritos") else tr("☆ favorite", "☆ favorita")
     }
 }
 
@@ -1006,7 +1109,8 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
         // rendered as "amazonASIN B0CV8VQJV1first seen 2h ago".
         deal.merchant?.let { span { +it } }
         deal.asin?.let { span { +"ASIN $it" } }
-        span { +"first seen ${relativeAgo(deal.firstSeenAt)}" }
+        val firstSeen = relativeAgo(deal.firstSeenAt)
+        span { +tr("first seen $firstSeen", "vista por primera vez $firstSeen") }
     }
 
     // The feed's thumbnail is sized for recognition while scanning; this page is where the
@@ -1030,27 +1134,36 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
         deal.storeDiscountPercent?.let {
             +" "
             span("disc disc-s${discountTier(BigDecimal(it))}") {
-                title = "The store's advertised discount against its own list price, rounded down as its page shows it"
+                title = tr(
+                    "The store's advertised discount against its own list price, rounded down as its page shows it",
+                    "El descuento que anuncia la tienda sobre su propio precio de lista, redondeado hacia abajo como lo muestra su página",
+                )
                 +"−$it%"
             }
         }
         deal.minPriceEver?.let {
             +" "
-            span("sub") { +"lowest recorded ${formatMoney(it, deal.currency)}" }
+            val m = formatMoney(it, deal.currency)
+            span("sub") { +tr("lowest recorded $m", "mínimo registrado $m") }
         }
     }
 
     if (history.size < 2) {
         p("sub") {
-            val note = "Only ${history.size} observation so far — price history builds up as " +
-                "the hourly poll runs, and is what lets you tell a real discount from an " +
-                "inflated list price."
+            val note = tr(
+                "Only ${history.size} observation so far — price history builds up as " +
+                    "the hourly poll runs, and is what lets you tell a real discount from an " +
+                    "inflated list price.",
+                "Solo ${history.size} observación hasta ahora. El historial de precios se construye " +
+                    "con la consulta de cada hora, y es lo que permite distinguir un descuento real de " +
+                    "un precio de lista inflado.",
+            )
             +note
         }
     } else {
         sparkline(history)
         table("history") {
-            thead { tr { th { +"When" }; th { +"Price" }; th { +"List price" } } }
+            thead { tr { th { +tr("When", "Cuándo") }; th { +tr("Price", "Precio") }; th { +tr("List price", "Precio de lista") } } }
             tbody {
                 history.reversed().take(50).forEach { obs ->
                     tr {
@@ -1101,8 +1214,12 @@ private fun MAIN.sparkline(history: List<PriceObservation>) {
     val (lowX, lowY) = coords[lowIdx]
 
     val currency = history.first().currency
-    val label = "price history, ${history.size} observations, " +
-        "low ${formatMoney(min, currency)}, high ${formatMoney(max, currency)}"
+    val lo = formatMoney(min, currency)
+    val hi = formatMoney(max, currency)
+    val label = tr(
+        "price history, ${history.size} observations, low $lo, high $hi",
+        "historial de precios, ${history.size} observaciones, mínimo $lo, máximo $hi",
+    )
 
     div {
         unsafe {
@@ -1126,17 +1243,22 @@ private fun MAIN.sparkline(history: List<PriceObservation>) {
         }
     }
     p("sub") {
-        +"range ${formatMoney(min, currency)} – ${formatMoney(max, currency)}"
+        +tr("range $lo – $hi", "rango $lo – $hi")
     }
 }
 
 fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
     div("runs") {
-        h2 { +"Recent fetch runs" }
+        h2 { +tr("Recent fetch runs", "Consultas recientes") }
         table {
-            thead { tr { th { +"Source" }; th { +"Started" }; th { +"Items" }; th { +"New" }; th { +"Status" } } }
+            thead {
+                tr {
+                    th { +tr("Source", "Fuente") }; th { +tr("Started", "Inicio") }; th { +tr("Items", "Productos") }
+                    th { +tr("New", "Nuevos") }; th { +tr("Status", "Estado") }
+                }
+            }
             tbody {
-                if (runs.isEmpty()) tr { td { colSpan = "5"; +"no runs yet" } }
+                if (runs.isEmpty()) tr { td { colSpan = "5"; +tr("no runs yet", "aún no hay consultas") } }
                 runs.forEach { run ->
                     tr {
                         td { +(run["source"] as? String ?: "?") }
@@ -1147,7 +1269,7 @@ fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
                         td {
                             when {
                                 error != null -> span("err") { +error.take(110) }
-                                run["finishedAt"] == null -> +"running…"
+                                run["finishedAt"] == null -> +tr("running…", "en curso…")
                                 else -> +"ok"
                             }
                         }

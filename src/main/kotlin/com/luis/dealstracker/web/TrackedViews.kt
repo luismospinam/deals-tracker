@@ -27,6 +27,8 @@ import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.title
 import kotlinx.html.tr
+import com.luis.dealstracker.i18n.categoryLabel
+import com.luis.dealstracker.i18n.tr
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -99,6 +101,17 @@ internal enum class ProductType(val label: String, internal val nouns: List<Stri
     ),
     OTHER("other", emptyList());
 
+    /** The tag's text. [label] stays English because it is also the `type=` URL value. */
+    val display: String
+        get() = when (this) {
+            SHOES -> tr("shoes", "zapatos")
+            HOODIES -> tr("hoodies", "buzos")
+            BOXERS -> tr("boxers", "bóxers")
+            PANTS -> tr("pants", "pantalones")
+            SHIRTS -> tr("shirts", "camisetas")
+            OTHER -> tr("other", "otros")
+        }
+
     companion object {
         /**
          * Classifies a row for the type tags.
@@ -158,6 +171,13 @@ internal enum class ProductType(val label: String, internal val nouns: List<Stri
 internal enum class TrackedOrigin(val label: String) {
     MANUAL("added"),
     SEARCH("found");
+
+    /** The tag's text. [label] stays English because it is also the `origin=` URL value. */
+    val display: String
+        get() = when (this) {
+            MANUAL -> tr("added", "agregados")
+            SEARCH -> tr("found", "encontrados")
+        }
 
     companion object {
         fun of(value: String?): TrackedOrigin? =
@@ -292,7 +312,7 @@ private fun MAIN.addItemForm(notice: String?) {
         // Open when there is a result to show. The notice lives inside the details, and a collapsed
         // one after the redirect made a successful add look like the button did nothing.
         if (notice != null) attributes["open"] = ""
-        summary { +"Track an item by URL" }
+        summary { +tr("Track an item by URL", "Seguir un producto por URL") }
 
         notice?.let { div("additem-notice") { +it } }
 
@@ -301,31 +321,41 @@ private fun MAIN.addItemForm(notice: String?) {
             attributes["action"] = "/tracked/add"
 
             div("f wide") {
-                label { +"Amazon URL" }
+                label { +tr("Amazon URL", "URL de Amazon") }
                 input(type = InputType.text, name = "url") {
                     required = true
                     placeholder = "https://www.amazon.com/dp/B074JLDHK3"
-                    title = "Any amazon.com product link — the /dp/<ASIN> part is what matters, and " +
-                        "a ?th=1&psc=1 tail is fine."
+                    title = tr(
+                        "Any amazon.com product link — the /dp/<ASIN> part is what matters, and " +
+                            "a ?th=1&psc=1 tail is fine.",
+                        "Cualquier enlace de producto de amazon.com — lo que importa es la parte /dp/<ASIN>, " +
+                            "y un final ?th=1&psc=1 no molesta.",
+                    )
                 }
             }
             div("f") {
-                label { +"Brand (optional)" }
+                label { +tr("Brand (optional)", "Marca (opcional)") }
                 input(type = InputType.text, name = "brand") {
-                    placeholder = "read from the page"
-                    title = "Only needed if the page's byline does not name a brand."
+                    placeholder = tr("read from the page", "se lee de la página")
+                    title = tr(
+                        "Only needed if the page's byline does not name a brand.",
+                        "Solo hace falta si la página no dice la marca.",
+                    )
                 }
             }
             div("f") {
-                label { +"Type (optional)" }
+                label { +tr("Type (optional)", "Tipo (opcional)") }
                 input(type = InputType.text, name = "productType") {
-                    placeholder = "read from the breadcrumb"
-                    title = "Only needed if Amazon's breadcrumb categorises it unhelpfully."
+                    placeholder = tr("read from the breadcrumb", "se lee de la ruta de categorías")
+                    title = tr(
+                        "Only needed if Amazon's breadcrumb categorises it unhelpfully.",
+                        "Solo hace falta si la categoría que da Amazon no sirve.",
+                    )
                 }
             }
             div("f") {
                 label { +"" }
-                button { +"Add & fetch" }
+                button { +tr("Add & fetch", "Agregar y consultar") }
             }
         }
     }
@@ -364,14 +394,14 @@ private fun MAIN.brandPicker(
 
     div("brandpick") {
         label {
-            +"Brand"
+            +tr("Brand", "Marca")
             select {
                 attributes["onchange"] = "location.href=this.value"
 
                 option {
                     value = trackedUrl(types, sort, null, origin, showNoShip)
                     if (brand.isNullOrBlank()) this.selected = true
-                    +"all brands"
+                    +tr("all brands", "todas las marcas")
                 }
                 counts.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
                     .forEach { (key, n) ->
@@ -413,7 +443,7 @@ private fun MAIN.originTags(
     if (manual == 0 || found == 0) return
 
     div("typetags") {
-        span("typetags-label") { +"Origin" }
+        span("typetags-label") { +tr("Origin", "Origen") }
 
         listOf(TrackedOrigin.MANUAL to manual, TrackedOrigin.SEARCH to found).forEach { (which, n) ->
             val on = origin == which
@@ -421,7 +451,7 @@ private fun MAIN.originTags(
                 classes = if (on) "typetag on" else "typetag",
                 href = trackedUrl(selected, sort, brand, if (on) null else which, showNoShip),
             ) {
-                +which.label
+                +which.display
                 span("typetag-n") { +n.toString() }
             }
         }
@@ -460,7 +490,7 @@ private fun MAIN.typeTags(
     val counts = inBrand.groupingBy { ProductType.of(it.title) }.eachCount()
 
     div("typetags") {
-        span("typetags-label") { +"Type" }
+        span("typetags-label") { +tr("Type", "Tipo") }
 
         ProductType.entries.forEach { type ->
             val n = counts[type] ?: 0
@@ -473,7 +503,7 @@ private fun MAIN.typeTags(
             val href = trackedUrl(next, sort, brand, origin, showNoShip)
 
             a(classes = if (on) "typetag on" else "typetag", href = href) {
-                +type.label
+                +type.display
                 span("typetag-n") { +n.toString() }
             }
         }
@@ -481,7 +511,7 @@ private fun MAIN.typeTags(
         if (selected.isNotEmpty()) {
             // Clears the TYPE filter only. Resetting the sort too would be a second, unasked-for
             // change hiding behind one control.
-            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +"clear" }
+            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +tr("clear", "quitar") }
         }
     }
 }
@@ -517,7 +547,7 @@ private fun MAIN.noShipToggle(
                     "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, true)}'" +
                     ":'${trackedUrl(selected, sort, brand, origin, false)}'"
             }
-            +" show items that don't ship to Colombia"
+            +tr(" show items that don't ship to Colombia", " mostrar productos que no envían a Colombia")
             span("typetag-n") { +n.toString() }
         }
     }
@@ -574,26 +604,38 @@ internal fun MAIN.trackedPage(
     val (deals, variants) = collapseVariants(allDeals, manualAsins)
 
     p("tracked-intro") {
-        +"Items tracked by name and size, with the price movement we have recorded. "
-        +"This is not a deal feed — nothing here is filtered by discount. "
-        a(href = "/") { +"The feed" }
-        +" answers what is on offer; this answers what your items cost."
+        +tr(
+            "Items tracked by name and size, with the price movement we have recorded. ",
+            "Productos seguidos por nombre y talla, con el movimiento de precio que hemos registrado. ",
+        )
+        +tr(
+            "This is not a deal feed — nothing here is filtered by discount. ",
+            "Esto no es un listado de ofertas — aquí nada se filtra por descuento. ",
+        )
+        a(href = "/") { +tr("The feed", "El listado") }
+        +tr(
+            " answers what is on offer; this answers what your items cost.",
+            " responde qué está en oferta; esto responde cuánto cuestan tus productos.",
+        )
     }
 
     if (deals.isEmpty()) {
         div("empty") {
             if (sources.isEmpty()) {
-                +"No tracking providers are enabled. Add one with "
+                +tr("No tracking providers are enabled. Add one with ", "No hay proveedores de seguimiento activos. Agrega uno con ")
                 code { +"type: amazon" }
-                +" in config/sources.yaml."
+                +tr(" in config/sources.yaml.", " en config/sources.yaml.")
             } else {
-                +"Nothing tracked yet. Configure "
+                +tr("Nothing tracked yet. Configure ", "Todavía no hay nada en seguimiento. Configura ")
                 code { +"trackSearches" }
-                +" and your sizes under the "
+                +tr(" and your sizes under the ", " y tus tallas en el proveedor ")
                 code { +sources.joinToString(", ") }
-                +" provider, then run "
+                +tr(" provider, then run ", " y luego ejecuta ")
                 code { +"./dt run --args=\"--fetch-once --source=${sources.first()}\"" }
-                +". Amazon rate-limits hard, so expect a run to bring back a handful at a time."
+                +tr(
+                    ". Amazon rate-limits hard, so expect a run to bring back a handful at a time.",
+                    ". Amazon limita mucho las consultas, así que cada ejecución trae solo unos pocos.",
+                )
             }
         }
         return
@@ -615,8 +657,8 @@ internal fun MAIN.trackedPage(
 
     if (shown.isEmpty()) {
         div("empty") {
-            +"No tracked items of that type. "
-            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +"Show all" }
+            +tr("No tracked items of that type. ", "No hay productos en seguimiento de ese tipo. ")
+            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +tr("Show all", "Ver todos") }
             +"."
         }
         return
@@ -624,73 +666,105 @@ internal fun MAIN.trackedPage(
 
     div("tracked-count") {
         +if (selected.isEmpty()) {
-            "${shown.size} item(s) tracked"
+            tr("${shown.size} item(s) tracked", "${shown.size} producto(s) en seguimiento")
         } else {
-            "${shown.size} of ${pool.size} item(s) tracked"
+            tr("${shown.size} of ${pool.size} item(s) tracked", "${shown.size} de ${pool.size} producto(s) en seguimiento")
         }
         val awaiting = shown.count { it.observationCount < 2 }
         if (awaiting > 0) {
             // Stated up front, because on the first day EVERY row is in this state and a page
             // full of dashes otherwise reads as broken rather than as young.
             span("tracked-note") {
-                +" · $awaiting awaiting a second price check before movement can be shown"
+                +tr(
+                    " · $awaiting awaiting a second price check before movement can be shown",
+                    " · $awaiting esperando una segunda revisión de precio para mostrar movimiento",
+                )
             }
         }
         // Counted for the same reason: until the check runs, a row may not ship at all.
         val unchecked = shown.count { it.shippingUnchecked }
         if (unchecked > 0) {
             span("tracked-note") {
-                +" · $unchecked not yet checked for shipping to Colombia"
+                +tr(
+                    " · $unchecked not yet checked for shipping to Colombia",
+                    " · $unchecked sin revisar si envían a Colombia",
+                )
             }
         }
     }
 
     sortTags(
-        listOf("Now" to TrackedSort.PRICE, "Off" to TrackedSort.OFF, "Lowest yet" to TrackedSort.LOWEST, "Checked" to TrackedSort.CHECKED)
+        listOf(
+            tr("Now", "Ahora") to TrackedSort.PRICE,
+            tr("Off", "Dto.") to TrackedSort.OFF,
+            tr("Lowest yet", "Mínimo histórico") to TrackedSort.LOWEST,
+            tr("Checked", "Revisado") to TrackedSort.CHECKED,
+        )
             .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip), sort == s) },
     )
     table("deals tracked") {
         thead {
             tr {
-                th(classes = "col-thumb") { attributes["aria-label"] = "image" }
-                th(classes = "col-deal") { +"Item" }
-                th(classes = "col-size") { +"Size" }
-                sortTh("Now", TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip)
+                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                th(classes = "col-deal") { +tr("Item", "Producto") }
+                th(classes = "col-size") { +tr("Size", "Talla") }
+                sortTh(tr("Now", "Ahora"), TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip)
                 th(classes = "col-price") {
-                    title = "Amazon's own \"List:\" price, where it publishes one"
-                    +"List"
+                    title = tr(
+                        "Amazon's own \"List:\" price, where it publishes one",
+                        "El precio \"List:\" de Amazon, cuando lo publica",
+                    )
+                    +tr("List", "Lista")
                 }
                 sortTh(
-                    "Off", TrackedSort.OFF, sort, selected, "col-disc", brand, origin, showNoShip,
-                    tooltip = "Discount against Amazon's list price — its claim about its own " +
-                        "former price, not a decline we observed. Blank where no list price is " +
-                        "shown; those rows sort last.",
+                    tr("Off", "Dto."), TrackedSort.OFF, sort, selected, "col-disc", brand, origin, showNoShip,
+                    tooltip = tr(
+                        "Discount against Amazon's list price — its claim about its own " +
+                            "former price, not a decline we observed. Blank where no list price is " +
+                            "shown; those rows sort last.",
+                        "Descuento sobre el precio de lista de Amazon — lo que Amazon dice de su " +
+                            "propio precio anterior, no una baja que hayamos visto. Vacío cuando no hay " +
+                            "precio de lista; esas filas quedan de últimas.",
+                    ),
                 )
                 th(classes = "col-extra") {
-                    title = "International shipping and import charges Amazon quotes on top of " +
-                        "the price, plus what the item therefore actually costs delivered. " +
-                        "Blank until the Colombia shipping check has run for that item."
+                    title = tr(
+                        "International shipping and import charges Amazon quotes on top of " +
+                            "the price, plus what the item therefore actually costs delivered. " +
+                            "Blank until the Colombia shipping check has run for that item.",
+                        "Envío internacional e impuestos de importación que Amazon cobra además del " +
+                            "precio, y lo que el producto cuesta entonces puesto en casa. " +
+                            "Vacío hasta que se revise el envío a Colombia de ese producto.",
+                    )
                     +"Extra"
                 }
                 th(classes = "col-price") {
-                    title = "Cheapest price we have recorded for this item"
-                    +"Lowest"
+                    title = tr("Cheapest price we have recorded for this item", "El precio más bajo que hemos registrado para este producto")
+                    +tr("Lowest", "Mínimo")
                 }
                 th(classes = "col-price") {
-                    title = "Dearest price we have recorded for this item"
-                    +"Highest"
+                    title = tr("Dearest price we have recorded for this item", "El precio más alto que hemos registrado para este producto")
+                    +tr("Highest", "Máximo")
                 }
                 sortTh(
-                    "Low", TrackedSort.LOWEST, sort, selected, "col-low", brand, origin, showNoShip,
-                    tooltip = "At the lowest price we have ever recorded, AND genuinely down from " +
-                        "a higher one we saw. A price that never moved does not qualify.",
+                    tr("Low", "Mín."), TrackedSort.LOWEST, sort, selected, "col-low", brand, origin, showNoShip,
+                    tooltip = tr(
+                        "At the lowest price we have ever recorded, AND genuinely down from " +
+                            "a higher one we saw. A price that never moved does not qualify.",
+                        "En el precio más bajo que hemos registrado, Y de verdad por debajo de " +
+                            "uno más alto que vimos. Un precio que nunca se movió no cuenta.",
+                    ),
                 )
                 th(classes = "col-chg") {
-                    title = "Change from the dearest price we recorded. Blank until a second " +
-                        "observation exists — one price is not a trend."
-                    +"Change"
+                    title = tr(
+                        "Change from the dearest price we recorded. Blank until a second " +
+                            "observation exists — one price is not a trend.",
+                        "Cambio frente al precio más alto que registramos. Vacío hasta que haya una " +
+                            "segunda observación — un solo precio no es una tendencia.",
+                    )
+                    +tr("Change", "Cambio")
                 }
-                sortTh("Checked", TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip)
+                sortTh(tr("Checked", "Revisado"), TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip)
                 th(classes = "col-act") { +"" }
             }
         }
@@ -806,22 +880,30 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
                 // TrackedOrigin for why that distinction is worth surfacing.
                 if (deal.asin != null && deal.asin in manualAsins) {
                     span("manual-badge") {
-                        title = "Added by URL, so its ASIN is exact — the price and size are this " +
-                            "item's own, not a size filter's best guess."
-                        +"added"
+                        title = tr(
+                            "Added by URL, so its ASIN is exact — the price and size are this " +
+                                "item's own, not a size filter's best guess.",
+                            "Agregado por URL, así que su ASIN es exacto — el precio y la talla son los " +
+                                "de este producto, no la mejor suposición de un filtro de talla.",
+                        )
+                        +tr("added", "agregado")
                     }
                 }
                 deal.asin?.let { span { +"ASIN $it" } }
                 if (variants.isNotEmpty()) {
                     span("variants-note") {
-                        title = "Also returned under " +
-                            variants.joinToString(", ") { v -> v.asin ?: v.sourceDealId } +
-                            ". Same product, other variants the size filter picked; " +
-                            "listed once here. Hiding this row hides them all."
-                        +"+${variants.size} variant${if (variants.size == 1) "" else "s"}"
+                        val ids = variants.joinToString(", ") { v -> v.asin ?: v.sourceDealId }
+                        title = tr(
+                            "Also returned under $ids. Same product, other variants the size filter picked; " +
+                                "listed once here. Hiding this row hides them all.",
+                            "También aparece como $ids. Mismo producto, otras variantes que eligió el filtro " +
+                                "de talla; aquí se muestra una vez. Ocultar esta fila las oculta todas.",
+                        )
+                        val plural = if (variants.size == 1) "" else "s"
+                        +tr("+${variants.size} variant$plural", "+${variants.size} variante$plural")
                     }
                 }
-                deal.categoryGroup?.let { span("cat") { +it } }
+                deal.categoryGroup?.let { span("cat") { +categoryLabel(it) } }
             }
         }
 
@@ -829,12 +911,12 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // title because `deals` has no size column; this is the one place that matters enough
         // to read it back out.
         td(classes = "col-size") {
-            cardLabel("Size")
+            cardLabel(tr("Size", "Talla"))
             sizeOf(deal.title)?.let { span("size-chip") { +it } } ?: span("muted") { +"—" }
         }
 
         td(classes = "col-price") {
-            cardLabel("Now")
+            cardLabel(tr("Now", "Ahora"))
             div("price") { +formatMoney(deal.price, deal.currency) }
         }
 
@@ -845,13 +927,13 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // measurements. Conflating them would be the "inflated list price" trap this project
         // documents at length for Éxito, where ~94% of the catalogue is flagged as discounted.
         td(classes = "col-price") {
-            cardLabel("List")
+            cardLabel(tr("List", "Lista"))
             deal.listPrice?.let { div("was") { +formatMoney(it, deal.currency) } }
                 ?: span("muted") { +"—" }
         }
 
         td(classes = "col-disc") {
-            cardLabel("Off")
+            cardLabel(tr("Off", "Dto."))
             val pct = deal.discountPercent
             if (pct == null) {
                 // Blank, never 0%. Most tiles carry no list price, and a zero would read as
@@ -882,11 +964,11 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
 
         // Blank, not the current price, when there is nothing to compare against.
         td(classes = "col-price") {
-            cardLabel("Lowest")
+            cardLabel(tr("Lowest", "Mínimo"))
             priceOrDash(deal.minPriceEver, deal)
         }
         td(classes = "col-price") {
-            cardLabel("Highest")
+            cardLabel(tr("Highest", "Máximo"))
             priceOrDash(deal.maxPriceEver, deal)
         }
 
@@ -897,26 +979,30 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // never moved, because the minimum includes the current observation. That exact mistake put
         // "lowest yet" on every row of the feed once, which is what made the badge meaningless.
         td(classes = "col-low") {
-            cardLabel("Low")
+            cardLabel(tr("Low", "Mín."))
             when {
                 deal.isAtLowestEver -> span("lowbadge") {
-                    title = "Lowest of ${deal.observationCount} recorded price(s), and down from " +
-                        (deal.maxPriceEver?.let { formatMoney(it, deal.currency) } ?: "a higher price")
-                    +"↓ lowest"
+                    val from = deal.maxPriceEver?.let { formatMoney(it, deal.currency) }
+                    title = tr(
+                        "Lowest of ${deal.observationCount} recorded price(s), and down from " + (from ?: "a higher price"),
+                        "El más bajo de ${deal.observationCount} precio(s) registrado(s), y por debajo de " +
+                            (from ?: "un precio más alto"),
+                    )
+                    +tr("↓ lowest", "↓ mínimo")
                 }
                 // Distinguishes "no evidence yet" from "seen higher prices, not at the low now".
-                deal.observationCount < 2 -> span("muted") { title = "Only one price check so far"; +"—" }
+                deal.observationCount < 2 -> span("muted") { title = tr("Only one price check so far", "Solo una revisión de precio hasta ahora"); +"—" }
                 else -> span("muted") { +"" }
             }
         }
 
         td(classes = "col-chg") {
-            cardLabel("Change")
+            cardLabel(tr("Change", "Cambio"))
             changeCell(deal)
         }
 
         td(classes = "col-seen") {
-            cardLabel("Checked")
+            cardLabel(tr("Checked", "Revisado"))
             +relativeTime(deal.lastSeenAt)
         }
 
@@ -924,7 +1010,7 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // exists nowhere else in the stylesheet.
         td(classes = "col-act") {
             div("actions") {
-                a(href = "/deal/${deal.id}") { +"history" }
+                a(href = "/deal/${deal.id}") { +tr("history", "historial") }
                 // Soft delete via the existing DISMISSED state, not a row delete: a deleted row is
                 // re-inserted by the next poll (upsert is keyed on source + source_deal_id) and
                 // would take its price history with it. See POST /tracked/{id}/hide.
@@ -935,11 +1021,19 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
                     attributes["hx-target"] = "#tracked-${deal.id}"
                     attributes["hx-swap"] = "outerHTML"
                     // A confirm, because the row disappears and the undo lives on another page.
-                    attributes["hx-confirm"] = "Stop tracking this item? It stays in the database " +
-                        "with its price history, and can be brought back from the feed's State filter."
-                    title = "Stop showing this item. Soft delete — the row and its price history " +
-                        "are kept, and the next poll will not bring it back."
-                    +"hide"
+                    attributes["hx-confirm"] = tr(
+                        "Stop tracking this item? It stays in the database " +
+                            "with its price history, and can be brought back from the feed's State filter.",
+                        "¿Dejar de seguir este producto? Se queda en la base de datos con su historial " +
+                            "de precios, y se puede recuperar desde el filtro Estado del listado.",
+                    )
+                    title = tr(
+                        "Stop showing this item. Soft delete — the row and its price history " +
+                            "are kept, and the next poll will not bring it back.",
+                        "Deja de mostrar este producto. Se oculta sin borrarse — la fila y su historial " +
+                            "de precios se conservan, y la próxima consulta no lo traerá de vuelta.",
+                    )
+                    +tr("hide", "ocultar")
                 }
             }
         }
@@ -965,7 +1059,10 @@ private fun kotlinx.html.TD.extraCosts(deal: Deal) {
     // Stated as a chip, not a quiet "n/a": a row that cannot reach Colombia is not a price worth
     // watching, and the tab keeps it listed only so the verdict is visible rather than silent.
     if (deal.coShipping == CoShipping.NO) {
-        span("prov kill-prov") { title = "Amazon will not ship this to Colombia"; +"no ship to CO" }
+        span("prov kill-prov") {
+            title = tr("Amazon will not ship this to Colombia", "Amazon no envía esto a Colombia")
+            +tr("no ship to CO", "no envía a CO")
+        }
         return
     }
 
@@ -977,37 +1074,49 @@ private fun kotlinx.html.TD.extraCosts(deal: Deal) {
         // ship" are three different facts. A dash read as "nothing to add", which is how a
         // T-shirt Amazon refuses to send to Colombia sat on this tab looking like a clean price.
         span("prov unchecked-prov") {
-            title = "The Colombia shipping check has not run for this item yet, so whether it " +
-                "ships at all — and what freight and import charges apply — is unknown, not " +
-                "known to be fine."
-            +"unchecked"
+            title = tr(
+                "The Colombia shipping check has not run for this item yet, so whether it " +
+                    "ships at all — and what freight and import charges apply — is unknown, not " +
+                    "known to be fine.",
+                "Todavía no se ha revisado el envío a Colombia de este producto, así que si se " +
+                    "envía — y qué flete e impuestos de importación aplican — es desconocido, no " +
+                    "algo que sepamos que está bien.",
+            )
+            +tr("unchecked", "sin revisar")
         }
         return
     }
 
     div("extra") {
         if (cost != null && cost.signum() == 0) {
-            span("prov") { +"free ship" }
+            span("prov") { +tr("free ship", "envío gratis") }
         } else if (cost != null) {
             val share = deal.shippingCostPercent
             // A fee worth more than half the item is not a footnote on a good deal, it is the
             // reason it is not one -- so it states the proportion, not just the amount.
             span(if (deal.shippingCostDominates) "prov kill-prov" else "prov warn-prov") {
-                title = "Amazon quoted ${formatMoney(cost, deal.currency)} to ship this" +
-                    (share?.let { " — $it% of the item's own price" } ?: "")
-                +"+${formatMoney(cost, deal.currency)} ship"
+                val fee = formatMoney(cost, deal.currency)
+                title = tr(
+                    "Amazon quoted $fee to ship this" + (share?.let { " — $it% of the item's own price" } ?: ""),
+                    "Amazon cotizó $fee por enviar esto" + (share?.let { " — el $it% del precio del producto" } ?: ""),
+                )
+                +tr("+$fee ship", "+$fee envío")
             }
         }
 
-        if (importFees) span("prov warn-prov") { +"import fees" }
+        if (importFees) span("prov warn-prov") { +tr("import fees", "impuestos de importación") }
 
         // The landed total: price plus freight. Import charges are NOT added, because Amazon
         // quotes their presence without always quoting an amount -- so the chip above says they
         // apply, and this total stays a number that can be stood behind.
         cost?.takeIf { it.signum() > 0 }?.let {
             div("extra-total") {
-                title = "Price plus the quoted shipping. Import charges, where they apply, are " +
-                    "flagged separately because Amazon does not always quote an amount for them."
+                title = tr(
+                    "Price plus the quoted shipping. Import charges, where they apply, are " +
+                        "flagged separately because Amazon does not always quote an amount for them.",
+                    "Precio más el envío cotizado. Los impuestos de importación, cuando aplican, se " +
+                        "marcan aparte porque Amazon no siempre dice cuánto son.",
+                )
                 +"= ${formatMoney(deal.price.add(it), deal.currency)}"
             }
         }
@@ -1029,15 +1138,24 @@ private fun kotlinx.html.TD.changeCell(deal: Deal) {
     val peak = deal.maxPriceEver
     if (deal.observationCount < 2 || peak == null || peak <= BigDecimal.ZERO) {
         span("muted") {
-            title = "Only ${deal.observationCount} price check so far — no movement to report yet"
-            +"new"
+            title = tr(
+                "Only ${deal.observationCount} price check so far — no movement to report yet",
+                "Solo ${deal.observationCount} revisión(es) de precio hasta ahora — todavía no hay movimiento",
+            )
+            +tr("new", "nuevo")
         }
         return
     }
 
     val delta = deal.price.subtract(peak)
     if (delta.signum() == 0) {
-        span("muted") { title = "Unchanged across ${deal.observationCount} checks"; +"—" }
+        span("muted") {
+            title = tr(
+                "Unchanged across ${deal.observationCount} checks",
+                "Sin cambios en ${deal.observationCount} revisiones",
+            )
+            +"—"
+        }
         return
     }
 
@@ -1049,9 +1167,12 @@ private fun kotlinx.html.TD.changeCell(deal: Deal) {
     // well as a colour, following the rule that colour is never the only cue.
     val down = delta.signum() < 0
     span(if (down) "chg chg-down" else "chg chg-up") {
-        title = "${if (down) "Down" else "Up"} ${formatMoney(delta.abs(), deal.currency)} " +
-            "from the ${formatMoney(peak, deal.currency)} peak we recorded, " +
-            "across ${deal.observationCount} checks"
+        val amount = formatMoney(delta.abs(), deal.currency)
+        val top = formatMoney(peak, deal.currency)
+        title = tr(
+            "${if (down) "Down" else "Up"} $amount from the $top peak we recorded, across ${deal.observationCount} checks",
+            "${if (down) "Bajó" else "Subió"} $amount frente al máximo de $top que registramos, en ${deal.observationCount} revisiones",
+        )
         +"${if (down) "↓" else "↑"} ${percent.abs()}%"
     }
 }

@@ -1,5 +1,7 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.i18n.categoryLabel
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.ingest.WatchEvaluator
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.FxRate
@@ -9,6 +11,7 @@ import com.luis.dealstracker.model.WatchCandidate
 import com.luis.dealstracker.model.WatchMatch
 import com.luis.dealstracker.model.formatMoney
 import io.ktor.http.Parameters
+import io.ktor.http.encodeURLParameter
 import kotlinx.html.ButtonType
 import kotlinx.html.DIV
 import kotlinx.html.FormMethod
@@ -60,6 +63,16 @@ private const val MATCHES_PER_PAGE = 15
 private const val MATCHING_PAGE_PARAM = "mpage"
 
 /**
+ * The retailer the "Matching now" table is narrowed to, or absent for all.
+ *
+ * A filter rather than a sort (2026-09-28). Sorting by source grouped the retailers but still showed
+ * all of them, in alphabetical order -- the question it was being used for is "what does Falabella
+ * have?", and a 145-row air-fryer watch put that on pages 3 to 9 of a table sorted by name. A dropdown
+ * answers it in one step and keeps the price sort.
+ */
+private const val MATCHING_SOURCE_PARAM = "msource"
+
+/**
  * Which column a watch table is ordered by, and in which direction.
  *
  * Server-side via query parameters rather than client-side JavaScript, for the same reason the
@@ -99,7 +112,9 @@ data class WatchSort(val key: String, val desc: Boolean) {
     fun asParam(): String = if (desc) "$key:desc" else key
 }
 
-private val MATCHING_COLUMNS = setOf("product", "price", "floor", "source")
+// "source" is not a sort column any more -- it is the [MATCHING_SOURCE_PARAM] filter. An old
+// `msort=source` bookmark falls back to the default price sort, as any unknown column does.
+private val MATCHING_COLUMNS = setOf("product", "price", "floor")
 private val ALERTS_COLUMNS = setOf("deal", "price", "why", "when")
 
 /**
@@ -125,12 +140,23 @@ fun watchSortFrom(params: Parameters, param: String): WatchSort = when (param) {
 fun watchPageFrom(params: Parameters): Int =
     params[MATCHING_PAGE_PARAM]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
 
+/** The "Matching now" source filter, or null for every source. Blank counts as unset. */
+fun watchSourceFrom(params: Parameters): String? =
+    params[MATCHING_SOURCE_PARAM]?.trim()?.takeIf { it.isNotEmpty() }
+
+/**
+ * The candidates the "Matching now" table shows for [source] -- all of them when null.
+ *
+ * Shared with the Ask panel, so an answer is about the retailer the page is narrowed to.
+ */
+internal fun filterBySource(candidates: List<WatchCandidate>, source: String?): List<WatchCandidate> =
+    if (source == null) candidates else candidates.filter { it.source == source }
+
 /** Human wording for the hint line, so the page states what it is showing. */
 private fun sortLabel(sort: WatchSort): String = when (sort.key) {
-    "price" -> if (sort.desc) "price, dearest first" else "price, cheapest first"
-    "floor" -> if (sort.desc) "window low, highest first" else "window low, lowest first"
-    "source" -> "source" + if (sort.desc) ", Z–A" else ", A–Z"
-    "product" -> "product name" + if (sort.desc) ", Z–A" else ", A–Z"
+    "price" -> if (sort.desc) tr("price, dearest first", "precio, más caro primero") else tr("price, cheapest first", "precio, más barato primero")
+    "floor" -> if (sort.desc) tr("window low, highest first", "mínimo de la ventana, más alto primero") else tr("window low, lowest first", "mínimo de la ventana, más bajo primero")
+    "product" -> tr("product name", "nombre del producto") + if (sort.desc) ", Z–A" else ", A–Z"
     else -> sort.key
 }
 
@@ -148,7 +174,6 @@ internal fun matchingComparator(sort: WatchSort): Comparator<WatchCandidate> {
     val base: Comparator<WatchCandidate> = when (sort.key) {
         "product" -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
         "floor" -> compareBy(nullsLast<BigDecimal>()) { it.priorFloor }
-        "source" -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.source }
         else -> compareBy { it.price }
     }
     return (if (sort.desc) base.reversed() else base).thenBy { it.dealId }
@@ -176,10 +201,11 @@ private fun alertsComparator(sort: WatchSort, dealsById: Map<Long, Deal>): Compa
  * something else — sorting the alerts must not jump the product list back to page 1, and paging
  * must not lose the sort.
  */
-private fun watchUrl(basePath: String, matching: WatchSort, alerts: WatchSort, page: Int): String {
+private fun watchUrl(basePath: String, matching: WatchSort, alerts: WatchSort, page: Int, source: String? = null): String {
     val query = buildList {
         add("${WatchSort.MATCHING_PARAM}=${matching.asParam()}")
         add("${WatchSort.ALERTS_PARAM}=${alerts.asParam()}")
+        source?.let { add("$MATCHING_SOURCE_PARAM=${it.encodeURLParameter()}") }
         // Omitted on the first page, so the common URL stays clean and shareable.
         if (page > 1) add("$MATCHING_PAGE_PARAM=$page")
     }
@@ -201,13 +227,14 @@ private fun TR.sortableTh(
     alerts: WatchSort,
     defaultDesc: Boolean = false,
     basePath: String,
+    source: String? = null,
 ) {
     val current = if (isAlerts) alerts else matching
     val next = current.toggledFor(column, defaultDesc)
     val href = if (isAlerts) {
-        watchUrl(basePath, matching, next, page = 1)
+        watchUrl(basePath, matching, next, page = 1, source = source)
     } else {
-        watchUrl(basePath, next, alerts, page = 1)
+        watchUrl(basePath, next, alerts, page = 1, source = source)
     }
     th(classes = classes) {
         a(href = href, classes = if (current.isOn(column)) "sorted" else null) {
@@ -230,12 +257,13 @@ private fun kotlinx.html.FlowContent.watchSortTags(
     matching: WatchSort,
     alerts: WatchSort,
     basePath: String,
+    source: String? = null,
 ) {
     val current = if (isAlerts) alerts else matching
     sortTags(
         columns.map { (label, column, defaultDesc) ->
             val next = current.toggledFor(column, defaultDesc)
-            val href = if (isAlerts) watchUrl(basePath, matching, next, page = 1) else watchUrl(basePath, next, alerts, page = 1)
+            val href = if (isAlerts) watchUrl(basePath, matching, next, page = 1, source = source) else watchUrl(basePath, next, alerts, page = 1, source = source)
             val on = current.isOn(column)
             SortOption(if (on) label + if (current.desc) " ↓" else " ↑" else label, href, on)
         },
@@ -254,6 +282,7 @@ private fun MAIN.pager(
     alerts: WatchSort,
     page: Int,
     pages: Int,
+    source: String? = null,
 ) {
     if (pages <= 1) return
     div("pager") {
@@ -261,20 +290,20 @@ private fun MAIN.pager(
         // the cheapest and dearest ends are exactly what you want, and walking 29 pages to
         // reach one of them is not navigation.
         if (page > 1) {
-            a(href = watchUrl(basePath, matching, alerts, 1)) { +"« first" }
-            a(href = watchUrl(basePath, matching, alerts, page - 1)) { +"‹ prev" }
+            a(href = watchUrl(basePath, matching, alerts, 1, source)) { +tr("« first", "« primera") }
+            a(href = watchUrl(basePath, matching, alerts, page - 1, source)) { +tr("‹ prev", "‹ anterior") }
         } else {
             // Inert text rather than nothing, so the controls keep their position between pages.
-            span("off") { +"« first" }
-            span("off") { +"‹ prev" }
+            span("off") { +tr("« first", "« primera") }
+            span("off") { +tr("‹ prev", "‹ anterior") }
         }
-        span("at") { +"page $page of $pages" }
+        span("at") { +tr("page $page of $pages", "página $page de $pages") }
         if (page < pages) {
-            a(href = watchUrl(basePath, matching, alerts, page + 1)) { +"next ›" }
-            a(href = watchUrl(basePath, matching, alerts, pages)) { +"last »" }
+            a(href = watchUrl(basePath, matching, alerts, page + 1, source)) { +tr("next ›", "siguiente ›") }
+            a(href = watchUrl(basePath, matching, alerts, pages, source)) { +tr("last »", "última »") }
         } else {
-            span("off") { +"next ›" }
-            span("off") { +"last »" }
+            span("off") { +tr("next ›", "siguiente ›") }
+            span("off") { +tr("last »", "última »") }
         }
     }
 }
@@ -292,29 +321,37 @@ fun MAIN.watchesPage(
     sources: List<String>,
     categories: List<String>,
 ) {
-    h2 { +"Watches" }
+    h2 { +tr("Watches", "Búsquedas") }
     p("hint") {
-        +"Things you are trying to buy. Each one hunts on every source that can search, and "
-        +"filters everything else that arrives. Alerts land as a desktop notification."
+        +tr(
+            "Things you are trying to buy. Each one hunts on every source that can search, and " +
+                "filters everything else that arrives. Alerts land as a desktop notification.",
+            "Cosas que intentas comprar. Cada una busca en todas las fuentes que permiten buscar, y " +
+                "filtra todo lo demás que llega. Las alertas llegan como notificación de escritorio.",
+        )
     }
 
     if (watches.isEmpty()) {
         div("empty") {
-            p { +"No watches yet. Add one below — for a fridge, try:" }
+            p { +tr("No watches yet. Add one below — for a fridge, try:", "Aún no hay búsquedas. Agrega una abajo; para una nevera, prueba:") }
             p { code { +"nevera | refrigerador" } }
             p("hint") {
-                +"Set a minimum price too. Searching \"nevera\" also returns fridge "
-                +"organisers at 20.000, and without a floor those would win every time."
+                +tr(
+                    "Set a minimum price too. Searching \"nevera\" also returns fridge " +
+                        "organisers at 20.000, and without a floor those would win every time.",
+                    "Pon también un precio mínimo. Buscar \"nevera\" también trae organizadores " +
+                        "de nevera a 20.000, y sin un mínimo esos ganarían siempre.",
+                )
             }
         }
     } else {
         table("deals watches") {
             thead {
                 tr {
-                    th(classes = "col-deal") { +"Watch" }
-                    th(classes = "col-price") { +"Price band" }
-                    th(classes = "col-disc") { +"Window" }
-                    th(classes = "col-sig") { +"Matches" }
+                    th(classes = "col-deal") { +tr("Watch", "Búsqueda") }
+                    th(classes = "col-price") { +tr("Price band", "Rango de precio") }
+                    th(classes = "col-disc") { +tr("Window", "Ventana") }
+                    th(classes = "col-sig") { +tr("Matches", "Coincidencias") }
                     th(classes = "col-act") { +"" }
                 }
             }
@@ -347,42 +384,42 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
         div("meta") {
             span { code { +watch.terms } }
             watch.excludeTerms?.takeIf { it.isNotBlank() }?.let {
-                span("dim") { +"not: $it" }
+                span("dim") { +tr("not: $it", "excepto: $it") }
             }
-            watch.categoryGroup?.let { span { +it } }
-            span { +if (watch.sources.isEmpty()) "all sources" else watch.sources.joinToString(", ") }
+            watch.categoryGroup?.let { span { +categoryLabel(it) } }
+            span { +if (watch.sources.isEmpty()) tr("all sources", "todas las fuentes") else watch.sources.joinToString(", ") }
             watch.amazonTerms?.takeIf { it.isNotBlank() }?.let {
                 span { +"amazon: "; code { +it } }
             }
-            if (!watch.enabled) span("chip") { +"paused" }
+            if (!watch.enabled) span("chip") { +tr("paused", "pausada") }
         }
     }
     td(classes = "col-price") {
-        cardLabel("Price band")
+        cardLabel(tr("Price band", "Rango de precio"))
         val min = watch.minPrice?.let { formatMoney(it, watch.currency) }
         val max = watch.maxPrice?.let { formatMoney(it, watch.currency) }
         when {
             min != null && max != null -> +"$min – $max"
-            max != null -> +"up to $max"
-            min != null -> +"from $min"
+            max != null -> +tr("up to $max", "hasta $max")
+            min != null -> +tr("from $min", "desde $min")
             // A watch with no floor is the noisy case, so it is called out rather than left blank.
-            else -> span("dim") { +"any (no floor)" }
+            else -> span("dim") { +tr("any (no floor)", "cualquiera (sin mínimo)") }
         }
     }
     td(classes = "col-disc") {
-        cardLabel("Window")
+        cardLabel(tr("Window", "Ventana"))
         +"${watch.lookbackDays}d"
         br()
-        span("dim") { +"−${watch.crossSiteMinSpread.stripTrailingZeros().toPlainString()}% x-site" }
+        span("dim") { +"−${watch.crossSiteMinSpread.stripTrailingZeros().toPlainString()}% ${tr("x-site", "entre sitios")}" }
     }
     td(classes = "col-sig") {
-        cardLabel("Matches")
+        cardLabel(tr("Matches", "Coincidencias"))
         val (total, unseen) = counts ?: (0 to 0)
         if (total == 0) {
             span("dim") { +"—" }
         } else {
             +"$total"
-            if (unseen > 0) span("act-count") { +"$unseen new" }
+            if (unseen > 0) span("act-count") { +tr("$unseen new", "$unseen nuevas") }
         }
     }
     td(classes = "col-act") {
@@ -392,15 +429,15 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
                 attributes["hx-post"] = "/watches/${watch.id}/enabled?value=$next"
                 attributes["hx-target"] = "#watch-${watch.id}"
                 attributes["hx-swap"] = "outerHTML"
-                +if (watch.enabled) "pause" else "resume"
+                +if (watch.enabled) tr("pause", "pausar") else tr("resume", "reanudar")
             }
             button {
                 attributes["hx-post"] = "/watches/${watch.id}/delete"
                 attributes["hx-target"] = "#watch-${watch.id}"
                 attributes["hx-swap"] = "outerHTML"
                 // Deleting takes the match history with it (FK cascade), so it asks first.
-                attributes["hx-confirm"] = "Delete \"${watch.name}\" and its match history?"
-                +"delete"
+                attributes["hx-confirm"] = tr("Delete \"${watch.name}\" and its match history?", "¿Eliminar \"${watch.name}\" y su historial de coincidencias?")
+                +tr("delete", "eliminar")
             }
         }
     }
@@ -426,7 +463,7 @@ private fun MAIN.watchForm(
     watch: Watch? = null,
 ) {
     val editing = watch != null
-    h3 { +if (editing) "Edit watch" else "New watch" }
+    h3 { +if (editing) tr("Edit watch", "Editar búsqueda") else tr("New watch", "Nueva búsqueda") }
 
     form(
         action = if (editing) "/watches/${watch!!.id}" else "/watches",
@@ -434,7 +471,7 @@ private fun MAIN.watchForm(
         classes = "filters watchform",
     ) {
         div("f") {
-            label { +"Name" }
+            label { +tr("Name", "Nombre") }
             input(type = InputType.text, name = "name") {
                 required = true
                 placeholder = "Nevera"
@@ -442,7 +479,7 @@ private fun MAIN.watchForm(
             }
         }
         div("f wide") {
-            label { +"Match terms" }
+            label { +tr("Match terms", "Términos a buscar") }
             input(type = InputType.text, name = "terms") {
                 required = true
                 placeholder = "nevera | refrigerador"
@@ -450,30 +487,34 @@ private fun MAIN.watchForm(
             }
         }
         div("f wide") {
-            label { +"Amazon terms" }
+            label { +tr("Amazon terms", "Términos en Amazon") }
             input(type = InputType.text, name = "amazonTerms") {
                 placeholder = "55 inch 4k tv | smart tv 65"
-                attributes["title"] = "What to search amazon.com for, in English. Blank = this watch does not " +
-                    "search Amazon. Each term costs up to two Amazon page loads an hour."
+                attributes["title"] = tr(
+                    "What to search amazon.com for, in English. Blank = this watch does not " +
+                        "search Amazon. Each term costs up to two Amazon page loads an hour.",
+                    "Qué buscar en amazon.com, en inglés. En blanco = esta búsqueda no " +
+                        "busca en Amazon. Cada término cuesta hasta dos cargas de página de Amazon por hora.",
+                )
                 value = watch?.amazonTerms ?: ""
             }
         }
         div("f wide") {
-            label { +"Exclude" }
+            label { +tr("Exclude", "Excluir") }
             input(type = InputType.text, name = "excludeTerms") {
                 placeholder = "organizador | repuesto | filtro"
                 value = watch?.excludeTerms ?: ""
             }
         }
         div("f") {
-            label { +"Min price" }
+            label { +tr("Min price", "Precio mínimo") }
             input(type = InputType.number, name = "minPrice") {
                 placeholder = "800000"
                 value = watch?.minPrice?.toBigInteger()?.toString() ?: ""
             }
         }
         div("f") {
-            label { +"Max price" }
+            label { +tr("Max price", "Precio máximo") }
             input(type = InputType.number, name = "maxPrice") {
                 placeholder = "3500000"
                 value = watch?.maxPrice?.toBigInteger()?.toString() ?: ""
@@ -481,25 +522,25 @@ private fun MAIN.watchForm(
         }
 
         details("more") {
-            summary { +"more" }
+            summary { +tr("more", "más") }
             div("morepanel") {
                 div("f") {
-                    label { +"Category" }
+                    label { +tr("Category", "Categoría") }
                     select { name = "categoryGroup"
-                        option { value = ""; +"any" }
+                        option { value = ""; +tr("any", "cualquiera") }
                         categories.forEach {
                             option {
                                 value = it
                                 if (watch?.categoryGroup == it) selected = true
-                                +it
+                                +categoryLabel(it)
                             }
                         }
                     }
                 }
                 div("f") {
-                    label { +"Source" }
+                    label { +tr("Source", "Fuente") }
                     select { name = "source"
-                        option { value = ""; +"all" }
+                        option { value = ""; +tr("all", "todas") }
                         sources.forEach {
                             option {
                                 value = it
@@ -510,7 +551,7 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
-                    label { +"Currency" }
+                    label { +tr("Currency", "Moneda") }
                     select { name = "currency"
                         listOf("COP", "USD").forEach {
                             option {
@@ -522,13 +563,13 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
-                    label { +"Window (days)" }
+                    label { +tr("Window (days)", "Ventana (días)") }
                     input(type = InputType.number, name = "lookbackDays") {
                         value = (watch?.lookbackDays ?: 30).toString()
                     }
                 }
                 div("f") {
-                    label { +"Cross-site %" }
+                    label { +tr("Cross-site %", "Entre sitios %") }
                     input(type = InputType.number, name = "crossSiteMinSpread") {
                         value = (watch?.crossSiteMinSpread ?: BigDecimal("15")).stripTrailingZeros().toPlainString()
                     }
@@ -537,8 +578,8 @@ private fun MAIN.watchForm(
         }
 
         div("util") {
-            button(type = ButtonType.submit, classes = "primary") { +if (editing) "Save" else "Add watch" }
-            if (editing) a(href = "/watches", classes = "btnlike") { +"cancel" }
+            button(type = ButtonType.submit, classes = "primary") { +if (editing) tr("Save", "Guardar") else tr("Add watch", "Agregar búsqueda") }
+            if (editing) a(href = "/watches", classes = "btnlike") { +tr("cancel", "cancelar") }
         }
     }
 }
@@ -558,48 +599,54 @@ fun MAIN.watchDetail(
     alertsSort: WatchSort = WatchSort.ALERTS_DEFAULT,
     matchingPage: Int = 1,
     fx: FxRate? = null,
+    matchingSource: String? = null,
 ) {
     val basePath = "/watches/${watch.id}"
     h2 { +watch.name }
     p("meta") {
         span { code { +watch.terms } }
         watch.amazonTerms?.takeIf { it.isNotBlank() }?.let { span { +"amazon: "; code { +it } } }
-        span { +"${watch.lookbackDays}-day window" }
-        span { +"${candidates.size} matching now" }
-        if (!watch.enabled) span("chip") { +"paused" }
+        span { +tr("${watch.lookbackDays}-day window", "ventana de ${watch.lookbackDays} días") }
+        span { +tr("${candidates.size} matching now", "${candidates.size} coincidencias actuales") }
+        if (!watch.enabled) span("chip") { +tr("paused", "pausada") }
     }
 
     // Compared, sorted and highlighted in the watch's currency, the same conversion the rules use.
     val comparable = fx?.let { WatchEvaluator.comparable(watch, candidates, it) } ?: candidates
-    matchingTable(watch, comparable, matchingSort, alertsSort, matchingPage, basePath, fx)
+    matchingTable(watch, comparable, matchingSort, alertsSort, matchingPage, basePath, fx, matchingSource)
 
-    h3 { +"Alerts" }
+    h3 { +tr("Alerts", "Alertas") }
     if (matches.isEmpty()) {
         div("empty") {
-            p { +"Nothing has fired yet." }
+            p { +tr("Nothing has fired yet.", "Aún no se ha disparado ninguna alerta.") }
             p("hint") {
-                +"A watch stays quiet on its first run by design — with one observation per "
-                +"listing there is no floor to beat, and \"the cheapest of forty\" is not news. "
-                +"Preview what would fire with:"
+                +tr(
+                    "A watch stays quiet on its first run by design — with one observation per " +
+                        "listing there is no floor to beat, and \"the cheapest of forty\" is not news. " +
+                        "Preview what would fire with:",
+                    "Una búsqueda no avisa en su primera ejecución, a propósito: con una sola observación por " +
+                        "publicación no hay mínimo que superar, y \"el más barato de cuarenta\" no es noticia. " +
+                        "Mira lo que se dispararía con:",
+                )
             }
             p { code { +"./dt run --args=\"--check-watches --dry-run\"" } }
         }
     } else {
         watchSortTags(
-            listOf(Triple("Deal", "deal", false), Triple("Price", "price", false), Triple("Why", "why", false), Triple("When", "when", true)),
-            isAlerts = true, matchingSort, alertsSort, basePath,
+            listOf(Triple(tr("Deal", "Oferta"), "deal", false), Triple(tr("Price", "Precio"), "price", false), Triple(tr("Why", "Motivo"), "why", false), Triple(tr("When", "Cuándo"), "when", true)),
+            isAlerts = true, matchingSort, alertsSort, basePath, matchingSource,
         )
         table("deals watchalerts") {
             thead {
                 tr {
                     val th = { label: String, col: String, cls: String, desc: Boolean ->
-                        sortableTh(label, col, cls, true, matchingSort, alertsSort, desc, basePath)
+                        sortableTh(label, col, cls, true, matchingSort, alertsSort, desc, basePath, matchingSource)
                     }
-                    th("Deal", "deal", "col-deal", false)
-                    th("Price", "price", "col-price", false)
-                    th("Why", "why", "col-sig", false)
+                    th(tr("Deal", "Oferta"), "deal", "col-deal", false)
+                    th(tr("Price", "Precio"), "price", "col-price", false)
+                    th(tr("Why", "Motivo"), "why", "col-sig", false)
                     // Newest first is what you want on a first click, not oldest.
-                    th("When", "when", "col-seen", true)
+                    th(tr("When", "Cuándo"), "when", "col-seen", true)
                 }
             }
             tbody {
@@ -611,32 +658,32 @@ fun MAIN.watchDetail(
                                 if (deal != null) {
                                     a(href = "/deal/${deal.id}") { +deal.title }
                                 } else {
-                                    span("dim") { +"deal ${match.dealId} (removed)" }
+                                    span("dim") { +tr("deal ${match.dealId} (removed)", "oferta ${match.dealId} (eliminada)") }
                                 }
                             }
                             deal?.let { div("meta") { span { +it.source } } }
                         }
                         td(classes = "col-price") {
-                            cardLabel("Price")
+                            cardLabel(tr("Price", "Precio"))
                             // The deal's own currency: the ledger stores the price as quoted, so a
                             // USD alert reads US$399.99 rather than as 400 pesos.
                             +formatMoney(match.priceAtMatch, deal?.currency ?: watch.currency)
                         }
                         td(classes = "col-sig") {
-                            cardLabel("Why")
+                            cardLabel(tr("Why", "Motivo"))
                             span(if (match.reason == MatchReason.CROSS_SITE_SPREAD) "chip chip-drop" else "chip chip-low") {
-                                +if (match.reason == MatchReason.CROSS_SITE_SPREAD) "undercuts a rival" else "new low"
+                                +if (match.reason == MatchReason.CROSS_SITE_SPREAD) tr("undercuts a rival", "más barato que un rival") else tr("new low", "nuevo mínimo")
                             }
                             match.evidence?.let { div("dim") { +it } }
                         }
                         td(classes = "col-seen") {
-                            cardLabel("When")
+                            cardLabel(tr("When", "Cuándo"))
                             +relativeAgo(match.matchedAt)
                             // An unnotified row means the banner failed or was suppressed;
                             // saying so is the difference between "quiet" and "broken".
                             if (match.notifiedAt == null) {
                                 br()
-                                span("dim") { +"not announced" }
+                                span("dim") { +tr("not announced", "no notificada") }
                             }
                         }
                     }
@@ -664,23 +711,44 @@ private fun MAIN.matchingTable(
     page: Int,
     basePath: String,
     fx: FxRate? = null,
+    source: String? = null,
 ) {
-    h3 { +"Matching now" }
+    h3 { +tr("Matching now", "Coincidencias actuales") }
     if (candidates.isEmpty()) {
         div("empty") {
-            p { +"Nothing matches yet." }
+            p { +tr("Nothing matches yet.", "Aún no hay coincidencias.") }
             p("hint") {
-                +"Either no source has been polled for these terms, or the filters exclude "
-                +"everything. Check the terms against what the retailers actually call the thing "
-                +"— \"nevecón\" is not \"nevera\" — and check the minimum price is not above the "
-                +"whole market. Preview with:"
+                +tr(
+                    "Either no source has been polled for these terms, or the filters exclude " +
+                        "everything. Check the terms against what the retailers actually call the thing " +
+                        "— \"nevecón\" is not \"nevera\" — and check the minimum price is not above the " +
+                        "whole market. Preview with:",
+                    "O ninguna fuente se ha consultado para estos términos, o los filtros excluyen " +
+                        "todo. Compara los términos con cómo lo llaman las tiendas de verdad " +
+                        "— \"nevecón\" no es \"nevera\" — y revisa que el precio mínimo no esté por encima " +
+                        "de todo el mercado. Mira una vista previa con:",
+                )
             }
             p { code { +"./dt run --args=\"--check-watches --dry-run\"" } }
         }
         return
     }
 
-    val ordered = candidates.sortedWith(matchingComparator(sort))
+    // The dropdown is built from every candidate, so the other retailers stay selectable and each
+    // option's count does not shrink to the one picked.
+    sourcePicker(candidates, source, sort, alertsSort, basePath)
+
+    // The floor and the rivals below stay computed over ALL candidates: "cheapest in the window" and
+    // "cheaper elsewhere" are facts about the market, not about the retailer the view is narrowed to.
+    val ordered = filterBySource(candidates, source).sortedWith(matchingComparator(sort))
+    if (ordered.isEmpty()) {
+        div("empty") {
+            +tr("Nothing from $source matches right now. ", "Nada de $source coincide ahora. ")
+            a(href = watchUrl(basePath, sort, alertsSort, 1)) { +tr("Show all sources", "Ver todas las fuentes") }
+            +"."
+        }
+        return
+    }
     val pages = (ordered.size + MATCHES_PER_PAGE - 1) / MATCHES_PER_PAGE
     // Clamped rather than rejected: ?mpage=99 on a 3-page watch should show the last page, and
     // a page that shrinks between visits should not 404 a bookmark.
@@ -692,19 +760,26 @@ private fun MAIN.matchingTable(
         if (pages > 1) {
             // The exact range, not just a count: "40 of 426" left it ambiguous which 40, which
             // is what made re-sorting look like the table was swapping rows at random.
-            +"Rows ${from + 1}–${from + shown.size} of ${ordered.size}. "
+            +tr("Rows ${from + 1}–${from + shown.size} of ${ordered.size}. ", "Filas ${from + 1}–${from + shown.size} de ${ordered.size}. ")
+            if (source != null) +tr("From $source only. ", "Solo de $source. ")
         } else {
-            +"${ordered.size} match${if (ordered.size == 1) "" else "es"}. "
+            +tr("${ordered.size} match${if (ordered.size == 1) "" else "es"}. ", "${ordered.size} coincidencia${if (ordered.size == 1) "" else "s"}. ")
+            if (source != null) +tr("From $source only. ", "Solo de $source. ")
         }
-        +"Sorted by ${sortLabel(sort)}. A highlighted price matches the cheapest this watch has "
-        +"on record in its window; \"new\" under Window low means the listing has not been seen "
-        +"before."
+        +tr(
+            "Sorted by ${sortLabel(sort)}. A highlighted price matches the cheapest this watch has " +
+                "on record in its window; \"new\" under Window low means the listing has not been seen " +
+                "before.",
+            "Ordenado por ${sortLabel(sort)}. Un precio resaltado iguala el más barato que esta búsqueda tiene " +
+                "registrado en su ventana; \"nueva\" en Mín. de la ventana significa que la publicación no se había visto " +
+                "antes.",
+        )
         if (fx != null && candidates.any { it.quotedPrice != null }) {
-            +" Prices marked ≈ are converted at ${fx.describe()}."
+            +tr(" Prices marked ≈ are converted at ${fx.describe()}.", " Los precios marcados con ≈ se convierten a ${fx.describe()}.")
         }
     }
 
-    pager(basePath, sort, alertsSort, current, pages)
+    pager(basePath, sort, alertsSort, current, pages, source)
 
     // The floor the LOWEST_IN_WINDOW rule is measured against, recomputed here so the page and
     // the rule cannot disagree about what "the floor" is.
@@ -715,19 +790,24 @@ private fun MAIN.matchingTable(
     val rivals = rivalIndex(candidates)
 
     watchSortTags(
-        listOf(Triple("Product", "product", false), Triple("Price", "price", false), Triple("Window low", "floor", false), Triple("Source", "source", false)),
-        isAlerts = false, sort, alertsSort, basePath,
+        listOf(
+            Triple(tr("Product", "Producto"), "product", false),
+            Triple(tr("Price", "Precio"), "price", false),
+            Triple(tr("Window low", "Mín. de la ventana"), "floor", false),
+        ),
+        isAlerts = false, sort, alertsSort, basePath, source,
     )
     table("deals watchmatches") {
         thead {
             tr {
                 val th = { label: String, col: String, cls: String, desc: Boolean ->
-                    sortableTh(label, col, cls, false, sort, alertsSort, desc, basePath)
+                    sortableTh(label, col, cls, false, sort, alertsSort, desc, basePath, source)
                 }
-                th("Product", "product", "col-deal", false)
-                th("Price", "price", "col-price", false)
-                th("Window low", "floor", "col-price", false)
-                th("Source", "source", "col-sig", false)
+                th(tr("Product", "Producto"), "product", "col-deal", false)
+                th(tr("Price", "Precio"), "price", "col-price", false)
+                th(tr("Window low", "Mín. de la ventana"), "floor", "col-price", false)
+                // Plain text now: narrowing by source is the dropdown above the table.
+                th(classes = "col-sig") { +tr("Source", "Fuente") }
             }
         }
         tbody {
@@ -739,12 +819,12 @@ private fun MAIN.matchingTable(
                         }
                         // The retailer's own page, since buying happens there rather than here.
                         div("meta") {
-                            span { a(href = candidate.url) { +"open at retailer ↗" } }
+                            span { a(href = candidate.url) { +tr("open at retailer ↗", "abrir en la tienda ↗") } }
                             rivalNote(watch, candidate, rivals[candidate.dealId])
                         }
                     }
                     td(classes = "col-price") {
-                        cardLabel("Price")
+                        cardLabel(tr("Price", "Precio"))
                         val isFloor = floor != null && candidate.price <= floor
                         // The quoted price first for a converted row, then what it is worth here.
                         if (isFloor) {
@@ -754,15 +834,15 @@ private fun MAIN.matchingTable(
                         }
                     }
                     td(classes = "col-price") {
-                        cardLabel("Window low")
+                        cardLabel(tr("Window low", "Mín. de la ventana"))
                         // Blank, not zero: no prior observation means unknown, and this listing
                         // has simply not been seen before.
                         candidate.priorFloor
                             ?.let { +formatMoney(it, candidate.currency) }
-                            ?: span("dim") { +"new" }
+                            ?: span("dim") { +tr("new", "nueva") }
                     }
                     td(classes = "col-sig") {
-                        cardLabel("Source")
+                        cardLabel(tr("Source", "Fuente"))
                         +candidate.source
                     }
                 }
@@ -770,7 +850,53 @@ private fun MAIN.matchingTable(
         }
     }
 
-    pager(basePath, sort, alertsSort, current, pages)
+    pager(basePath, sort, alertsSort, current, pages, source)
+}
+
+/**
+ * The "Matching now" source filter, as a dropdown -- the same control the Tracked tab uses for brands.
+ *
+ * A select rather than tags: a watch's candidates come from up to a dozen retailers, and a row of tags
+ * that long would wrap above every table. Options are the retailers actually present, most listings
+ * first, each with its count; changing it returns to page 1 and keeps the sort. Submits on change,
+ * like the brand picker, so a dropdown needs no Go button.
+ */
+private fun MAIN.sourcePicker(
+    candidates: List<WatchCandidate>,
+    source: String?,
+    sort: WatchSort,
+    alertsSort: WatchSort,
+    basePath: String,
+) {
+    val counts = candidates.groupingBy { it.source }.eachCount()
+    // One retailer is nothing to filter between -- unless a stale URL names one that is gone.
+    if (counts.size < 2 && source == null) return
+    div("brandpick") {
+        label {
+            +tr("Source", "Fuente")
+            select {
+                attributes["onchange"] = "location.href=this.value"
+                option {
+                    value = watchUrl(basePath, sort, alertsSort, 1)
+                    if (source == null) selected = true
+                    +tr("all sources (${candidates.size})", "todas las fuentes (${candidates.size})")
+                }
+                counts.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+                    .forEach { (name, n) ->
+                        option {
+                            value = watchUrl(basePath, sort, alertsSort, 1, name)
+                            if (source == name) selected = true
+                            +"$name ($n)"
+                        }
+                    }
+                // Kept visible when a bookmarked source has no listings left, so the control still
+                // says what the page is filtered to.
+                if (source != null && source !in counts) {
+                    option { value = watchUrl(basePath, sort, alertsSort, 1, source); selected = true; +"$source (0)" }
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -822,10 +948,10 @@ private fun DIV.rivalNote(watch: Watch, candidate: WatchCandidate, rival: WatchC
             .setScale(1, java.math.RoundingMode.HALF_UP)
         // Green, matching the feed's convention that a verified good thing is --good and a
         // magnitude ramp is never reused for identity.
-        span("chip chip-low") { +"$gap% under ${rival.source}" }
+        span("chip chip-low") { +tr("$gap% under ${rival.source}", "$gap% menos que ${rival.source}") }
     } else {
         // Dearer here. Said plainly rather than hidden: the point of the comparison is to send
         // you to the cheaper shop, not to flatter the row you happen to be looking at.
-        span("dim") { +"${rival.source} has it for ${rival.priceLabel()}" }
+        span("dim") { +tr("${rival.source} has it for ${rival.priceLabel()}", "${rival.source} lo tiene a ${rival.priceLabel()}") }
     }
 }

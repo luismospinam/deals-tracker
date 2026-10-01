@@ -1,5 +1,6 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.ingest.WatchEvaluator
 import com.luis.dealstracker.model.FxRate
@@ -58,10 +59,16 @@ fun Routing.askRoutes(
     post("/ask") {
         val form = call.receiveParameters()
         val question = form["question"]?.trim().orEmpty()
-        if (question.isEmpty()) return@post call.respondText("ask a question first", status = HttpStatusCode.BadRequest)
+        val l = call.lang
+        if (question.isEmpty()) {
+            return@post call.respondText(l.tr("ask a question first", "primero escribe una pregunta"), status = HttpStatusCode.BadRequest)
+        }
         // Long enough for a real question, short enough that a pasted page cannot become the prompt.
         if (question.length > MAX_QUESTION) {
-            return@post call.respondText("keep the question under $MAX_QUESTION characters", status = HttpStatusCode.BadRequest)
+            return@post call.respondText(
+                l.tr("keep the question under $MAX_QUESTION characters", "la pregunta debe tener menos de $MAX_QUESTION caracteres"),
+                status = HttpStatusCode.BadRequest,
+            )
         }
 
         val screen = form["screen"].orEmpty()
@@ -85,13 +92,14 @@ fun Routing.askRoutes(
             // One at a time per slot; a second tab asking at once waits rather than spawning a
             // third Node process against the same plan limit.
             if (!ask.gate.tryAcquire()) {
-                emit(buildJsonObject { put("status", "waiting for another question to finish…") })
+                emit(buildJsonObject { put("status", l.tr("waiting for another question to finish…", "esperando a que termine otra pregunta…")) })
                 ask.gate.acquire()
             }
             try {
                 emit(
                     buildJsonObject {
-                        put("status", if (resume) "follow-up" else "asking about ${context.deals.size} row(s)")
+                        val n = context.deals.size
+                        put("status", if (resume) l.tr("follow-up", "seguimiento") else l.tr("asking about $n row(s)", "preguntando sobre $n fila(s)"))
                     },
                 )
                 val answer = StringBuilder()
@@ -233,7 +241,8 @@ internal fun askContextFor(
         val watch = screen.removePrefix("watch:").toLongOrNull()?.let { watches.findById(it) }
         watch?.let {
             // Same order the "Matching now" table uses, so a cut at maxRows drops the same tail.
-            val ordered = WatchEvaluator.comparable(it, watches.candidates(it, fx), fx)
+            // Narrowed to the page's source filter too, so the answer is about the rows on screen.
+            val ordered = filterBySource(WatchEvaluator.comparable(it, watches.candidates(it, fx), fx), watchSourceFrom(params))
                 .sortedWith(matchingComparator(watchSortFrom(params, WatchSort.MATCHING_PARAM)))
                 .map { c -> c.dealId }
             AskContext.forWatch(

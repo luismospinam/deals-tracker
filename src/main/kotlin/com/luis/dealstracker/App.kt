@@ -131,6 +131,7 @@ fun main(args: Array<String>) {
     // is retired by deactivateStale after 48h and silently vanishes from the tab, which reads as
     // "the item stopped existing" rather than "the app stopped looking".
     val manualItems = ManualItemRepository(Db.dataSource)
+    initAppLanguage()
     val manualService = ManualItemService(repo, manualItems, app, http, categorizer)
 
     val fetchOnce = args.contains("--fetch-once")
@@ -496,5 +497,26 @@ private suspend fun verifyPeriodically(repo: DealRepository, app: AppConfig) {
                 println("[verify] Amazon blocked this automatic run — backing off until the next scheduled one")
             }
         }.onFailure { println("[verify] automatic run failed: ${it.message}") }
+    }
+}
+
+/**
+ * Loads the notification language from `app_settings` and saves it there when it changes. A
+ * missing table or row leaves English, so a failure here costs Spanish banners, never the boot.
+ */
+private fun initAppLanguage() {
+    val settings = com.luis.dealstracker.db.SettingsRepository(Db.dataSource)
+    val saved = runCatching { settings.get(com.luis.dealstracker.db.SettingsRepository.LANGUAGE) }.getOrNull()
+    val chosen = runCatching { settings.get(com.luis.dealstracker.db.SettingsRepository.LANGUAGE_CHOSEN) }.getOrNull()
+    com.luis.dealstracker.i18n.AppLanguage.init(
+        com.luis.dealstracker.i18n.Lang.fromCode(saved),
+        chosen == "true",
+    ) { lang, isChosen ->
+        settings.set(
+            mapOf(
+                com.luis.dealstracker.db.SettingsRepository.LANGUAGE to lang.code,
+                com.luis.dealstracker.db.SettingsRepository.LANGUAGE_CHOSEN to isChosen.toString(),
+            ),
+        )
     }
 }

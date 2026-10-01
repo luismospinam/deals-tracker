@@ -1,6 +1,8 @@
 package com.luis.dealstracker.web
 
 import com.luis.dealstracker.db.FeedFilter
+import com.luis.dealstracker.i18n.Lang
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.model.Deal
 import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.CellStyle
@@ -68,66 +70,71 @@ object DealsExport {
      */
     private class Col(
         val header: String,
+        /** The Spanish heading. The English [header] stays the one tests and [headers] use. */
+        val headerEs: String,
         val widthChars: Int,
         val write: (Cell, Deal, Styles) -> Unit,
-    )
+    ) {
+        fun header(lang: Lang) = lang.tr(header, headerEs)
+    }
 
     private val COLUMNS: List<Col> = listOf(
-        Col("Deal ID", 8) { c, d, s -> c.setNum(d.id.toDouble(), s.integer) },
-        Col("Source", 13) { c, d, _ -> c.setCellValue(d.source) },
-        Col("Title", 60) { c, d, _ -> c.setCellValue(d.title) },
-        Col("URL", 44) { c, d, _ -> c.setCellValue(d.url) },
-        Col("Merchant", 16) { c, d, _ -> d.merchant?.let { c.setCellValue(it) } },
+        Col("Deal ID", "ID de oferta", 8) { c, d, s -> c.setNum(d.id.toDouble(), s.integer) },
+        Col("Source", "Fuente", 13) { c, d, _ -> c.setCellValue(d.source) },
+        Col("Title", "Título", 60) { c, d, _ -> c.setCellValue(d.title) },
+        Col("URL", "URL", 44) { c, d, _ -> c.setCellValue(d.url) },
+        Col("Merchant", "Vendedor", 16) { c, d, _ -> d.merchant?.let { c.setCellValue(it) } },
         // The normalized bucket the Category filter uses, then the source's own raw path.
         // Both, because the bucket is comparable across sources and the raw path is what
         // you check when a bucket looks wrong.
-        Col("Category", 18) { c, d, _ -> d.categoryGroup?.let { c.setCellValue(it) } },
-        Col("Source category", 30) { c, d, _ -> d.category?.let { c.setCellValue(it) } },
-        Col("Price", 14) { c, d, s -> c.setNum(d.price.toDouble(), s.money(d.currency)) },
+        Col("Category", "Categoría", 18) { c, d, _ -> d.categoryGroup?.let { c.setCellValue(it) } },
+        Col("Source category", "Categoría en la fuente", 30) { c, d, _ -> d.category?.let { c.setCellValue(it) } },
+        Col("Price", "Precio", 14) { c, d, s -> c.setNum(d.price.toDouble(), s.money(d.currency)) },
         // Mixed currencies share the Price column (USD from Slickdeals, COP from the
         // Colombian retailers), so the code has to travel with them to stay meaningful.
-        Col("Currency", 9) { c, d, _ -> c.setCellValue(d.currency) },
-        Col("List price", 14) { c, d, s -> d.listPrice?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
+        Col("Currency", "Moneda", 9) { c, d, _ -> c.setCellValue(d.currency) },
+        Col("List price", "Precio de lista", 14) { c, d, s -> d.listPrice?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
         // Written as a true fraction under a percent format: 0.25 displayed as "25.0%".
         // Writing 25.0 instead would render as 2500% and break any average over the column.
-        Col("Discount", 10) { c, d, s ->
+        Col("Discount", "Descuento", 10) { c, d, s ->
             d.discountPercent?.let { c.setNum(it.divide(HUNDRED, 6, RoundingMode.HALF_UP).toDouble(), s.percent) }
         },
-        Col("Community score", 10) { c, d, s -> d.communityScore?.let { c.setNum(it.toDouble(), s.integer) } },
-        Col("Lowest recorded", 14) { c, d, s -> d.minPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
-        Col("Highest recorded", 14) { c, d, s -> d.maxPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
-        Col("Drop from peak", 14) { c, d, s -> d.dropFromPeak?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
-        Col("At lowest ever", 12) { c, d, _ -> c.setCellValue(d.isAtLowestEver) },
-        Col("Observations", 11) { c, d, s -> c.setNum(d.observationCount.toDouble(), s.integer) },
-        Col("Colombia shipping", 16) { c, d, _ -> c.setCellValue(d.coShipping.name) },
+        Col("Community score", "Puntaje de la comunidad", 10) { c, d, s -> d.communityScore?.let { c.setNum(it.toDouble(), s.integer) } },
+        Col("Lowest recorded", "Mínimo registrado", 14) { c, d, s -> d.minPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
+        Col("Highest recorded", "Máximo registrado", 14) { c, d, s -> d.maxPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
+        Col("Drop from peak", "Baja desde el máximo", 14) { c, d, s -> d.dropFromPeak?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
+        Col("At lowest ever", "En su mínimo histórico", 12) { c, d, _ -> c.setCellValue(d.isAtLowestEver) },
+        Col("Observations", "Observaciones", 11) { c, d, s -> c.setNum(d.observationCount.toDouble(), s.integer) },
+        Col("Colombia shipping", "Envío a Colombia", 16) { c, d, _ -> c.setCellValue(d.coShipping.name) },
         // The verdict alone is misleading: "ships to Colombia" covers both free shipping
         // and a $112 fee that erases any discount. Numeric so it sorts and sums in Excel;
         // blank when Amazon quoted nothing, which is distinct from a quoted zero.
         // Always USD: Amazon quotes the international fee in dollars regardless of the
         // item's own currency, so it is not d.currency here.
-        Col("Ship fee (USD)", 13) { c, d, s -> d.coShippingCost?.let { c.setNum(it.toDouble(), s.money("USD")) } },
-        Col("State", 11) { c, d, _ -> c.setCellValue(d.state.name) },
-        Col("Promoted", 10) { c, d, _ -> c.setCellValue(d.promoted) },
+        Col("Ship fee (USD)", "Costo de envío (USD)", 13) { c, d, s -> d.coShippingCost?.let { c.setNum(it.toDouble(), s.money("USD")) } },
+        Col("State", "Estado", 11) { c, d, _ -> c.setCellValue(d.state.name) },
+        Col("Promoted", "Destacada", 10) { c, d, _ -> c.setCellValue(d.promoted) },
         // Posted by the source, versus when we first saw it. Distinct facts: Slickdeals'
         // paginated search reaches back over a year, and VTEX publishes no posting date
         // at all -- which is why this column is blank for the Colombian sources.
-        Col("Posted at", 18) { c, d, s -> d.postedAt?.let { c.setDate(it, s) } },
-        Col("First seen", 18) { c, d, s -> c.setDate(d.firstSeenAt, s) },
-        Col("Last seen", 18) { c, d, s -> c.setDate(d.lastSeenAt, s) },
-        Col("ASIN", 12) { c, d, _ -> d.asin?.let { c.setCellValue(it) } },
+        Col("Posted at", "Publicada", 18) { c, d, s -> d.postedAt?.let { c.setDate(it, s) } },
+        Col("First seen", "Vista por primera vez", 18) { c, d, s -> c.setDate(d.firstSeenAt, s) },
+        Col("Last seen", "Vista por última vez", 18) { c, d, s -> c.setDate(d.lastSeenAt, s) },
+        Col("ASIN", "ASIN", 12) { c, d, _ -> d.asin?.let { c.setCellValue(it) } },
     )
 
     /** Column headers in order. Exposed so a test can assert against them by name. */
     val headers: List<String> get() = COLUMNS.map { it.header }
 
-    fun build(deals: List<Deal>, meta: Meta, zone: ZoneId = ZoneId.systemDefault()): ByteArray {
+    /** [lang] names the sheets, headings and info labels; the deals' own data is written as stored. */
+    fun build(deals: List<Deal>, meta: Meta, zone: ZoneId = ZoneId.systemDefault(), lang: Lang = Lang.EN): ByteArray {
         // 200 rows held in memory at a time; the rest are flushed to a temp file. Bounded
         // memory regardless of what the filter matches.
         val book = SXSSFWorkbook(200)
         try {
             val styles = Styles(book, zone)
-            writeDealsSheet(book, styles, deals)
-            writeInfoSheet(book, styles, meta)
+            writeDealsSheet(book, styles, deals, lang)
+            writeInfoSheet(book, styles, meta, lang)
 
             val out = ByteArrayOutputStream()
             book.write(out)
@@ -140,14 +147,14 @@ object DealsExport {
         }
     }
 
-    private fun writeDealsSheet(book: Workbook, styles: Styles, deals: List<Deal>) {
-        val sheet = book.createSheet("Deals")
+    private fun writeDealsSheet(book: Workbook, styles: Styles, deals: List<Deal>, lang: Lang) {
+        val sheet = book.createSheet(lang.tr("Deals", "Ofertas"))
         COLUMNS.forEachIndexed { i, col -> sheet.setColumnWidth(i, col.widthChars * 256) }
 
         sheet.createRow(0).let { header ->
             COLUMNS.forEachIndexed { i, col ->
                 header.createCell(i).apply {
-                    setCellValue(col.header)
+                    setCellValue(col.header(lang))
                     cellStyle = styles.header
                 }
             }
@@ -174,8 +181,8 @@ object DealsExport {
      * the question the filter form cannot: an untouched form is not "no filter" — active
      * deals only, dismissed excluded.
      */
-    private fun writeInfoSheet(book: Workbook, styles: Styles, meta: Meta) {
-        val sheet = book.createSheet("Export info")
+    private fun writeInfoSheet(book: Workbook, styles: Styles, meta: Meta, lang: Lang) {
+        val sheet = book.createSheet(lang.tr("Export info", "Información de la exportación"))
         sheet.setColumnWidth(0, 26 * 256)
         sheet.setColumnWidth(1, 52 * 256)
 
@@ -186,23 +193,26 @@ object DealsExport {
             row.createCell(1).apply { setCellValue(value); style?.let { cellStyle = it } }
         }
 
-        pair("Generated", styles.formatDateTime(meta.generatedAt))
-        pair("Rows in this file", meta.rowsExported.toString())
-        pair("Total matching the filter", meta.totalMatching.toString())
+        pair(lang.tr("Generated", "Generado"), styles.formatDateTime(meta.generatedAt))
+        pair(lang.tr("Rows in this file", "Filas en este archivo"), meta.rowsExported.toString())
+        pair(lang.tr("Total matching the filter", "Total que coincide con el filtro"), meta.totalMatching.toString())
         // Always written, including the FALSE case: a flag that appears only on failure is
         // indistinguishable from a flag nobody remembered to write.
         pair(
-            "Truncated",
+            lang.tr("Truncated", "Recortado"),
             if (meta.truncated) {
-                "YES -- capped at $MAX_ROWS rows, ${meta.totalMatching - meta.rowsExported} row(s) omitted"
+                lang.tr(
+                    "YES -- capped at $MAX_ROWS rows, ${meta.totalMatching - meta.rowsExported} row(s) omitted",
+                    "SÍ -- limitado a $MAX_ROWS filas, ${meta.totalMatching - meta.rowsExported} fila(s) omitida(s)",
+                )
             } else {
-                "no"
+                lang.tr("no", "no")
             },
         )
 
         r++
-        sheet.createRow(r++).createCell(0).apply { setCellValue("Filters applied"); cellStyle = styles.header }
-        meta.filter.describe().forEach { (label, value) -> pair(label, value) }
+        sheet.createRow(r++).createCell(0).apply { setCellValue(lang.tr("Filters applied", "Filtros aplicados")); cellStyle = styles.header }
+        meta.filter.describe(lang).forEach { (label, value) -> pair(label, value) }
     }
 
     private val HUNDRED = BigDecimal(100)
@@ -267,31 +277,31 @@ object DealsExport {
  * spelled out at the end. "I exported without filtering anything" then has a written
  * answer in the file rather than requiring a read of `criteria()`.
  */
-internal fun FeedFilter.describe(): List<Pair<String, String>> = buildList {
-    add("Search" to (search?.takeIf { it.isNotBlank() } ?: "(none)"))
+internal fun FeedFilter.describe(lang: Lang = Lang.EN): List<Pair<String, String>> = buildList {
+    add(lang.tr("Search", "Búsqueda") to (search?.takeIf { it.isNotBlank() } ?: lang.tr("(none)", "(ninguna)")))
     add(
-        "Source" to when {
+        lang.tr("Source", "Fuente") to when {
             sources.isNotEmpty() -> sources.joinToString(", ")
-            excludeSources.isNotEmpty() -> "all except ${excludeSources.joinToString(", ")}"
-            else -> "all"
+            excludeSources.isNotEmpty() -> lang.tr("all except ", "todas excepto ") + excludeSources.joinToString(", ")
+            else -> lang.tr("all", "todas")
         },
     )
-    add("Category" to categoryGroups.ifEmpty { listOf("all") }.joinToString(", "))
-    add("Min discount %" to (minDiscount?.toPlainString() ?: "any"))
-    add("Min price" to (minPrice?.toPlainString() ?: "any"))
-    add("Max price" to (maxPrice?.toPlainString() ?: "any"))
-    add("Min community score" to (minScore?.toString() ?: "any"))
-    add("Colombia shipping" to (coShipping.takeIf { it.isNotEmpty() }?.joinToString(", ") { it.name } ?: "any"))
-    add("State" to states.joinToString(", ") { it.name })
+    add(lang.tr("Category", "Categoría") to categoryGroups.ifEmpty { listOf(lang.tr("all", "todas")) }.joinToString(", "))
+    add(lang.tr("Min discount %", "Descuento mínimo %") to (minDiscount?.toPlainString() ?: lang.tr("any", "cualquiera")))
+    add(lang.tr("Min price", "Precio mínimo") to (minPrice?.toPlainString() ?: lang.tr("any", "cualquiera")))
+    add(lang.tr("Max price", "Precio máximo") to (maxPrice?.toPlainString() ?: lang.tr("any", "cualquiera")))
+    add(lang.tr("Min community score", "Puntaje mínimo de la comunidad") to (minScore?.toString() ?: lang.tr("any", "cualquiera")))
+    add(lang.tr("Colombia shipping", "Envío a Colombia") to (coShipping.takeIf { it.isNotEmpty() }?.joinToString(", ") { it.name } ?: lang.tr("any", "cualquiera")))
+    add(lang.tr("State", "Estado") to states.joinToString(", ") { it.name })
     add(
-        "Only" to when {
-            onlyPromoted -> "promoted"
-            onlyLowestEver -> "at lowest ever"
-            else -> "everything"
+        lang.tr("Only", "Solo") to when {
+            onlyPromoted -> lang.tr("promoted", "destacadas")
+            onlyLowestEver -> lang.tr("at lowest ever", "en su mínimo histórico")
+            else -> lang.tr("everything", "todo")
         },
     )
-    add("Sort" to sort)
-    add("Max age (days)" to (maxAgeDays?.toString() ?: "any"))
+    add(lang.tr("Sort", "Orden") to sort)
+    add(lang.tr("Max age (days)", "Antigüedad máxima (días)") to (maxAgeDays?.toString() ?: lang.tr("any", "cualquiera")))
     // Applied by DealRepository.criteria() on every query, with no form control to relax
     // it. Without saying so, an export missing a deal Luis remembers looks like a bug.
     //
@@ -300,11 +310,18 @@ internal fun FeedFilter.describe(): List<Pair<String, String>> = buildList {
     // sheet promises "active deals only" is worse than one that says nothing, because it would be
     // read as evidence the offers are live.
     add(
-        "Always applied" to if (includeInactive) {
-            "favorites only -- retired deals (unseen for staleAfterHours) ARE included, and their " +
-                "price is the last one recorded rather than a current one"
+        lang.tr("Always applied", "Siempre aplicado") to if (includeInactive) {
+            lang.tr(
+                "favorites only -- retired deals (unseen for staleAfterHours) ARE included, and their " +
+                    "price is the last one recorded rather than a current one",
+                "solo favoritas -- las ofertas retiradas (sin verse durante staleAfterHours) SÍ se incluyen, y su " +
+                    "precio es el último registrado, no uno actual",
+            )
         } else {
-            "active deals only -- retired deals (unseen for staleAfterHours) are never exported"
+            lang.tr(
+                "active deals only -- retired deals (unseen for staleAfterHours) are never exported",
+                "solo ofertas activas -- las ofertas retiradas (sin verse durante staleAfterHours) nunca se exportan",
+            )
         },
     )
 }

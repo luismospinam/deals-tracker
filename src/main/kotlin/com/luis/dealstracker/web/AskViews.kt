@@ -15,6 +15,9 @@ import kotlinx.html.summary
 import kotlinx.html.textArea
 import kotlinx.html.title
 import kotlinx.html.unsafe
+import com.luis.dealstracker.i18n.tr
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The Ask panel: a question about the rows on this screen, answered by Claude.
@@ -33,7 +36,7 @@ fun MAIN.askPanel(screen: String, placeholder: String) {
         id = "ask"
         summary {
             span("ask-mark") { +"✦" }
-            +" Ask Claude about these rows"
+            +tr(" Ask Claude about these rows", " Pregúntale a Claude sobre estas filas")
         }
         div("ask-body") {
             div("ask-log") {
@@ -55,23 +58,47 @@ fun MAIN.askPanel(screen: String, placeholder: String) {
                 div("ask-actions") {
                     button(type = ButtonType.submit, classes = "ask-send") {
                         id = "ask-send"
-                        +"Ask"
+                        +tr("Ask", "Preguntar")
                     }
                     button(type = ButtonType.button, classes = "ask-reset") {
                         id = "ask-reset"
-                        title = "Start a new conversation. The next question re-sends the rows."
-                        +"New conversation"
+                        title = tr(
+                            "Start a new conversation. The next question re-sends the rows.",
+                            "Empieza una conversación nueva. La siguiente pregunta vuelve a enviar las filas.",
+                        )
+                        +tr("New conversation", "Nueva conversación")
                     }
                     // Says what a question costs before it is asked, since the cost is real and
                     // otherwise invisible: it comes out of the same plan as Claude Code.
                     span("ask-hint") {
                         id = "ask-hint"
-                        +"Answers use only the rows on this screen, with your Claude plan. ⌘↵ to send."
+                        +tr(
+                            "Answers use only the rows on this screen, with your Claude plan. ⌘↵ to send.",
+                            "Las respuestas usan solo las filas de esta pantalla, con tu plan de Claude. ⌘↵ para enviar.",
+                        )
                     }
                 }
             }
         }
     }
+    // The script is a constant; its words arrive as data, rendered in this request's language.
+    // Built as JSON so no translation can break out of the string it lands in.
+    val words = buildJsonObject {
+        put("thinking", tr("thinking…", "pensando…"))
+        put("productsMentioned", tr("Products mentioned", "Productos mencionados"))
+        put("history", tr("history", "historial"))
+        put("newConversation", tr(
+            "New conversation — the next question sends this screen's rows again.",
+            "Nueva conversación: la siguiente pregunta vuelve a enviar las filas de esta pantalla.",
+        ))
+        put("rows", tr("rows", "filas"))
+        put("ofPlanUsage", tr("of plan usage", "de uso del plan"))
+        put("moreRowsNotSent", tr("more rows not sent", "filas más no enviadas"))
+        put("followUps", tr("follow-ups continue this conversation", "las preguntas siguientes continúan esta conversación"))
+        put("couldNotFinish", tr("Could not finish: ", "No se pudo terminar: "))
+    }
+    // `</` is escaped so no string can close the script element early.
+    script { unsafe { +("window.ASK_I18N=" + words.toString().replace("</", "<\\/") + ";") } }
     script { unsafe { +ASK_JS } }
 }
 
@@ -88,6 +115,7 @@ private val ASK_JS = """
 (() => {
   const form = document.getElementById('ask-form');
   if (!form) return;
+  const T = window.ASK_I18N || {};
   const log = document.getElementById('ask-log');
   const q = document.getElementById('ask-q');
   const send = document.getElementById('ask-send');
@@ -141,7 +169,7 @@ private val ASK_JS = """
     box.className = 'ask-products';
     const h = document.createElement('div');
     h.className = 'ask-products-h';
-    h.textContent = 'Products mentioned';
+    h.textContent = T.productsMentioned;
     box.appendChild(h);
     links.forEach(l => {
       const row = document.createElement('div');
@@ -153,7 +181,7 @@ private val ASK_JS = """
       row.appendChild(meta);
       const hist = document.createElement('a');
       hist.href = '/deal/' + l.id;
-      hist.textContent = 'history';
+      hist.textContent = T.history;
       row.appendChild(hist);
       box.appendChild(row);
     });
@@ -163,7 +191,7 @@ private val ASK_JS = """
   document.getElementById('ask-reset').addEventListener('click', () => {
     conv.value = '';
     log.textContent = '';
-    hint.textContent = 'New conversation — the next question sends this screen\'s rows again.';
+    hint.textContent = T.newConversation;
     q.focus();
   });
 
@@ -179,7 +207,7 @@ private val ASK_JS = """
     const answer = bubble('ask-claude ask-pending', '');
     const status = document.createElement('div');
     status.className = 'ask-status';
-    status.textContent = 'thinking…';
+    status.textContent = T.thinking;
     answer.appendChild(status);
     q.value = '';
     send.disabled = true;
@@ -218,10 +246,10 @@ private val ASK_JS = """
             linkify(answer, text, links);
             const list = productList(links);
             if (list) answer.appendChild(list);
-            const cost = msg.cost != null ? ' · ~$' + msg.cost.toFixed(3) + ' of plan usage' : '';
-            const cut = msg.omitted > 0 ? ' · ' + msg.omitted + ' more rows not sent' : '';
-            hint.textContent = msg.rows + ' rows · ' + (msg.ms / 1000).toFixed(1) + 's' + cost + cut +
-              ' · follow-ups continue this conversation';
+            const cost = msg.cost != null ? ' · ~$' + msg.cost.toFixed(3) + ' ' + T.ofPlanUsage : '';
+            const cut = msg.omitted > 0 ? ' · ' + msg.omitted + ' ' + T.moreRowsNotSent : '';
+            hint.textContent = msg.rows + ' ' + T.rows + ' · ' + (msg.ms / 1000).toFixed(1) + 's' + cost + cut +
+              ' · ' + T.followUps;
           }
         }
       }
@@ -229,7 +257,7 @@ private val ASK_JS = """
       answer.classList.remove('ask-pending');
       answer.classList.add('ask-error');
       // Keep any partial answer, and say it stopped rather than replacing it with the error.
-      answer.textContent = (text ? text + '\n\n' : '') + 'Could not finish: ' + err.message;
+      answer.textContent = (text ? text + '\n\n' : '') + T.couldNotFinish + err.message;
       conv.value = '';
     } finally {
       send.disabled = false;
