@@ -377,6 +377,31 @@ rides the same column, so /groceries and a watch page word it identically.
 - **Not on the feed, the deal page or the Excel export.** `Deal` carries no card fields, so those
   screens are unchanged; the watch page and /groceries read the observation directly.
 
+Easy runs two card programmes of its own, and the Milán toilet `1505557` is **299,900 cash and
+269,900 with Tarjeta Más Cencosud** — captured as `TMC only −10% → $269,900`. Two things about
+that store are unlike every other VTEX one here:
+
+- **It is the only provider read over Intelligent Search** (`useIntelligentSearch` in
+  `sources.yaml`). `catalog_system`, which serves every other VTEX store, returns `teasers: null`,
+  so no card price exists to find — that is why `easy` had 0 card prices across 106,461
+  observations. **Do not turn the flag on for Éxito.** Measured 2026-09-29 over the 13 live watch
+  terms: Éxito answers `query=nevera` with nothing (`recordsFiltered=0`) while `ft=nevera` returns
+  results, so three terms — `nevera`, `freidora de aire`, `air fryer` — would silently go to zero.
+  Carulla and Easy lose none. Éxito's own card prices already arrive through `exito-grocery`.
+- **`PRECMAX` is *precio máximo*, a price and not a discount.** `MaximumUnitPriceDiscount` is in
+  cents, so the percentage is derived against the cash price, as with CMR. The toilet carries two
+  such teasers, 269,900 and 299,900; the second merely restates the cash price and is dropped by
+  the strict "must beat the shelf" rule.
+- **A percentage teaser restricted by card BIN is deliberately ignored.** Those are frequently
+  already applied in the shelf price — Combo Tairona is 411,920 with a `PriceWithoutDiscount` of
+  514,900 and a 20% teaser, and 514,900 × 0.80 reproduces 411,920 exactly (7 of 32 such rows), and
+  others compute to *more* than the cash price. With no way to tell a live one from a spent one,
+  none is taken. Coverage is 41% of Easy's rows without them, and a wrong card price is worse than
+  none.
+- **`TMC` and `CODENSA` are separate scopes** (`V21`). Easy's BINs form two disjoint halves plus
+  their union, and the teaser name agreed with the BIN set in 185 of 185 cases (`TMC`, `COD`,
+  `COD Y TMC`). A teaser good on both is recorded as TMC, the card in hand.
+
 ### Comparing across currencies
 
 A watch compares every candidate in its own currency. A USD listing is converted at Colombia's

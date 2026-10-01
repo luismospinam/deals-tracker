@@ -256,11 +256,9 @@ class VtexGrocerySource(
         internal fun regionId(seller: String): String =
             Base64.getEncoder().encodeToString("SW#$seller".toByteArray())
 
-        /** `mercado/despensa` -> `category-1/mercado/category-2/despensa`. */
+        /** Shared with [VtexSource], which builds the same facet paths since `easy` moved onto this API. */
         internal fun facetPath(path: String): String =
-            path.split('/').filter { it.isNotBlank() }
-                .mapIndexed { i, segment -> "category-${i + 1}/$segment" }
-                .joinToString("/")
+            com.luis.dealstracker.sources.vtex.facetPath(path)
 
         private fun facetDepth(path: String) = path.split('/').count { it.isNotBlank() }
 

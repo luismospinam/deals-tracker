@@ -522,6 +522,16 @@ providers:
     options:
       pageSize: "24"
       maxPagesPerCategory: "2"
+      # Easy's card prices (Tarjeta Mas Cencosud) live in `teasers`, which `catalog_system` never
+      # fills in -- so this store is read over Intelligent Search instead. Measured 2026-09-29: the
+      # Milan toilet is 299,900 cash and 269,900 with TMC, and roughly half the rows in the
+      # categories below carry such a price.
+      #
+      # Enabled HERE and nowhere else, on purpose. At Exito the same switch answers `query=nevera`
+      # with nothing at all (`recordsFiltered=0`, while `ft=nevera` returns results), which would
+      # silently zero three of the live watch terms -- and Exito's own card prices already arrive
+      # through `exito-grocery`. Easy loses no term. See VtexSource.fetch.
+      useIntelligentSearch: "true"
     listOptions:
       categories: ["electrodomesticos", "tecnologia", "cocinas", "televisores-y-audio", "banos"]
 

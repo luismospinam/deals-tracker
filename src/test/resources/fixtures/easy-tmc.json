@@ -1,0 +1,423 @@
+{
+ "products": [
+  {
+   "productId": "1505557",
+   "productName": "Sanitario One piece Milán blanco Vessanti",
+   "brand": "VESSANTI",
+   "linkText": "sanitario-one-piece-milan-blanco-vessanti-1505557",
+   "categories": [
+    "/Baños/Sanitarios e Inodoros/Sanitarios/",
+    "/Baños/Sanitarios e Inodoros/",
+    "/Baños/"
+   ],
+   "items": [
+    {
+     "itemId": "1505557",
+     "ean": "7800155652948",
+     "images": [
+      {
+       "imageId": "1116290",
+       "cacheId": "1116290",
+       "imageTag": "",
+       "imageLabel": "1",
+       "imageText": "1",
+       "imageUrl": "https://easycolombia.vtexassets.com/arquivos/ids/1116290/7800155652948-1.jpg?v=639205024310900000"
+      }
+     ],
+     "unitMultiplier": 1,
+     "measurementUnit": "UN",
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 299900,
+        "ListPrice": 419900,
+        "PriceWithoutDiscount": 419900,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "SW T. INT PRECMAX TMC 299900 AON HARD SDPC178709",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "29990000"
+            }
+           ]
+          },
+          "generalValues": []
+         },
+         {
+          "name": "SW T. INT PRECMAX TMC 269900 WEB HARD SDPC179129",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "26990000"
+            }
+           ]
+          },
+          "generalValues": []
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "1437399",
+   "productName": "Refrigerador No Frost 404 L gris plomo Haceb",
+   "brand": "HACEB",
+   "linkText": "nevera-haceb-no-frost-gris-plomo-404l",
+   "categories": [
+    "/Electrodomésticos/Refrigeración/Neveras/",
+    "/Electrodomésticos/Refrigeración/",
+    "/Electrodomésticos/"
+   ],
+   "items": [
+    {
+     "itemId": "1437399",
+     "ean": "7704353458428",
+     "images": [
+      {
+       "imageId": "244911",
+       "cacheId": "244911",
+       "imageTag": "",
+       "imageLabel": "1",
+       "imageText": "1",
+       "imageUrl": "https://easycolombia.vtexassets.com/arquivos/ids/244911/7704353458428-1.jpg?v=638750638281000000"
+      }
+     ],
+     "unitMultiplier": 1,
+     "measurementUnit": "un",
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 1779900,
+        "ListPrice": 2878900,
+        "PriceWithoutDiscount": 2878900,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "T. INT PRECMAX  1549900 HACEB SDPC178557 COD Y TMC",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489,870055,590712,529448,423629,425819,425949"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "154990000"
+            }
+           ]
+          },
+          "generalValues": []
+         },
+         {
+          "name": "T. INT PRECMAX  1649900 HACEB SDPC177519 COD Y TMC",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489,870055,590712,529448,423629,425819,425949"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "164990000"
+            }
+           ]
+          },
+          "generalValues": []
+         },
+         {
+          "name": "SW T. INT PRECMAX  1599900 HACEB SDPC178412 COD Y TMC",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489,870055,590712,529448,423629,425819,425949"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "159990000"
+            }
+           ]
+          },
+          "generalValues": []
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "1448501",
+   "productName": "Lavadora secadora carga frontal Midea 15kg MF200D150WB/T-CO gris",
+   "brand": "MIDEA",
+   "linkText": "lavadora-secadora-carga-frontal-midea-15kg-mf200d150wb-t-co-gris-1448501",
+   "categories": [
+    "/Electrodomésticos/Lavadoras y Secadoras/Lavadoras Secadoras/",
+    "/Electrodomésticos/Lavadoras y Secadoras/",
+    "/Electrodomésticos/",
+    "/Electrodomésticos/Lavadoras y Secadoras/Secadoras/"
+   ],
+   "items": [
+    {
+     "itemId": "1448501",
+     "ean": "6945878344440",
+     "images": [
+      {
+       "imageId": "253889",
+       "cacheId": "253889",
+       "imageTag": "",
+       "imageLabel": "1",
+       "imageText": "1",
+       "imageUrl": "https://easycolombia.vtexassets.com/arquivos/ids/253889/6945878344440-1.jpg?v=638835224668600000"
+      }
+     ],
+     "unitMultiplier": 1,
+     "measurementUnit": "un",
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 1779900,
+        "ListPrice": 3999900,
+        "PriceWithoutDiscount": 3999900,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "T. INT PRECMAX  1749900 MIDEA SDPC178557 COD Y TMC",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489,870055,590712,529448,423629,425819,425949"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "174990000"
+            }
+           ]
+          },
+          "generalValues": []
+         },
+         {
+          "name": "SW T. INT PRECMAX  1819900 MIDEA SDPC178412 COD Y TMC",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489,870055,590712,529448,423629,425819,425949"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "181990000"
+            }
+           ]
+          },
+          "generalValues": []
+         },
+         {
+          "name": "SW T. INT PRECMAX COD 1699900 MIDEA SDPC179598",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "870055,590712,529448,423629,425819,425949"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "169990000"
+            }
+           ]
+          },
+          "generalValues": []
+         },
+         {
+          "name": "SW T. INT PRECMAX TMC 1699900 MIDEA SDPC179598",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "MaximumUnitPriceDiscount",
+             "value": "169990000"
+            }
+           ]
+          },
+          "generalValues": []
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "1422852",
+   "productName": "Lavamanos porcelana vitrificada blanco cattleya 14.5x32cm Roma",
+   "brand": "ROMA",
+   "linkText": "lavamanos-cattleya-blanco",
+   "categories": [
+    "/Baños/Lavamanos/",
+    "/Baños/"
+   ],
+   "items": [
+    {
+     "itemId": "1422852",
+     "ean": "7708560404179",
+     "images": [
+      {
+       "imageId": "228109",
+       "cacheId": "228109",
+       "imageTag": "",
+       "imageLabel": "1",
+       "imageText": "1",
+       "imageUrl": "https://easycolombia.vtexassets.com/arquivos/ids/228109/7708560404179-1.jpg?v=638482711754700000"
+      }
+     ],
+     "unitMultiplier": 1,
+     "measurementUnit": "un",
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 78291,
+        "ListPrice": 86990,
+        "PriceWithoutDiscount": 86990,
+        "AvailableQuantity": 10000,
+        "teasers": [
+         {
+          "name": "SW T. INT TMC 15 AON HARD SDPC178709",
+          "conditions": {
+           "parameters": [
+            {
+             "name": "RestrictionsBins",
+             "value": "409744,411759,483160,483161,606374,414489"
+            }
+           ],
+           "minimumQuantity": 0
+          },
+          "effects": {
+           "parameters": [
+            {
+             "name": "PercentualDiscount",
+             "value": "15"
+            }
+           ]
+          },
+          "generalValues": []
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "productId": "1141712",
+   "productName": "Mueble Baño Cereus con Lavamanos 76x46x55Cm Caqui",
+   "brand": "VESSANTI",
+   "linkText": "mble-baño-cereus-clvm-caqui-76x46x55cm",
+   "categories": [
+    "/Baños/Muebles para Baño/Muebles y Gabinetes para Baño/",
+    "/Baños/Muebles para Baño/",
+    "/Baños/"
+   ],
+   "items": [
+    {
+     "itemId": "1141712",
+     "ean": "7800155030838",
+     "images": [
+      {
+       "imageId": "1117316",
+       "cacheId": "1117316",
+       "imageTag": "",
+       "imageLabel": "",
+       "imageText": "",
+       "imageUrl": "https://easycolombia.vtexassets.com/arquivos/ids/1117316/7800155030838-01.jpg?v=639216355796330000"
+      }
+     ],
+     "unitMultiplier": 1,
+     "measurementUnit": "un",
+     "sellers": [
+      {
+       "sellerId": "1",
+       "commertialOffer": {
+        "Price": 541900,
+        "ListPrice": 802990,
+        "PriceWithoutDiscount": 802990,
+        "AvailableQuantity": 10000,
+        "teasers": []
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -23,6 +23,17 @@ import java.math.BigDecimal
 internal const val BEST_DISCOUNT_ORDER = "OrderByBestDiscountDESC"
 
 /**
+ * `banos` -> `category-1/banos`; `mercado/despensa` -> `category-1/mercado/category-2/despensa`.
+ *
+ * How Intelligent Search names a category, and shared by both adapters over that API — one copy,
+ * so they cannot disagree about what a category path looks like.
+ */
+internal fun facetPath(path: String): String =
+    path.split('/').filter { it.isNotBlank() }
+        .mapIndexed { i, segment -> "category-${i + 1}/$segment" }
+        .joinToString("/")
+
+/**
  * One thing to fetch: a category to walk, or a keyword to search.
  *
  * The order is per category rather than per provider because the right choice depends on
@@ -81,6 +92,14 @@ class VtexSource : DealSource {
 
         val pageSize = cfg.int("pageSize", 24).coerceIn(1, 50)
 
+        // Intelligent Search instead of `catalog_system`, per provider. Off by default, because
+        // switching a store is not free: `catalog_system` answers `ft=nevera` at Exito and
+        // Intelligent Search answers it with nothing (`recordsFiltered=0`, measured 2026-09-29),
+        // so three of the live watch terms would silently go to zero there. Easy loses no term and
+        // is the only store whose card prices live in `teasers`, which `catalog_system` never
+        // fills in -- see `VtexOffer.teasers` and `cardOfferOf`.
+        val intelligentSearch = cfg.options["useIntelligentSearch"]?.toBoolean() ?: false
+
         val all = LinkedHashMap<String, RawDeal>()
         for (target in targets) {
             // Searches are capped shallower than category browses by default. A category is a
@@ -98,7 +117,11 @@ class VtexSource : DealSource {
             while (page < maxPages) {
                 val from = page * pageSize
                 val to = from + pageSize - 1
-                val url = searchUrl(base, target, from, to)
+                val url = if (intelligentSearch) {
+                    intelligentSearchUrl(base, target, page + 1, pageSize)
+                } else {
+                    searchUrl(base, target, from, to)
+                }
 
                 val result = try {
                     http.get(url, mapOf("Accept" to "application/json"))
@@ -110,13 +133,20 @@ class VtexSource : DealSource {
                 // VTEX answers 206 Partial Content for _from/_to ranges, so a plain
                 // `status == 200` check here would reject every successful page.
                 val body = result.body
-                if (body == null || !result.ok) {
+                // Intelligent Search answers 406 even when it succeeds, so for that API the body
+                // is the only test -- the same call `VtexGrocerySource.readPage` makes. The status
+                // check stays in force for `catalog_system`, where it does detect real failures.
+                if (body == null || (!result.ok && !intelligentSearch)) {
                     println("[${cfg.id}] ${target.label} page $page -> HTTP ${result.status}")
                     break
                 }
 
                 val products = try {
-                    json.decodeFromString<List<VtexProduct>>(body)
+                    if (intelligentSearch) {
+                        json.decodeFromString<IsSearchResponse>(body).products
+                    } else {
+                        json.decodeFromString<List<VtexProduct>>(body)
+                    }
                 } catch (e: Exception) {
                     println("[${cfg.id}] ${target.label} page $page unparseable: ${e.message}")
                     break
@@ -184,6 +214,32 @@ class VtexSource : DealSource {
             "$root?ft=${encodeQueryValue(target.term!!)}&$range"
         } else {
             "$root/${normalizePath(target.path)}?$range" + (target.order?.let { "&O=$it" } ?: "")
+        }
+    }
+
+    /**
+     * The same targets against Intelligent Search, which is the only API that fills in `teasers`.
+     *
+     * Three differences from [searchUrl], all forced by the API: paging is `count`/`page` (1-based)
+     * rather than `_from`/`_to`, a category is a `category-N/<slug>` facet path rather than a bare
+     * slug, and a keyword is `query=` rather than `ft=`.
+     *
+     * Deliberately NOT sent, unlike the grocery adapter:
+     *  - `regionId`, which prices at one physical store. Easy needs none — its categories answer
+     *    HTTP 200 without it (measured 2026-09-29), and there is no seller id for that account.
+     *  - `hideUnavailableItems`, which makes the server drop out-of-stock rows. This adapter
+     *    fetches them and sets `available` from the offer ([toRawDeal]), so an item going out of
+     *    stock is marked rather than vanishing from the feed.
+     *  - `O=`, the best-discount sort, which this API does not accept in that form. A provider
+     *    using `bestDiscountCategories` should stay on `catalog_system`.
+     */
+    internal fun intelligentSearchUrl(base: String, target: CategoryTarget, page: Int, count: Int): String {
+        val root = "$base/api/io/_v/api/intelligent-search/product_search"
+        val paging = "count=$count&page=$page"
+        return if (target.isSearch) {
+            "$root/?query=${encodeQueryValue(target.term!!)}&$paging"
+        } else {
+            "$root/${facetPath(normalizePath(target.path))}?$paging"
         }
     }
 
@@ -484,6 +540,19 @@ private const val MASTERCARD_ID = "4"
 private const val STORE_CARD_ID = "501"
 
 /**
+ * Easy restricts by card BIN instead of by payment id, and the BINs it uses fall into exactly two
+ * disjoint halves plus their union.
+ *
+ * Measured 2026-09-29 over 185 teasers across five categories: these six always accompany a name
+ * containing `TMC`, the [CODENSA_BINS] six always one containing `COD`, and all twelve together
+ * always one reading `COD Y TMC`. Name and BIN set agreed in 185 of 185, so this is the store's own
+ * split rather than an inference from the numbers.
+ */
+private val TMC_BINS = setOf("409744", "411759", "414489", "483160", "483161", "606374")
+
+private val CODENSA_BINS = setOf("423629", "425819", "425949", "529448", "590712", "870055")
+
+/**
  * The best card-only price among an offer's teasers, or null when none applies.
  *
  * Only teasers that are purely a payment condition count: `PaymentMethodId` and nothing else, a
@@ -514,22 +583,91 @@ internal fun cardOfferOf(
         val conditions = teaser.conditions ?: return@mapNotNull null
         if ((conditions.minimumQuantity ?: 0) > 0) return@mapNotNull null
         val params = conditions.parameters
-        if (params.isEmpty() || params.any { it.name != "PaymentMethodId" }) return@mapNotNull null
-        val ids = params.flatMap { it.value.orEmpty().split(',') }.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-        if (ids.isEmpty()) return@mapNotNull null
-        val percent = teaser.effects?.parameters
-            ?.firstOrNull { it.name == "PercentualDiscount" }?.value?.trim()?.toBigDecimalOrNull()
-            ?.takeIf { it > BigDecimal.ZERO && it < BigDecimal(100) }
-            ?: return@mapNotNull null
-        val scope = when {
-            MASTERCARD_ID in ids -> com.luis.dealstracker.model.CardScope.MASTERCARD
-            ids == setOf(STORE_CARD_ID) -> com.luis.dealstracker.model.CardScope.STORE_CARD
-            else -> com.luis.dealstracker.model.CardScope.OTHER
+        if (params.isEmpty()) return@mapNotNull null
+        val values = params.flatMap { it.value.orEmpty().split(',') }
+            .map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        if (values.isEmpty()) return@mapNotNull null
+
+        when {
+            // Exito and Carulla: the teaser names a payment method and publishes a percentage,
+            // and the price must be computed off the pre-promotion base.
+            params.all { it.name == "PaymentMethodId" } -> byPaymentMethod(teaser, values, base, shelfPrice)
+            // Easy: the teaser restricts by card BIN and publishes the price to pay outright.
+            params.all { it.name == "RestrictionsBins" } -> byCardBin(teaser, values, shelfPrice)
+            // A mixed or unknown condition is not a plain card offer -- a SkuIdsList makes it a
+            // multi-buy. Dropped rather than guessed at.
+            else -> null
         }
-        val price = base.multiply(BigDecimal.ONE - percent.movePointLeft(2))
-            .setScale(0, java.math.RoundingMode.HALF_UP).asMoney()
-        com.luis.dealstracker.model.CardOffer(price, percent.setScale(2, java.math.RoundingMode.HALF_UP), scope).takeIf { price < shelfPrice }
     }.minByOrNull { it.price }
+}
+
+/** The Exito/Carulla shape: `PaymentMethodId` + `PercentualDiscount`, off the pre-promotion base. */
+private fun byPaymentMethod(
+    teaser: VtexTeaser,
+    ids: Set<String>,
+    base: BigDecimal,
+    shelfPrice: BigDecimal,
+): com.luis.dealstracker.model.CardOffer? {
+    val percent = teaser.effects?.parameters
+        ?.firstOrNull { it.name == "PercentualDiscount" }?.value?.trim()?.toBigDecimalOrNull()
+        ?.takeIf { it > BigDecimal.ZERO && it < BigDecimal(100) }
+        ?: return null
+    val scope = when {
+        MASTERCARD_ID in ids -> com.luis.dealstracker.model.CardScope.MASTERCARD
+        ids == setOf(STORE_CARD_ID) -> com.luis.dealstracker.model.CardScope.STORE_CARD
+        else -> com.luis.dealstracker.model.CardScope.OTHER
+    }
+    val price = base.multiply(BigDecimal.ONE - percent.movePointLeft(2))
+        .setScale(0, java.math.RoundingMode.HALF_UP).asMoney()
+    return com.luis.dealstracker.model.CardOffer(price, percent.setScale(2, java.math.RoundingMode.HALF_UP), scope)
+        .takeIf { price < shelfPrice }
+}
+
+/**
+ * The Easy shape: restricted by card BIN, with the price to pay given outright.
+ *
+ * `MaximumUnitPriceDiscount` is a PRICE in cents, not a discount -- `PRECMAX` in the teaser name is
+ * *precio máximo*. The toilet `1505557` is 299,900 cash with a cap of 26990000 → **269,900 with
+ * TMC**, which is what the store's own page shows. So the percentage is derived here, against the
+ * cash price, exactly as `FalabellaNextSource.cardOfferOf` does for CMR.
+ *
+ * **`PercentualDiscount` on a BIN-restricted teaser is deliberately ignored.** Measured on the live
+ * pages, those percentages are frequently ALREADY APPLIED in the shelf price -- Combo Tairona is
+ * 411,920 with `PriceWithoutDiscount` 514,900 and a 20% teaser, and 514,900 × 0.80 reproduces the
+ * shelf price exactly. 7 of 32 such rows did that, and others compute to MORE than the cash price
+ * (Klipen Ecohome: 449,900 × 0.80 = 359,920 against a 314,930 shelf). There is no reliable way to
+ * tell a live one from a spent one, so none is taken: a card price we cannot stand behind is worse
+ * than no card price.
+ */
+private fun byCardBin(
+    teaser: VtexTeaser,
+    bins: Set<String>,
+    shelfPrice: BigDecimal,
+): com.luis.dealstracker.model.CardOffer? {
+    val cents = teaser.effects?.parameters
+        ?.firstOrNull { it.name == "MaximumUnitPriceDiscount" }?.value?.trim()?.toBigDecimalOrNull()
+        ?.takeIf { it.signum() > 0 }
+        ?: return null
+    val price = cents.movePointLeft(2).asMoney()
+    // Strict: a cap equal to the cash price saves nothing. The toilet carries exactly such a
+    // teaser (299,900) alongside the real one, so this is load-bearing rather than defensive.
+    if (price >= shelfPrice || shelfPrice.signum() <= 0) return null
+
+    val scope = when {
+        // A teaser good on both cards is recorded as the one in hand; the name says "COD Y TMC".
+        bins.any { it in TMC_BINS } -> com.luis.dealstracker.model.CardScope.TMC
+        bins.all { it in CODENSA_BINS } -> com.luis.dealstracker.model.CardScope.CODENSA
+        else -> com.luis.dealstracker.model.CardScope.OTHER
+    }
+    val percent = shelfPrice.subtract(price)
+        .divide(shelfPrice, 6, java.math.RoundingMode.HALF_UP)
+        .multiply(BigDecimal(100))
+        .setScale(2, java.math.RoundingMode.HALF_UP)
+    // `card_percent` is CHECK (> 0 AND < 100); a saving too small to survive two decimals would
+    // fail the INSERT and lose the whole observation, so it is dropped here instead.
+    if (percent.signum() <= 0 || percent >= BigDecimal(100)) return null
+
+    return com.luis.dealstracker.model.CardOffer(price, percent, scope)
 }
 
 /** Reads a JSON number as BigDecimal from its literal text, bypassing Double entirely. */

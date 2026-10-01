@@ -47,6 +47,9 @@ enum class CardScope(val label: String) {
     MASTERCARD("Mastercard"),
     STORE_CARD("Store card"),
     CMR("CMR"),
+    /** Tarjeta Más Cencosud, at Easy. Also covers a teaser good on both TMC and Codensa. */
+    TMC("TMC"),
+    CODENSA("Codensa"),
     OTHER("Card");
 }
 

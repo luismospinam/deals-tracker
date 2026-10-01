@@ -138,6 +138,20 @@ internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
                 "Solo con la tarjeta CMR (Falabella y Homecenter), no con otras tarjetas. " +
                     "$pct% por debajo del precio que paga cualquiera hoy.",
             )
+            // Easy publishes the price to pay rather than a percentage, so the saving is quoted
+            // against the cash price. See `VtexSource.byCardBin`.
+            CardScope.TMC -> tr(
+                "Only with Tarjeta Más Cencosud (Easy), and some of these also take Codensa. " +
+                    "$pct% below the price anyone pays today.",
+                "Solo con la Tarjeta Más Cencosud (Easy); algunas también aceptan Codensa. " +
+                    "$pct% por debajo del precio que paga cualquiera hoy.",
+            )
+            CardScope.CODENSA -> tr(
+                "Only with a Codensa card (Easy), not Tarjeta Más Cencosud. " +
+                    "$pct% below the price anyone pays today.",
+                "Solo con una tarjeta Codensa (Easy), no con la Tarjeta Más Cencosud. " +
+                    "$pct% por debajo del precio que paga cualquiera hoy.",
+            )
             CardScope.OTHER -> tr(
                 "With a specific payment method this app does not recognise yet. Card promotions change daily.",
                 "Con un medio de pago específico que esta app aún no reconoce. Las promociones con tarjeta cambian a diario.",
@@ -149,6 +163,8 @@ internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
             CardScope.STORE_CARD -> tr("Store card only", "Solo tarjeta de la tienda")
             // Named, not "store card only": the point of the chip is which card pays this price.
             CardScope.CMR -> tr("CMR only", "Solo CMR")
+            CardScope.TMC -> tr("TMC only", "Solo TMC")
+            CardScope.CODENSA -> tr("Codensa only", "Solo Codensa")
             CardScope.OTHER -> tr(card.scope.label, "Tarjeta")
         }
         +"$scopeLabel −$pct% → ${formatMoney(card.price, currency)}"
