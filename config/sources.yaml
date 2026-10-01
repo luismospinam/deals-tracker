@@ -558,6 +558,85 @@ providers:
     listOptions:
       categories: ["electrodomesticos-y-tecnologia", "hogar-cocina"]
 
+  - id: alfa
+    type: vtex
+    # Corona's rival in bathroom fixtures, and a manufacturer rather than a reseller -- found the
+    # same way olimpica was, by a Google search for a toilet that named merchants we do not poll.
+    #
+    # Verified 2026-09-30 on the live API: plain VTEX, HTTP 206 on _from/_to, working
+    # /category/tree/1, real commertialOffer prices, GS1 EANs that pass the mod-10 check
+    # (7701154809169, 7701154116724), and `https://www.alfa.com.co/{linkText}/p` resolves with no
+    # internal-hostname trap. robots.txt explicitly ALLOWS
+    # `/api/catalog_system/pub/products/search?fq=`; it disallows /busca/, which this does not use.
+    #
+    # 96 of 119 in-stock offers carried a list price above the sale price, median 26.8% off -- so
+    # it clears the 25% discount floor routinely, unlike Corona (see BLOCKERS.md).
+    #
+    # WORTH KNOWING: its prices will not compare across sites. Alfa relabels everything with its
+    # OWN GS1 prefix (7701154) -- all 60 toilet EANs shared it, including the Samsung and
+    # Challenger goods it resells -- so none of them match a barcode held from another retailer.
+    # Its titles carry no model code either ("Nevera Top Mount Samsung 301L Refined Steel"; `301L`
+    # is a capacity, which ProductIdentity rejects by design), so the brand+model fallback finds
+    # nothing. It therefore contributes its own price history and candidates a watch would
+    # otherwise never see, but never a CROSS_SITE_SPREAD. Nothing in config can change that; it is
+    # how the store labels its catalogue.
+    #
+    # Slugs read from its own tree, not guessed. `tecnologia` is here because it resells Samsung
+    # and Challenger, so it brings fridges and televisions as well as bathrooms.
+    enabled: true
+    baseUrl: "https://www.alfa.com.co"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      pageSize: "24"
+      # 1.57MB per page of 24, like Homecenter, so the budget stays small.
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories: ["banos", "cocinas", "tecnologia"]
+
+  - id: jumbo
+    type: vtex
+    # Cencosud's Colombian hypermarket, on the same platform as Easy -- its bathroom seller id is
+    # literally `tiendaseasyqaiojumbo`. Kept as its own provider anyway: of 142 products walked by
+    # category, 73 are held by no other source here, and it shares Easy's exact price on only 39 of
+    # their 49 common barcodes. The 69 EANs it does share are the point -- they match easy,
+    # alkomprar, exito, grupomansion, olimpica and carulla, so this store can actually produce a
+    # CROSS_SITE_SPREAD, which alfa above cannot.
+    #
+    # Verified 2026-09-30: plain VTEX, HTTP 206 on _from/_to, working /category/tree/2, GS1 EANs
+    # that pass the checksum, and `{baseUrl}/{linkText}/p` resolves. robots.txt allows
+    # /api/catalog_system/...; its `Disallow: /?*ft` anchors at the site root and does not reach
+    # /api (checked with an RFC robots parser, not by eye). 64 of 99 bathroom offers were on
+    # promotion.
+    #
+    # THE EXCLUSIONS ARE LOAD-BEARING, not tidying. This is a supermarket, so `sanitario` matches
+    # its cleaning aisle far more than its fixtures: searched bare, only 26 of 50 hits were real
+    # toilets and the rest were "Limpiador Inodoro Pato" and tank tablets. Walking the category
+    # gives 50 of 50. But IngestService injects every watch term into every non-grocery provider,
+    # so the term reaches the whole store regardless -- 56 rows of Supermercado came back across
+    # the 11 live terms. Filtering on the store's own top-level taxonomy catches those whatever
+    # query found them, exactly as `excludeCategories: [Mercado]` does for exito. Jumbo has no
+    # single Mercado parent, so the aisles are named one by one, as at carulla.
+    enabled: true
+    baseUrl: "https://www.jumbocolombia.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      pageSize: "24"
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories: ["banos", "electrodomesticos", "televisores-y-audio"]
+      excludeCategories:
+        - "Supermercado"
+        - "Mascotas"
+        - "Salud Y Bienestar"
+        - "Ropa Y Accesorios"
+        - "Juguetería"
+        - "Libros Y Papelería"
+        - "Mundo Bebés"
+        - "Bolsa"
+        - "Logistica"
+
   - id: homecenter
     type: falabella-next
     # Sodimac Colombia. NOT VTEX -- /api/catalog_system/... answers 404. It runs the same

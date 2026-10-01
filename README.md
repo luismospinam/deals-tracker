@@ -41,6 +41,8 @@ Tests (no database or network needed — they run against captured fixtures):
 | `carulla` | `vtex` | working |
 | `easy` | `vtex` | working — Cencosud home improvement, config-only |
 | `olimpica` | `vtex` | working — config-only |
+| `jumbo` | `vtex` | working — Cencosud hypermarket, config-only; **cleaning aisle excluded by category** |
+| `alfa` | `vtex` | working — bathroom-fixture maker, config-only; **its prices never compare across sites** |
 | `fullhogar` | `shopify` | working — public `products.json` |
 | `grupomansion` | `prestashop` | working — theme grid; selectors are config |
 | `alkomprar` | `algolia` | working — public search key; **100% GTIN coverage** |
@@ -1146,6 +1148,24 @@ Things learned by probing the live APIs that are easy to get wrong:
   alone. Left null rather than guessed from the title: a wrong brand makes a wrong identity
   key, whereas a missing one only costs a match.
 
+- **Jumbo's cleaning aisle is why `excludeCategories` exists.** It is a hypermarket, so
+  `sanitario` matches its cleaning shelf more often than its bathroom fixtures: searched bare,
+  only 26 of 50 hits were real toilets and the rest were "Limpiador Inodoro Pato" and tank
+  tablets. Walking `/banos` as a category gives 50 of 50 — but watch terms are injected into
+  every non-grocery provider, so the term reaches the whole store anyway. Excluding
+  `Supermercado` and its neighbours on the store's own taxonomy dropped **62 rows** on the first
+  fetch (canastillas, coconut oil) and left `0%` uncategorised. Same call `exito` makes with
+  `excludeCategories: [Mercado]`; Jumbo has no single `Mercado` parent, so the aisles are named
+  one by one, as at Carulla.
+- **Alfa contributes candidates, never a cross-site comparison, and that is a property of the
+  store.** It relabels its whole catalogue under its own GS1 prefix `7701154` — all 60 toilet
+  barcodes shared it, including the Samsung and Challenger goods it resells — so its GTINs match
+  no other retailer's. Its titles carry no model code either ("Nevera Top Mount Samsung 301L
+  Refined Steel"; `301L` is a capacity, which `ProductIdentity` rejects on purpose), so the
+  brand+model fallback finds nothing. Measured on the first fetch: of 220 rows, **186 Jumbo rows
+  cluster with eight other retailers and zero Alfa rows cluster with any**. No configuration
+  changes that. It still earns its place — 60 products no other source here carries, and a
+  median 26.8% off list, unlike Corona (see `BLOCKERS.md`).
 - **An Algolia search key in a page is meant to be public — but check it anyway.** Alkomprar
   ships its app id and API key to every browser, as every Algolia site does. Before using it,
   `GET /1/keys/<key>` confirmed the ACL is exactly `["search"]` and an `addObject` attempt was
