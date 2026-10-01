@@ -1,5 +1,6 @@
 package com.luis.dealstracker.verify
 
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.notify.Notifier
@@ -51,6 +52,29 @@ data class CoShippingConfig(
      * shorter limit is only safe now that a timeout costs one deal rather than the rest of a batch.
      */
     val navigationTimeoutMillis: Long = 20_000,
+    /**
+     * How long one read of a single page region may take before it is treated as absent.
+     *
+     * Distinct from [navigationTimeoutMillis], which bounds only navigations: reading text is an
+     * *action*, and Playwright times actions out on its own 30s default that
+     * `setDefaultNavigationTimeout` does not touch. That default is what made a refused item cost
+     * 30s+ while a shippable one cost seconds, since the wait is per-selector and only ever
+     * elapses for a selector that never appears:
+     *
+     *  - A shippable page has all four regions, each read returning in single-digit milliseconds.
+     *  - A refused page renders **no global-shipping widget at all** — Amazon does not offer
+     *    international shipping on an item it will not ship — so `#amazonGlobal_feature_div`
+     *    is missing and that one read blocked for the full 30s. Measured against the real saved
+     *    page in `build/amazon-probe`, `#availability` was itself absent and cost 30,016ms while
+     *    every present region cost under 30ms.
+     *  - Worse, when `#availability` and `#deliveryBlockMessage` are both blank the polling loop
+     *    below never breaks, so each of its passes paid that 30s and the whole read reached ~50s.
+     *
+     * 2s: a region already in the DOM resolves in milliseconds, so anything slower is a region
+     * that is not coming. Deliberately not zero — the two polled regions are AJAX-filled, and a
+     * read racing the fill should wait briefly rather than declare the page silent.
+     */
+    val signalReadTimeoutMillis: Long = 2_000,
     /**
      * Discard the profile's HTTP cache once it exceeds this many megabytes. 0 disables.
      *
@@ -331,9 +355,11 @@ class AmazonVerifier(
         // No `openUrl`: the thing to act on is the Chrome window already on screen, not a page in
         // this app. Grouped so repeated prompts replace one another instead of stacking up a
         // column of identical banners during a long batch.
+        // 'Continue shopping' stays in English in both: it is the label on Amazon's own button.
+        val lang = com.luis.dealstracker.i18n.AppLanguage.current
         Notifier.notify(
-            title = "Deals Tracker: Amazon needs a human",
-            message = "Click 'Continue shopping' in the Chrome window",
+            title = lang.tr("Deals Tracker: Amazon needs a human", "Deals Tracker: Amazon necesita a una persona"),
+            message = lang.tr("Click 'Continue shopping' in the Chrome window", "Haz clic en 'Continue shopping' en la ventana de Chrome"),
             group = "amazon-wall",
         )
     }
@@ -418,8 +444,12 @@ class AmazonVerifier(
         )
     }
 
+    /**
+     * Text of one page region, or `""` when it is not there — bounded, see [regionText] for why
+     * an unbounded read cost 30s on precisely the items that turn out not to ship.
+     */
     private fun text(page: Page, selector: String): String =
-        runCatching { page.locator(selector).first().innerText().trim() }.getOrDefault("")
+        regionText(page, selector, config.signalReadTimeoutMillis)
 
     private fun countryOf(ctx: BrowserContext): String? =
         ctx.cookies().firstOrNull { it.name == "sp-cdn" }

@@ -1,5 +1,6 @@
 package com.luis.dealstracker.sources.amazon
 
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.notify.Notifier
 import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.verify.VerifySlot
@@ -330,9 +331,11 @@ internal class AmazonFetcher(
         // to be looking at that window, and this fetcher runs inside an hourly poll -- so without
         // this it waits 90 seconds for a click nobody knew was wanted. Same title and group as the
         // shipping verifier's prompt, because it is the same ask about the same window.
+        // 'Continue shopping' stays in English in both: it is the label on Amazon's own button.
+        val lang = com.luis.dealstracker.i18n.AppLanguage.current
         Notifier.notify(
-            title = "Deals Tracker: Amazon needs a human",
-            message = "Click 'Continue shopping' in the Chrome window",
+            title = lang.tr("Deals Tracker: Amazon needs a human", "Deals Tracker: Amazon necesita a una persona"),
+            message = lang.tr("Click 'Continue shopping' in the Chrome window", "Haz clic en 'Continue shopping' en la ventana de Chrome"),
             group = "amazon-wall",
         )
 

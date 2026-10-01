@@ -1082,6 +1082,17 @@ backwards.
   for every non-shippable item instead of NO.
 - **Both regions are AJAX-filled and empty on load.** They must be polled; reading once
   yields `""`, which is indistinguishable from "the page said nothing".
+- **An action timeout is not the navigation timeout, and absent regions are the slow ones.**
+  `innerText()` is a Playwright *action*, so it ignores `setDefaultNavigationTimeout` and falls
+  back to Playwright's own 30s default — which it then waits out in full for any selector that
+  never appears. A region already in the DOM reads in single-digit milliseconds whether it has
+  text or not; a *missing* one costs the whole 30s. Amazon renders no global-shipping widget on
+  an item it refuses to ship, so this fell almost entirely on the items whose verdict is NO:
+  measured on a real saved page, `#availability` was absent and cost 30,016ms while every
+  present region cost under 30ms. That is why non-shippable items took 30s+ each while
+  shippable ones took seconds, with every verdict correct throughout — so no test that checked
+  verdicts could have caught it. `signalReadTimeoutMillis` (2s) now bounds each read;
+  `PageRegionTimingTest` pins it, and fails if the bound is removed.
 - **A YES requires the country to be named** ("… to Colombia"), never merely the absence of
   a refusal. An absent signal usually means a partly rendered page, and a wrong YES sends
   you to buy something that cannot arrive.
