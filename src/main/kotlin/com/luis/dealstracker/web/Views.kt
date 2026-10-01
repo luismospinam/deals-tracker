@@ -1,5 +1,7 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.model.CardOffer
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
@@ -95,6 +97,61 @@ internal fun FlowContent.sortTags(options: List<SortOption>) {
                 +o.label
             }
         }
+    }
+}
+
+/**
+ * "Mastercard −20% → $3,280", "Store card only −30% → $7,000", or "CMR −26% → $589,900".
+ *
+ * Shared by the Groceries tab and each watch's "Matching now" table, rather than copied into both:
+ * the chip makes a conditional claim about who can pay a price, and two copies would let that
+ * wording drift.
+ *
+ * Offers restricted to one retailer's own card are marked in words and in colour, since most
+ * Mastercards will not get them: the store's own card is a Mastercard, but not every Mastercard is
+ * the store's card.
+ */
+internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
+    // Every scope but MASTERCARD names one issuer's card, for the same reason STORE_CARD does:
+    // holding some other card gets you the cash price.
+    val storeOnly = card.scope != CardScope.MASTERCARD && card.scope != CardScope.OTHER
+    val pct = card.percent.stripTrailingZeros().toPlainString()
+    div(if (storeOnly) "card-price store-only" else "card-price") {
+        title = when (card.scope) {
+            CardScope.MASTERCARD -> tr(
+                "With any Mastercard, including Tarjeta Éxito y Carulla / Carulla Mastercard. " +
+                    "$pct% off the price before any shelf promotion — card promotions change daily.",
+                "Con cualquier Mastercard, incluida la Tarjeta Éxito y Carulla / Carulla Mastercard. " +
+                    "$pct% de descuento sobre el precio antes de cualquier promoción en góndola — las promociones con tarjeta cambian a diario.",
+            )
+            CardScope.STORE_CARD -> tr(
+                "Only with the store's own card (Tarjeta Éxito y Carulla / Carulla Mastercard), " +
+                    "not other Mastercards. Card promotions change daily.",
+                "Solo con la tarjeta propia de la tienda (Tarjeta Éxito y Carulla / Carulla Mastercard), " +
+                    "no con otras Mastercard. Las promociones con tarjeta cambian a diario.",
+            )
+            // Stated as a saving off the cash price, because that is how it was computed -- the
+            // store publishes the CMR price and not a percentage. See `FalabellaNextSource`.
+            CardScope.CMR -> tr(
+                "Only with the CMR card (Falabella and Homecenter), not other cards. " +
+                    "$pct% below the price anyone pays today.",
+                "Solo con la tarjeta CMR (Falabella y Homecenter), no con otras tarjetas. " +
+                    "$pct% por debajo del precio que paga cualquiera hoy.",
+            )
+            CardScope.OTHER -> tr(
+                "With a specific payment method this app does not recognise yet. Card promotions change daily.",
+                "Con un medio de pago específico que esta app aún no reconoce. Las promociones con tarjeta cambian a diario.",
+            )
+        }
+        // The scope's own label is English in the model ("Card" for OTHER); translated here, at render.
+        val scopeLabel = when (card.scope) {
+            CardScope.MASTERCARD -> card.scope.label
+            CardScope.STORE_CARD -> tr("Store card only", "Solo tarjeta de la tienda")
+            // Named, not "store card only": the point of the chip is which card pays this price.
+            CardScope.CMR -> tr("CMR only", "Solo CMR")
+            CardScope.OTHER -> tr(card.scope.label, "Tarjeta")
+        }
+        +"$scopeLabel −$pct% → ${formatMoney(card.price, currency)}"
     }
 }
 

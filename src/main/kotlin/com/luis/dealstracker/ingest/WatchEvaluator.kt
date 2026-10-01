@@ -60,6 +60,15 @@ object WatchEvaluator {
             priorFloor = c.priorFloor?.let { fx.convert(it, c.currency, watch.currency) },
             quotedPrice = c.price,
             quotedCurrency = c.currency,
+            // Converted too, though no source quotes a card price in USD today: this is the app's
+            // only conversion point, and a price left in the wrong currency here would be rendered
+            // beside converted ones with nothing to mark it -- silent, and wrong by ~3200x.
+            cardOffer = c.cardOffer?.let { card ->
+                fx.convert(card.price, c.currency, watch.currency)
+                    // The percentage is a ratio, so it survives the conversion unchanged.
+                    ?.let { card.copy(price = it) }
+            },
+            cardFloor = c.cardFloor?.let { fx.convert(it, c.currency, watch.currency) },
         )
     }
 

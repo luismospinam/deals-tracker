@@ -346,6 +346,37 @@ A watch can also search amazon.com: fill in **Amazon terms** on its form, in Eng
   to Colombia can nearly match it (`$248.68` on a `$267.99` TV). The rows get the usual
   automatic shipping check, and it shows on the feed and the Tracked tab.
 
+### Card-only prices (CMR)
+
+Falabella and Homecenter charge less when you pay with the group's CMR card, and a watch's
+"Matching now" table now shows it: the Sensi Dacqua toilet `487197` is **799,900 cash and
+589,900 with CMR** at both stores, and that 210,000 used to be invisible. The chip reads
+`CMR only −26.25% → $589,900`, under the cash price rather than instead of it, and the
+**Price · card** header sorts by the biggest card saving. Éxito and Carulla's "Mastercard −20%"
+rides the same column, so /groceries and a watch page word it identically.
+
+- **The rules never read it, and both halves of that matter.** An alert has to rest on the price
+  anyone can pay, since holding the card is not a given. And the data could not support the
+  comparison anyway: a Homecenter category listing publishes a CMR price on **6 of 288 rows**
+  (measured 2026-09-29 across all seven configured categories) against **37 of 56** on a
+  Falabella search, so a row carrying one would appear to undercut rivals that merely do not
+  publish theirs. Same call `/groceries` makes for "vs usual". A test pins it.
+- **`cmrPrice` is still not the sale price.** `FalabellaNextSource.resolveOffer` keeps discarding
+  it — reading it as the price would make Falabella win every cross-site comparison it enters —
+  and `cardOfferOf` captures it separately. The two tests sit next to each other on purpose.
+- **Two names for one field.** Falabella sends `cmrPrice`, Homecenter sends `CMR`. One adapter
+  serves both, so accepting a single name would silently halve the coverage.
+- **The percentage is derived, against the cash price.** This is the mirror image of VTEX, where
+  the teaser publishes a percentage and the price must be computed. Against `normalPrice`
+  instead, Falabella's first nevera would read 47% rather than 3% — that larger number is the
+  shelf discount the **Off** column already reports, not what the card saves.
+- **A CMR "Ahorra $150.000 por compras superiores a $1.699.900" is not a card price.** It arrives
+  as a `multiPurposeIcon` blurb and is a condition on a whole basket, so it produces nothing.
+- **`CMR` is its own `CardScope`**, not `STORE_CARD` (`V20`): that label names Tarjeta Éxito y
+  Carulla, which cannot pay a Homecenter price.
+- **Not on the feed, the deal page or the Excel export.** `Deal` carries no card fields, so those
+  screens are unchanged; the watch page and /groceries read the observation directly.
+
 ### Comparing across currencies
 
 A watch compares every candidate in its own currency. A USD listing is converted at Colombia's

@@ -1,5 +1,7 @@
 package com.luis.dealstracker.ingest
 
+import com.luis.dealstracker.model.CardOffer
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
@@ -36,6 +38,8 @@ class WatchEvaluatorTest {
         matchKey: String? = null,
         keys: List<String>? = null,
         currency: String = "COP",
+        cardPrice: String? = null,
+        cardFloor: String? = null,
     ) = WatchCandidate(
         dealId = id,
         source = source,
@@ -45,6 +49,10 @@ class WatchEvaluatorTest {
         currency = currency,
         priorFloor = priorFloor?.let(::BigDecimal),
         keys = keys ?: listOfNotNull(matchKey),
+        cardOffer = cardPrice?.let {
+            CardOffer(BigDecimal(it), BigDecimal("26.25"), CardScope.CMR)
+        },
+        cardFloor = cardFloor?.let(::BigDecimal),
     )
 
     // --- LOWEST_IN_WINDOW ---
@@ -449,5 +457,51 @@ class WatchEvaluatorTest {
         val evidence = alerts.single { it.reason == MatchReason.CROSS_SITE_SPREAD }.evidence
         assertTrue(evidence.startsWith("79.6% cheaper than slickdeals at $73,568"), evidence)
         assertTrue(evidence.contains("converted: slickdeals US$22.99"), evidence)
+    }
+
+    // --- card prices are shown, never compared ---
+
+    /**
+     * The rule this feature is built around, pinned so a later "improvement" cannot quietly undo it.
+     *
+     * A card price is displayed on the watch page and ignored by both rules. Two independent reasons,
+     * either sufficient: an alert must rest on the price anyone can pay, since the operator does not
+     * necessarily hold that card; and the data cannot support the comparison anyway — a Homecenter
+     * category listing publishes a CMR price on about 2% of its rows (6 of 288, measured
+     * 2026-09-29), so a row carrying one would appear to undercut rivals that merely do not publish
+     * theirs. Same call `/groceries` already makes for "vs usual".
+     */
+    @Test
+    fun `a card price never triggers an alert`() {
+        // Cash prices are flat at 1,000,000 with a floor of 1,000,000, so nothing is news. The card
+        // price and the card floor are far below both: if either rule read them, this would fire.
+        val alerts = WatchEvaluator.evaluate(
+            watch(),
+            listOf(
+                candidate(1, "homecenter", "1000000", priorFloor = "1000000", matchKey = "toilet-x", cardPrice = "500000", cardFloor = "480000"),
+                candidate(2, "falabella", "1000000", priorFloor = "1000000", matchKey = "toilet-x", cardPrice = "500000", cardFloor = "480000"),
+            ),
+            fx,
+        )
+        assertTrue(alerts.isEmpty(), "a card-only price must not be treated as the price: $alerts")
+    }
+
+    /** And it does not suppress one either: the cash price is judged exactly as it was before. */
+    @Test
+    fun `a card price does not disturb an alert the cash price earns`() {
+        val alerts = WatchEvaluator.evaluate(
+            watch(),
+            listOf(
+                // Above the floor, so this one is not news and the single alert below is unambiguous.
+                candidate(1, "exito", "3200000", priorFloor = "3100000"),
+                // Carries a card price; the alert must still be about the cash price.
+                candidate(2, "homecenter", "2500000", priorFloor = "3050000", cardPrice = "2000000"),
+            ),
+            fx,
+        )
+        val low = alerts.single { it.reason == MatchReason.LOWEST_IN_WINDOW }
+        assertEquals(2L, low.dealId)
+        assertEquals("2500000", low.price.toPlainString(), "the alert price is the cash price")
+        assertTrue(low.evidence.contains("$3,050,000"), low.evidence)
     }
 }

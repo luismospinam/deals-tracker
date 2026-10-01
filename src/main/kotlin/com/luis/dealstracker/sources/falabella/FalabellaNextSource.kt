@@ -2,6 +2,8 @@ package com.luis.dealstracker.sources.falabella
 
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.config.ProviderConfig
+import com.luis.dealstracker.model.CardOffer
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.model.asMoney
 import com.luis.dealstracker.sources.DealSource
@@ -15,6 +17,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.jsoup.Jsoup
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * Falabella Group storefronts — falabella.com.co and homecenter.com.co (Sodimac).
@@ -187,6 +190,9 @@ class FalabellaNextSource : DealSource {
             brand = product.text("brand")?.takeIf { it.isNotBlank() },
             // Homecenter publishes this; Falabella does not, and falls back to the title.
             model = product.text("model")?.takeIf { it.isNotBlank() },
+            // The CMR price, kept beside the cash price rather than in place of it. See
+            // [cardOfferOf] for why reading it AS the price would be a systematic error.
+            cardOffer = cardOfferOf(product["prices"] as? JsonArray, offer.price),
             // Not published per product; supplied by the category listing that returned it.
             category = category,
             imageUrl = (product["mediaUrls"] as? JsonArray)
@@ -222,7 +228,7 @@ class FalabellaNextSource : DealSource {
         val parsed = prices.mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
             val type = obj.text("type")?.lowercase() ?: return@mapNotNull null
-            if (type == CMR) return@mapNotNull null
+            if (type in CMR_TYPES) return@mapNotNull null
             amountOf(obj)?.let { type to it }
         }
 
@@ -238,6 +244,57 @@ class FalabellaNextSource : DealSource {
             // compute as 0% or negative.
             listPrice = list?.asMoney()?.takeIf { it > price.asMoney() },
         )
+    }
+
+    /**
+     * The CMR price, kept beside the cash price rather than instead of it.
+     *
+     * [resolveOffer] throws `cmrPrice` away, and must keep doing so — reading it as the sale price
+     * would make Falabella win every cross-site comparison it takes part in. But throwing it away
+     * also loses a real saving: the Sensi Dacqua toilet `487197` is 799,900 cash and **589,900 with
+     * CMR** at both Homecenter and Falabella, and that 210,000 was invisible. So it is captured
+     * here, as a [CardOffer] on the observation, exactly as Exito's "Mastercard −20%" already is
+     * (`V17__card_price`). Nothing downstream compares it: the alert rules stay on the cash price,
+     * which is what anyone can pay.
+     *
+     * Two things about this data are easy to get wrong, and both were measured on the live pages:
+     *
+     *  - **Two type names for one thing.** Falabella sends `cmrPrice`, Homecenter sends `CMR`.
+     *    Accepting only one silently halves the coverage.
+     *  - **The percentage is derived, and against the CASH price.** This is the mirror image of
+     *    VTEX, where the teaser publishes a percentage and the price must be computed. Here the
+     *    price is published and the percentage is not, so it is computed — against the price we
+     *    actually store, never against `normalPrice`. On Falabella's first nevera the CMR saving is
+     *    3.8% against cash and would read as 57.9% against `normalPrice`; that 57.9% is the shelf
+     *    discount the "Off" column already reports, not what the card saves.
+     *
+     * Null is the common answer and not a failure: a category listing at Homecenter carries a CMR
+     * price on 6 of 288 rows (measured 2026-09-29 across the seven configured categories), against
+     * 37 of 56 on a Falabella search. A row with no CMR entry simply has no card price today.
+     */
+    internal fun cardOfferOf(prices: JsonArray?, cashPrice: BigDecimal): CardOffer? {
+        if (prices == null || cashPrice.signum() <= 0) return null
+        val cmr = prices.asSequence()
+            .mapNotNull { it as? JsonObject }
+            .filter { it.text("type")?.lowercase() in CMR_TYPES }
+            .mapNotNull { amountOf(it)?.asMoney() }
+            // Cheapest, on the same "best card offer wins" rule as `VtexSource.cardOfferOf`.
+            .minOrNull() ?: return null
+
+        // Strict: a card price that merely equals the cash price saves nothing, and one above it is
+        // not a discount at all. The rendered pages show no card price in either case.
+        if (cmr >= cashPrice) return null
+
+        val percent = cashPrice.subtract(cmr)
+            .divide(cashPrice, 6, RoundingMode.HALF_UP)
+            .multiply(BigDecimal(100))
+            .setScale(2, RoundingMode.HALF_UP)
+        // `card_percent` is CHECK (> 0 AND < 100), so a saving too small to survive two decimals
+        // would fail the INSERT rather than the row. Dropped here instead, where the cause is
+        // visible; the card price without a percentage is not worth a broken observation.
+        if (percent.signum() <= 0 || percent >= BigDecimal(100)) return null
+
+        return CardOffer(price = cmr, percent = percent, scope = CardScope.CMR)
     }
 
     /**
@@ -266,7 +323,12 @@ class FalabellaNextSource : DealSource {
     }
 
     companion object {
-        private const val CMR = "cmrprice"
+        /**
+         * The store credit-card price, under both names the two storefronts give it: Falabella
+         * sends `cmrPrice`, Homecenter sends `CMR`. Excluded from the sale price by
+         * [resolveOffer] and captured separately by [cardOfferOf].
+         */
+        private val CMR_TYPES = setOf("cmrprice", "cmr")
 
         /** In preference order: an event price supersedes the standing internet price. */
         private val SALE_TYPES = listOf("eventprice", "internetprice", "internet")

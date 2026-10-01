@@ -835,26 +835,5 @@ internal fun grocerySyncLines(
     }
 }
 
-/**
- * "Mastercard −20% → $3,280", or "Store card only −30% → $7,000".
- *
- * Store-card-only offers are marked in words and in colour, since most Mastercards will not get them:
- * the store's own card is a Mastercard, but not every Mastercard is the store's card.
- */
-private fun FlowContent.cardChip(card: com.luis.dealstracker.model.CardOffer, currency: String) {
-    val storeOnly = card.scope == com.luis.dealstracker.model.CardScope.STORE_CARD
-    val pct = card.percent.stripTrailingZeros().toPlainString()
-    div(if (storeOnly) "card-price store-only" else "card-price") {
-        title = when (card.scope) {
-            com.luis.dealstracker.model.CardScope.MASTERCARD ->
-                "With any Mastercard, including Tarjeta Éxito y Carulla / Carulla Mastercard. " +
-                    "$pct% off the price before any shelf promotion — card promotions change daily."
-            com.luis.dealstracker.model.CardScope.STORE_CARD ->
-                "Only with the store's own card (Tarjeta Éxito y Carulla / Carulla Mastercard), " +
-                    "not other Mastercards. Card promotions change daily."
-            com.luis.dealstracker.model.CardScope.OTHER ->
-                "With a specific payment method this app does not recognise yet. Card promotions change daily."
-        }
-        +"${if (storeOnly) "Store card only" else card.scope.label} −$pct% → ${formatMoney(card.price, currency)}"
-    }
-}
+// `cardChip` lives in Views.kt: the Groceries tab and each watch's "Matching now" table both
+// render it, and two copies would let the wording drift between them.

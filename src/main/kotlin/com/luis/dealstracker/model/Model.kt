@@ -36,13 +36,17 @@ fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) 
 enum class DealState { NEW, SEEN, DISMISSED, FAVORITE }
 
 /**
- * Who can pay a card-only price. See `V17__card_price`.
+ * Who can pay a card-only price. See `V17__card_price` and `V20__cmr_card_scope`.
  *
- * [MASTERCARD] includes the store's own card, which is a Mastercard; [STORE_CARD] is that card alone.
+ * [MASTERCARD] includes the store's own card, which is a Mastercard; [STORE_CARD] is that card
+ * alone. [CMR] is the Falabella group's card, at Falabella and Homecenter — a different programme
+ * at a different retailer, so it is not [STORE_CARD]: a chip reading "Store card only" on a
+ * Homecenter row would name Tarjeta Éxito y Carulla, which cannot pay it.
  */
 enum class CardScope(val label: String) {
     MASTERCARD("Mastercard"),
     STORE_CARD("Store card"),
+    CMR("CMR"),
     OTHER("Card");
 }
 

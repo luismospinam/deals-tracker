@@ -1,0 +1,163 @@
+{
+ "props": {
+  "pageProps": {
+   "searchProps": {
+    "searchData": {
+     "pagination": {
+      "count": 4,
+      "perPage": 40,
+      "currentPage": 1
+     },
+     "results": [
+      {
+       "productId": "487197",
+       "skuId": "487197",
+       "displayName": "Sanitario Una Pieza Granada Doble Descarga Blanco Sensi Dacqua",
+       "brand": "Sensi Dacqua",
+       "model": "Granada",
+       "prices": [
+        {
+         "label": "",
+         "type": "CMR",
+         "symbol": "$",
+         "price": "589.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 589900
+        },
+        {
+         "label": "Normal",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "799.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 799900
+        }
+       ],
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/487197/public",
+        "https://media.falabella.com/sodimacCO/487197_01/public",
+        "https://media.falabella.com/sodimacCO/487197_02/public",
+        "https://media.falabella.com/sodimacCO/487197_03/public",
+        "https://media.falabella.com/sodimacCO/487197_300/public",
+        "https://media.falabella.com/sodimacCO/487197_301/public"
+       ],
+       "badges": [
+        {
+         "type": "DISCOUNT",
+         "value": "-26%"
+        }
+       ]
+      },
+      {
+       "productId": "699114",
+       "skuId": "699114",
+       "displayName": "Combo Ecoline: Sanitario Ecoline Redondo Blanco De 2 Piezas + Lavamanos Milano + Grifería Sencilla Balta Negro + Accesorios Valencia 3 Piezas Corona",
+       "brand": "Corona",
+       "model": "Ecoline",
+       "prices": [
+        {
+         "label": "",
+         "type": "CMR",
+         "symbol": "$",
+         "price": "404.900",
+         "unit": "Combo",
+         "priceWithoutFormatting": 404900
+        },
+        {
+         "label": "Normal",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "426.900",
+         "unit": "Combo",
+         "priceWithoutFormatting": 426900
+        }
+       ],
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/699114/public",
+        "https://media.falabella.com/sodimacCO/699114_01/public",
+        "https://media.falabella.com/sodimacCO/699114_02/public",
+        "https://media.falabella.com/sodimacCO/699114_03/public",
+        "https://media.falabella.com/sodimacCO/699114_04/public",
+        "https://media.falabella.com/sodimacCO/699114_05/public"
+       ],
+       "badges": [
+        {
+         "type": "DISCOUNT",
+         "value": "-5%"
+        }
+       ]
+      },
+      {
+       "productId": "707218",
+       "skuId": "707218",
+       "displayName": "Combo Sanitario Smart: Incluye Sanitario Una Pieza Smart Alongado Blanco + Mueble Elevado Aluvia Cenizo 60 Cm + Grifería Monocontrol  Media Cascade Negro + Kit 4  Accesorios Rodano Negro Corona.",
+       "brand": "Corona",
+       "model": "Smart",
+       "prices": [
+        {
+         "label": "",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "1.199.900",
+         "unit": "Combo",
+         "priceWithoutFormatting": 1199900
+        }
+       ],
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/707218/public",
+        "https://media.falabella.com/sodimacCO/707218_01/public",
+        "https://media.falabella.com/sodimacCO/707218_02/public",
+        "https://media.falabella.com/sodimacCO/707218_03/public",
+        "https://media.falabella.com/sodimacCO/707218_04/public",
+        "https://media.falabella.com/sodimacCO/707218_50/public"
+       ]
+      },
+      {
+       "productId": "546859",
+       "skuId": "546859",
+       "displayName": "Nevecón Side by Side 647 Litros RS23T5B00S9/CO Gris",
+       "brand": "Samsung",
+       "model": "RS23T5B00S9/CO",
+       "prices": [
+        {
+         "label": "",
+         "type": "INTERNET",
+         "symbol": "$",
+         "price": "3.859.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 3859900
+        },
+        {
+         "label": "Normal",
+         "type": "NORMAL",
+         "symbol": "$",
+         "price": "5.699.900",
+         "unit": "Und",
+         "priceWithoutFormatting": 5699900
+        }
+       ],
+       "mediaUrls": [
+        "https://media.falabella.com/sodimacCO/546859/public",
+        "https://media.falabella.com/sodimacCO/546859_01/public",
+        "https://media.falabella.com/sodimacCO/546859_02/public",
+        "https://media.falabella.com/sodimacCO/546859_03/public",
+        "https://media.falabella.com/sodimacCO/546859_13/public",
+        "https://media.falabella.com/sodimacCO/546859_26/public"
+       ],
+       "badges": [
+        {
+         "type": "DISCOUNT",
+         "value": "-32%"
+        }
+       ],
+       "multiPurposeIcon": {
+        "description": "Por compras superiores a $1.699.900 en productos de refrigeracion , Ahorra $150.000 pagando con tu CMR.(28Jul-30 sep)",
+        "iconUrl": "https://images.sodimac.com/v3/assets/blt2f8082df109cfbfb/bltaf8e69ce2a676b4c/66cf7fd17d07b09853425937/Ahorra_mas.svg"
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

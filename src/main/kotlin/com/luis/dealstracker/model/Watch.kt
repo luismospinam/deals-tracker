@@ -121,6 +121,27 @@ data class WatchCandidate(
      */
     val quotedPrice: BigDecimal? = null,
     val quotedCurrency: String? = null,
+    /**
+     * Today's card-only price on this listing, where the retailer runs one — Falabella and
+     * Homecenter's CMR, Exito and Carulla's Mastercard.
+     *
+     * **Display only, and that is the whole design.** Neither rule reads it: an alert has to rest on
+     * the price anyone can pay, or the app would announce a saving the operator cannot get without
+     * that particular card. It also could not be compared fairly even if it were wanted — a
+     * Homecenter category listing publishes a CMR price on about 2% of its rows, so a row carrying
+     * one would appear to undercut rivals that simply do not publish theirs. Same call
+     * `/groceries` already makes: "the deal rule ignores the card price" (`V17__card_price`).
+     */
+    val cardOffer: CardOffer? = null,
+    /**
+     * The cheapest card price recorded for this listing inside the window, excluding the current
+     * observation — [priorFloor]'s counterpart.
+     *
+     * Null both when the listing has no history and when it has never carried a card price, which
+     * are different facts but the same absence of evidence; the column renders `—` for both rather
+     * than inventing a distinction the data does not support.
+     */
+    val cardFloor: BigDecimal? = null,
 ) {
     /** `US$399.99 ≈ $1,305,756` for a converted row, the plain price otherwise. */
     fun priceLabel(): String =

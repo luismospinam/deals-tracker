@@ -1,5 +1,7 @@
 package com.luis.dealstracker.db
 
+import com.luis.dealstracker.model.CardOffer
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
@@ -227,14 +229,23 @@ class WatchRepository(private val ds: DataSource) {
 
         val sql = """
             SELECT d.id, d.source, d.title, d.url, d.currency, d.match_key, d.model_key,
-                   po.price, prior.floor AS prior_floor
+                   po.price, po.card_price, po.card_percent, po.card_scope,
+                   prior.floor AS prior_floor, prior.card_floor
             FROM deals d
             JOIN LATERAL (
-                SELECT price, observed_at FROM price_observations
+                -- The card columns ride along on the latest observation, the same way
+                -- GroceryRepository reads them. Projected, never filtered on: see
+                -- WatchCandidate.cardOffer for why no rule may depend on a card price.
+                SELECT price, observed_at, card_price, card_percent, card_scope
+                FROM price_observations
                 WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
             ) po ON TRUE
             LEFT JOIN LATERAL (
-                SELECT MIN(price) AS floor FROM price_observations
+                -- MIN over the same window and the same "before the reading under test" cut as the
+                -- cash floor, so the two columns are answering the same question about different
+                -- prices. No extra parameter: `days => ?` is still the only one in this lateral.
+                SELECT MIN(price) AS floor, MIN(card_price) AS card_floor
+                FROM price_observations
                 WHERE deal_id = d.id
                   AND observed_at >= now() - make_interval(days => ?)
                   AND observed_at < po.observed_at
@@ -290,6 +301,19 @@ class WatchRepository(private val ds: DataSource) {
                                         rs.getString("match_key"),
                                         rs.getString("model_key"),
                                     ).distinct(),
+                                    // card_price being present is the gate, as in
+                                    // GroceryRepository: an unrecognised scope degrades to OTHER
+                                    // ("Card") rather than throwing, so a value written by a newer
+                                    // build still renders on an older one.
+                                    cardOffer = rs.getBigDecimal("card_price")?.let { cp ->
+                                        CardOffer(
+                                            price = cp,
+                                            percent = rs.getBigDecimal("card_percent") ?: BigDecimal.ZERO,
+                                            scope = runCatching { CardScope.valueOf(rs.getString("card_scope")) }
+                                                .getOrDefault(CardScope.OTHER),
+                                        )
+                                    },
+                                    cardFloor = rs.getBigDecimal("card_floor"),
                                 ),
                             )
                         }

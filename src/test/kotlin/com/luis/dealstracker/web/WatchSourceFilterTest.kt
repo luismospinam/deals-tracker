@@ -1,5 +1,7 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.model.CardOffer
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.WatchCandidate
 import kotlinx.html.main
@@ -81,5 +83,42 @@ class WatchSourceFilterTest {
         val html = render("olimpica")
         assertTrue("Nothing from olimpica matches right now" in html)
         assertTrue("olimpica (0)" in html.substringAfter("<select").substringBefore("</select>"))
+    }
+
+    // --- card prices on the page ---
+
+    /** The CMR toilet the feature was built for: 799,900 cash, 589,900 with the card. */
+    private val withCard = candidate(9, "homecenter", "799900").copy(
+        cardOffer = CardOffer(BigDecimal("589900"), BigDecimal("26.25"), CardScope.CMR),
+        cardFloor = BigDecimal("575000"),
+    )
+
+    @Test
+    fun `the card price is a chip under the cash price, not in place of it`() {
+        val html = createHTML().main {
+            watchDetail(watch, listOf(withCard), emptyList(), emptyMap(), emptyList(), emptyList())
+        }
+        // From the row, not the header: the sortable `th` carries `col-price` too.
+        val cell = html.substringAfter("<tbody>").substringAfter("col-price").substringBefore("</td>")
+        assertTrue("$799,900" in cell, "the cash price leads: $cell")
+        assertTrue("CMR only −26.25% → $589,900" in cell, cell)
+        // Restricted to one retailer's card, so it is styled like a store-card offer.
+        assertTrue("card-price store-only" in cell, cell)
+        // And the window low carries its card counterpart.
+        assertTrue("$575,000" in html)
+    }
+
+    @Test
+    fun `card sort puts the biggest saving over the cash price first, cardless rows last`() {
+        val deep = candidate(10, "falabella", "100000").copy(
+            cardOffer = CardOffer(BigDecimal("50000"), BigDecimal("50"), CardScope.CMR),
+        )
+        val shallow = candidate(11, "falabella", "100000").copy(
+            cardOffer = CardOffer(BigDecimal("95000"), BigDecimal("5"), CardScope.CMR),
+        )
+        val none = candidate(12, "exito", "100000")
+        val ordered = listOf(shallow, none, deep)
+            .sortedWith(matchingComparator(WatchSort("card", desc = false)))
+        assertEquals(listOf(10L, 11L, 12L), ordered.map { it.dealId })
     }
 }

@@ -2,6 +2,7 @@ package com.luis.dealstracker.sources
 
 import com.luis.dealstracker.config.ProviderConfig
 import com.luis.dealstracker.ingest.ProductIdentity
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.sources.falabella.FalabellaNextSource
 import com.luis.dealstracker.sources.falabella.NextQuery
 import kotlinx.serialization.json.Json
@@ -33,6 +34,19 @@ class FalabellaNextSourceTest {
 
     private val homecenter get() = source.readResults(island("homecenter-neveras.json"), "searchProps.searchData")
     private val falabella get() = source.readResults(island("falabella-nevera.json"), "")
+
+    /**
+     * Homecenter rows carrying a CMR price, captured 2026-09-29 from `cat90039/combos-sanitarios`:
+     * the Sensi Dacqua toilet `487197` the operator asked about (589,900 CMR / 799,900 cash), a
+     * shallower Corona combo, a cash-only row, and the nevera whose CMR benefit is a basket
+     * threshold rather than a price. A separate fixture because the neveras capture has no CMR row
+     * at all — that listing publishes one on 0 of 40 rows, which is itself the measurement.
+     */
+    private val cmrIsland get() = source.readResults(island("homecenter-cmr.json"), "searchProps.searchData")
+
+    private fun cmrDeals() = cmrIsland.mapNotNull {
+        source.toRawDeal(it, "https://www.homecenter.com.co", "homecenter-co", "COP")
+    }
 
     private fun hcDeals() = homecenter.mapNotNull {
         source.toRawDeal(it, "https://www.homecenter.com.co", "homecenter-co", "COP")
@@ -97,6 +111,96 @@ class FalabellaNextSourceTest {
         val offer = assertNotNull(source.resolveOffer(prices))
         assertEquals("200.00", offer.price.toPlainString())
         assertEquals("500.00", offer.listPrice!!.toPlainString())
+    }
+
+    // --- capturing the CMR price without selling at it ---
+
+    /**
+     * The other half of the trap above. Discarding `cmrPrice` from the sale price is right; losing
+     * it altogether threw away a real saving — the Sensi Dacqua toilet is 799,900 cash and 589,900
+     * with CMR at both stores, and that 210,000 was invisible.
+     */
+    @Test
+    fun `captures the card price while still selling at the cash price`() {
+        val toilet = cmrDeals().single { it.externalId == "487197" }
+        assertEquals("799900.00", toilet.price.toPlainString(), "the sale price is what anyone pays")
+        val card = assertNotNull(toilet.cardOffer, "the CMR price must be captured")
+        assertEquals("589900.00", card.price.toPlainString())
+        assertEquals(CardScope.CMR, card.scope)
+    }
+
+    /**
+     * Falabella spells it `cmrPrice`, Homecenter spells it `CMR`, and one adapter serves both.
+     * Accepting only one name would silently halve the coverage.
+     */
+    @Test
+    fun `reads the card price under both of the names the two storefronts use`() {
+        // The fixtures really do disagree about the name, or this proves nothing.
+        assertTrue(cmrIsland.toString().contains("\"CMR\""), "homecenter fixture must say CMR")
+        assertTrue(falabella.toString().contains("cmrPrice"), "falabella fixture must say cmrPrice")
+
+        assertEquals("589900.00", assertNotNull(cmrDeals().single { it.externalId == "487197" }.cardOffer).price.toPlainString())
+        assertEquals("969900.00", assertNotNull(fbDeals().single { it.externalId == "136275851" }.cardOffer).price.toPlainString())
+    }
+
+    /**
+     * The percentage is derived here, the mirror image of VTEX where it is published and the price
+     * is computed. It must be measured against the price we actually store: the Sensi Dacqua CMR
+     * saving is 26.25% against the 799,900 cash price, and would read as a far larger number
+     * against a crossed-out "normal" price — which is the shelf discount the Off column already
+     * reports, not what the card saves.
+     */
+    @Test
+    fun `derives the percentage against the cash price, not the crossed-out one`() {
+        val prices = json.parseToJsonElement(
+            """[{"type":"cmrPrice","price":["969.900"]},
+                {"type":"eventPrice","price":["999.900"]},
+                {"type":"normalPrice","crossed":true,"price":["1.829.900"]}]""",
+        ) as JsonArray
+        val card = assertNotNull(source.cardOfferOf(prices, BigDecimal("999900.00")))
+        // (999900 - 969900) / 999900 = 3.00%. Against the 1,829,900 normalPrice it would be 47%.
+        assertEquals("3.00", card.percent.toPlainString())
+    }
+
+    /**
+     * Homecenter also advertises CMR as a basket threshold — "Por compras superiores a $1.699.900
+     * … Ahorra $150.000 pagando con tu CMR" — in `multiPurposeIcon`. That is a condition on a whole
+     * order, not a price for this product, so it must produce nothing.
+     */
+    @Test
+    fun `a basket-threshold CMR blurb is not a card price`() {
+        val row = cmrIsland.single { it.toString().contains("compras superiores") }
+        assertTrue(row.toString().contains("pagando con tu CMR"), "fixture must carry the blurb")
+        assertNull(
+            source.toRawDeal(row, "https://www.homecenter.com.co", "homecenter-co", "COP")!!.cardOffer,
+            "a spend threshold is not this product's price",
+        )
+    }
+
+    @Test
+    fun `a row with no card price at all gets none`() {
+        assertNull(cmrDeals().single { it.externalId == "707218" }.cardOffer)
+    }
+
+    @Test
+    fun `a card price that does not beat the cash price is dropped`() {
+        val equal = json.parseToJsonElement("""[{"type":"CMR","priceWithoutFormatting":500}]""") as JsonArray
+        assertNull(source.cardOfferOf(equal, BigDecimal("500.00")), "equal saves nothing")
+
+        val dearer = json.parseToJsonElement("""[{"type":"CMR","priceWithoutFormatting":600}]""") as JsonArray
+        assertNull(source.cardOfferOf(dearer, BigDecimal("500.00")), "dearer is not a discount")
+
+        assertNull(source.cardOfferOf(null, BigDecimal("500.00")))
+    }
+
+    /**
+     * `card_percent` is `CHECK (> 0 AND < 100)`, so a saving too small to survive two decimals
+     * would fail the INSERT and lose the whole observation. Dropped here instead.
+     */
+    @Test
+    fun `a saving too small to express as a percentage is dropped rather than written as zero`() {
+        val prices = json.parseToJsonElement("""[{"type":"CMR","priceWithoutFormatting":9999999}]""") as JsonArray
+        assertNull(source.cardOfferOf(prices, BigDecimal("10000000.00")))
     }
 
     // --- prices per store ---

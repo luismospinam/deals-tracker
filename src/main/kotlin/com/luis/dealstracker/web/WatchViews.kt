@@ -42,8 +42,10 @@ import kotlinx.html.tbody
 import kotlinx.html.td
 import kotlinx.html.th
 import kotlinx.html.thead
+import kotlinx.html.title
 import kotlinx.html.tr
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * Rows per page in the "Matching now" table.
@@ -114,7 +116,7 @@ data class WatchSort(val key: String, val desc: Boolean) {
 
 // "source" is not a sort column any more -- it is the [MATCHING_SOURCE_PARAM] filter. An old
 // `msort=source` bookmark falls back to the default price sort, as any unknown column does.
-private val MATCHING_COLUMNS = setOf("product", "price", "floor")
+private val MATCHING_COLUMNS = setOf("product", "price", "floor", "card")
 private val ALERTS_COLUMNS = setOf("deal", "price", "why", "when")
 
 /**
@@ -157,6 +159,7 @@ private fun sortLabel(sort: WatchSort): String = when (sort.key) {
     "price" -> if (sort.desc) tr("price, dearest first", "precio, más caro primero") else tr("price, cheapest first", "precio, más barato primero")
     "floor" -> if (sort.desc) tr("window low, highest first", "mínimo de la ventana, más alto primero") else tr("window low, lowest first", "mínimo de la ventana, más bajo primero")
     "product" -> tr("product name", "nombre del producto") + if (sort.desc) ", Z–A" else ", A–Z"
+    "card" -> tr("card saving, biggest first", "ahorro con tarjeta, mayor primero")
     else -> sort.key
 }
 
@@ -174,6 +177,17 @@ internal fun matchingComparator(sort: WatchSort): Comparator<WatchCandidate> {
     val base: Comparator<WatchCandidate> = when (sort.key) {
         "product" -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
         "floor" -> compareBy(nullsLast<BigDecimal>()) { it.priorFloor }
+        // Deepest card saving first, so `desc = false` reads as "best offer at the top" the way
+        // the price sort does. The key is the FRACTION saved against the price anyone pays today,
+        // not the stored percent: at Exito that percent is taken off the pre-promotion price, so
+        // ranking by it would put a shallow saving above a deeper one. Same computation as
+        // GrocerySort.CARD.
+        "card" -> compareByDescending { c ->
+            c.cardOffer?.let { BigDecimal.ONE - it.price.divide(c.price, 6, RoundingMode.HALF_UP) }
+                // Sentinel rather than nullsLast: a real saving is always positive, so -1 keeps
+                // cardless rows last under `desc = false` and they stay last when reversed.
+                ?: BigDecimal("-1")
+        }
         else -> compareBy { it.price }
     }
     return (if (sort.desc) base.reversed() else base).thenBy { it.dealId }
@@ -793,6 +807,7 @@ private fun MAIN.matchingTable(
         listOf(
             Triple(tr("Product", "Producto"), "product", false),
             Triple(tr("Price", "Precio"), "price", false),
+            Triple(tr("Card saving", "Ahorro con tarjeta"), "card", false),
             Triple(tr("Window low", "Mín. de la ventana"), "floor", false),
         ),
         isAlerts = false, sort, alertsSort, basePath, source,
@@ -804,7 +819,34 @@ private fun MAIN.matchingTable(
                     sortableTh(label, col, cls, false, sort, alertsSort, desc, basePath, source)
                 }
                 th(tr("Product", "Producto"), "product", "col-deal", false)
-                th(tr("Price", "Precio"), "price", "col-price", false)
+                // Two sorts in one header, as on the Groceries tab: by the price anyone pays, or by
+                // how much a card saves on it. Written out rather than via `th` because that helper
+                // emits a whole cell and this one holds two links.
+                th(classes = "col-price") {
+                    val priceNext = sort.toggledFor("price", false)
+                    a(
+                        href = watchUrl(basePath, priceNext, alertsSort, page = 1, source = source),
+                        classes = if (sort.isOn("price")) "sorted" else null,
+                    ) {
+                        title = tr(
+                            "The price anyone pays, and what the alert rules compared.",
+                            "El precio que paga cualquiera, y el que compararon las reglas de alerta.",
+                        )
+                        +tr("Price", "Precio")
+                        if (sort.isOn("price")) span("dir") { +if (sort.desc) " ↓" else " ↑" }
+                    }
+                    a(
+                        href = watchUrl(basePath, sort.toggledFor("card", false), alertsSort, page = 1, source = source),
+                        classes = if (sort.isOn("card")) "sorted" else null,
+                    ) {
+                        title = tr(
+                            "Biggest card-only saving over that price first.",
+                            "Primero el mayor ahorro con tarjeta sobre ese precio.",
+                        )
+                        +tr(" · card", " · tarjeta")
+                        if (sort.isOn("card")) span("dir") { +if (sort.desc) " ↑" else " ↓" }
+                    }
+                }
                 th(tr("Window low", "Mín. de la ventana"), "floor", "col-price", false)
                 // Plain text now: narrowing by source is the dropdown above the table.
                 th(classes = "col-sig") { +tr("Source", "Fuente") }
@@ -832,6 +874,10 @@ private fun MAIN.matchingTable(
                         } else {
                             +candidate.priceLabel()
                         }
+                        // Under the cash price, never instead of it: the number above is what
+                        // anyone pays and what the alert rules used, and this one needs a
+                        // particular card. Same chip as the Groceries tab.
+                        candidate.cardOffer?.let { cardChip(it, candidate.currency) }
                     }
                     td(classes = "col-price") {
                         cardLabel(tr("Window low", "Mín. de la ventana"))
@@ -840,6 +886,18 @@ private fun MAIN.matchingTable(
                         candidate.priorFloor
                             ?.let { +formatMoney(it, candidate.currency) }
                             ?: span("dim") { +tr("new", "nueva") }
+                        // The card floor only where one was ever recorded. Absent for a listing
+                        // with no history AND for one that never carried a card price -- different
+                        // facts, but the same absence of evidence, so both simply show nothing.
+                        candidate.cardFloor?.let {
+                            div("card-price store-only") {
+                                title = tr(
+                                    "Cheapest card-only price recorded in the window.",
+                                    "Precio con tarjeta más bajo registrado en la ventana.",
+                                )
+                                +formatMoney(it, candidate.currency)
+                            }
+                        }
                     }
                     td(classes = "col-sig") {
                         cardLabel(tr("Source", "Fuente"))
