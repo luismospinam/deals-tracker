@@ -373,8 +373,11 @@ fun MAIN.filterForm(
             input(type = InputType.text, name = "q") {
                 value = q["q"].orEmpty()
                 // Discoverability: the pipe syntax is invisible otherwise.
-                placeholder = "airpods | airtag | ssd"
-                title = tr("Separate multiple terms with | to match any of them", "Separa varios términos con | para buscar cualquiera de ellos")
+                placeholder = "airpods | airtag | !refurbished"
+                title = tr(
+                    "Separate terms with | to match any of them; start a term with ! to exclude it (!refurbished)",
+                    "Separa términos con | para buscar cualquiera; empieza un término con ! para excluirlo (!refurbished)",
+                )
                 attributes["size"] = "24"
             }
         }

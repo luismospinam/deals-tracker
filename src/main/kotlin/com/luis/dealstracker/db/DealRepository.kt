@@ -521,20 +521,11 @@ class DealRepository(
             where += "d.co_shipping = ANY (?)"
             params.add(filter.coShipping.map { it.name })
         }
-        // "airpods | airtag | ssd" matches any of the terms. Pipe is used because it
-        // reads as alternation; a query with no pipe behaves exactly as before.
-        val terms = parseSearchTerms(filter.search)
-        if (terms.isNotEmpty()) {
-            // Trigram similarity backed by deals_title_trgm_idx; ILIKE keeps exact
-            // substring matches working for short terms where trigrams are weak.
-            where += terms.joinToString(" OR ", prefix = "(", postfix = ")") {
-                "(d.title ILIKE ? OR d.title % ?)"
-            }
-            terms.forEach { term ->
-                params += "%${escapeLike(term)}%"
-                params += term
-            }
-        }
+        // "airpods | airtag | !refurbished": any inclusion, no exclusion -- see [SearchQuery].
+        // Trigram similarity (deals_title_trgm_idx) backs the fuzzy half of inclusion.
+        val (searchClauses, searchParams) = SearchQuery.parse(filter.search).toSql()
+        where += searchClauses
+        params.addAll(searchParams)
         if (filter.minPrice != null) {
             where += "po.price >= ?"
             params += filter.minPrice

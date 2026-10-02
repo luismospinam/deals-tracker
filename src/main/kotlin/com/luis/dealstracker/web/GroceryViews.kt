@@ -186,8 +186,8 @@ internal data class GroceryControls(
             // shopping list for one trip.
             if (chains.isNotEmpty()) add("store=" + chains.sorted().joinToString(",").encodeURLParameter())
             if (groups.isNotEmpty() && view != GroceryView.PINNED) add("group=" + groups.sorted().joinToString(",").encodeURLParameter())
-            // Search belongs to All items; carrying it onto Deals would filter a view with no box.
-            if (view == GroceryView.ALL) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
+            // Pinned has no box, so carrying a search onto it would filter a view with nothing to clear it.
+            if (view != GroceryView.PINNED) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
             if (sort != null && sort != GrocerySort.of(null, view)) add("sort=${sort.key}")
         }
         return if (params.isEmpty()) "/groceries" else "/groceries?" + params.joinToString("&")
@@ -199,7 +199,7 @@ internal data class GroceryControls(
             return GroceryControls(
                 view = view,
                 groups = params["group"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
-                search = params["q"]?.trim()?.takeIf { it.isNotEmpty() && view == GroceryView.ALL },
+                search = params["q"]?.trim()?.takeIf { it.isNotEmpty() && view != GroceryView.PINNED },
                 sort = GrocerySort.of(params["sort"], view),
                 chains = params["store"]?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
             )
@@ -340,7 +340,7 @@ private fun MAIN.groceryBody(
     div("scopes") {
         GroceryView.entries.forEach { v ->
             val on = v == controls.view
-            a(href = controls.url(view = v, sort = null), classes = if (on) "scope on" else "scope") {
+            a(href = controls.url(view = v, sort = null, search = null), classes = if (on) "scope on" else "scope") {
                 if (on) attributes["aria-current"] = "page"
                 +v.display()
                 // Shown only when there are some, as on Favorites: "Pinned 0" reads as a broken counter.
@@ -349,27 +349,16 @@ private fun MAIN.groceryBody(
         }
     }
 
-    if (controls.view == GroceryView.ALL) {
-        form(classes = "grocery-search") {
-            attributes["method"] = "get"
-            attributes["action"] = "/groceries"
-            input(type = InputType.hidden, name = "view") { value = GroceryView.ALL.key }
-            if (controls.groups.isNotEmpty()) {
-                input(type = InputType.hidden, name = "group") { value = controls.groups.sorted().joinToString(",") }
-            }
-            if (controls.chains.isNotEmpty()) {
-                input(type = InputType.hidden, name = "store") { value = controls.chains.sorted().joinToString(",") }
-            }
-            input(type = InputType.search, name = "q") {
-                value = controls.search.orEmpty()
-                placeholder = "leche | huevos | café"
-                title = tr(
-                    "Title search, accent-insensitive. Separate terms with | to match any of them.",
-                    "Búsqueda por título, sin importar tildes. Separa términos con | para encontrar cualquiera de ellos.",
-                )
-            }
-            button { +tr("Search", "Buscar") }
-        }
+    if (controls.view != GroceryView.PINNED) {
+        searchBox(
+            action = "/groceries",
+            value = controls.search,
+            carry = buildMap {
+                put("view", controls.view.key)
+                if (controls.groups.isNotEmpty()) put("group", controls.groups.sorted().joinToString(","))
+                if (controls.chains.isNotEmpty()) put("store", controls.chains.sorted().joinToString(","))
+            },
+        )
     }
 
     // Store above aisle: which shop you are going to is the first decision, the aisle the second.
@@ -404,12 +393,12 @@ private fun MAIN.groceryBody(
                         "Nothing is ${GroceryRow.DEAL_PERCENT}% under its usual price right now. ",
                         "Nada está ${GroceryRow.DEAL_PERCENT}% por debajo de su precio habitual en este momento. ",
                     )
-                    a(href = controls.url(view = GroceryView.ALL, sort = null)) { +tr("Browse all items", "Explora todos los productos") }
+                    a(href = controls.url(view = GroceryView.ALL, sort = null, search = null)) { +tr("Browse all items", "Explora todos los productos") }
                     +tr(" to pin staples in the meantime.", " para fijar tus básicos mientras tanto.")
                 }
                 GroceryView.PINNED -> {
                     +tr("Nothing pinned yet. Use ☆ pin on ", "Aún no hay nada fijado. Usa ☆ fijar en ")
-                    a(href = controls.url(view = GroceryView.ALL, sort = null)) { +GroceryView.ALL.display() }
+                    a(href = controls.url(view = GroceryView.ALL, sort = null, search = null)) { +GroceryView.ALL.display() }
                     +tr(" to keep staples here.", " para tener tus básicos aquí.")
                 }
                 GroceryView.ALL -> +tr("No items match.", "Ningún producto coincide.")

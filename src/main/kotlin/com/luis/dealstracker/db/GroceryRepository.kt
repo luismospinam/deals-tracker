@@ -114,7 +114,7 @@ data class GroceryFilter(
     val sources: List<String>,
     /** Subcategory labels; empty means all. */
     val groups: List<String> = emptyList(),
-    /** Title search, `|` meaning any -- the feed's own syntax. Applied in the All items view. */
+    /** Title search, see [SearchQuery]: `|` meaning any, `!` excluding. Applied in Deals and All items. */
     val search: String? = null,
     /** Pinned rows only. */
     val pinnedOnly: Boolean = false,
@@ -153,12 +153,9 @@ class GroceryRepository(private val ds: DataSource) {
         filter.id?.let {
             where += "(d.merchant, d.source_deal_id) = (SELECT merchant, source_deal_id FROM deals WHERE id = $it)"
         }
-        val terms = parseSearchTerms(filter.search)
-        if (terms.isNotEmpty()) {
-            // Accent-insensitive like the watches (V9), so `cafe` finds `Café`.
-            where += terms.joinToString(" OR ", "(", ")") { "(unaccent(d.title) ILIKE unaccent(?) OR d.title % ?)" }
-            terms.forEach { params += "%${escapeLike(it)}%"; params += it }
-        }
+        val (searchClauses, searchParams) = SearchQuery.parse(filter.search).toSql()
+        where += searchClauses
+        params.addAll(searchParams)
 
         val sql = """
             WITH shelf AS (

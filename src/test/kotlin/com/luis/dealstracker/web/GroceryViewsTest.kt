@@ -83,11 +83,18 @@ class GroceryViewsTest {
     }
 
     @Test
-    fun `search is carried only on the all items view`() {
+    fun `search is carried on deals and all items but not pinned`() {
         val all = GroceryControls.from(parametersOf("view" to listOf("all"), "q" to listOf("café")))
         assertEquals("café", all.search)
-        assertNull(GroceryControls.from(parametersOf("q" to listOf("café"))).search)
-        assertEquals("/groceries", all.url(view = GroceryView.DEALS, sort = null))
+        assertEquals("café", GroceryControls.from(parametersOf("q" to listOf("café"))).search)
+        assertNull(GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("café"))).search)
+        // url() itself keeps the search (sort/aisle links need it); the section tabs pass search = null.
+        assertEquals("/groceries?q=caf%C3%A9", all.url(view = GroceryView.DEALS, sort = null))
+        assertEquals("/groceries", all.url(view = GroceryView.DEALS, sort = null, search = null))
+        val html = createHTML().main { groceryPage(listOf(row()), listOf("Pantry" to 1), all, listOf("carulla-grocery")) }
+        assertTrue(html.contains("href=\"/groceries\""), "the Deals tab link must not carry the search")
+        assertEquals("/groceries?view=pinned", all.url(view = GroceryView.PINNED, sort = null))
+        assertEquals("!aceite", GroceryControls.from(parametersOf("q" to listOf("!aceite"))).search)
     }
 
     @Test
