@@ -62,6 +62,7 @@ fun main(args: Array<String>) {
     // Lazy because the registry below needs it before the database is connected: the watches'
     // Amazon adapter reads their searches at fetch time, long after `Db.connect`.
     val watches by lazy { WatchRepository(Db.dataSource) }
+    val disabledSearches by lazy { com.luis.dealstracker.db.DisabledSearchRepository(Db.dataSource) }
 
     val registry = SourceRegistry(
         listOf(
@@ -83,7 +84,7 @@ fun main(args: Array<String>) {
             MercadoLibreSource(),
             // Queries amazon.com directly for specific items in a specific size, which the
             // Slickdeals feed cannot do -- it carries whatever the community posted.
-            AmazonSource(),
+            AmazonSource { disabledSearches.disabled(it) },
             // The same site searched for what the watches ask for -- a TV, a fridge -- rather than
             // for clothing in one size. Its terms are each watch's own `amazonTerms`.
             AmazonWatchSource { watches.amazonSearches() },
@@ -310,7 +311,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource))
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches)
     }.start(wait = true)
 }
 

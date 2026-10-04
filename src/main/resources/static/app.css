@@ -244,6 +244,16 @@ form.filters {
   box-shadow: inset 0 1px 0 rgba(255, 240, 220, 0.035);
 }
 
+/* The on/off checkboxes on their own row under the filter bar: box and caption side by side. */
+.toggles { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+form.filters label.check-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+label.check-toggle input { margin: 0; accent-color: var(--accent); }
+
 label {
   display: flex;
   flex-direction: column;
@@ -1736,3 +1746,26 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   /* Non-card tables that are narrow enough to keep, but scroll inside themselves if not. */
   .runs { overflow-x: auto; }
 }
+
+/* Tracked tab: "Manage searches". Groups of searches, each with a switch. The switch is a submit
+ * button so it works without JS; `.on` is the server's word, not a client state. */
+.search-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 28px; margin-top: 10px; }
+.search-grp { margin: 0 0 14px; }
+.search-hd {
+  display: flex; align-items: center; gap: 10px; padding-bottom: 5px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint);
+}
+.search-hd form { margin-left: auto; }
+.search-n { font-family: var(--mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0; text-transform: none; }
+.search-all { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--accent); }
+.search-all:hover { text-decoration: underline; }
+.search-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+.search-row.off { color: var(--text-faint); }
+.search-row .search-n { margin-left: auto; }
+.sw {
+  width: 30px; height: 17px; border-radius: 99px; padding: 0; position: relative; flex: none; cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line);
+}
+.sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--text-faint); }
+.sw.on { background: var(--accent); border-color: var(--accent); }
+.sw.on::after { left: 15px; background: #1a0d02; }

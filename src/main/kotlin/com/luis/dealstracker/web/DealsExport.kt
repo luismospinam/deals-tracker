@@ -292,6 +292,8 @@ internal fun FeedFilter.describe(lang: Lang = Lang.EN): List<Pair<String, String
     add(lang.tr("Max price", "Precio máximo") to (maxPrice?.toPlainString() ?: lang.tr("any", "cualquiera")))
     add(lang.tr("Min community score", "Puntaje mínimo de la comunidad") to (minScore?.toString() ?: lang.tr("any", "cualquiera")))
     add(lang.tr("Colombia shipping", "Envío a Colombia") to (coShipping.takeIf { it.isNotEmpty() }?.joinToString(", ") { it.name } ?: lang.tr("any", "cualquiera")))
+    add(lang.tr("Watched items", "Items vigilados") to if (hideWatched) lang.tr("hidden", "ocultos") else lang.tr("shown", "visibles"))
+    add(lang.tr("Not shipping to Colombia", "Sin envío a Colombia") to if (hideNoShip) lang.tr("hidden", "ocultos") else lang.tr("shown", "visibles"))
     add(lang.tr("State", "Estado") to states.joinToString(", ") { it.name })
     add(
         lang.tr("Only", "Solo") to when {

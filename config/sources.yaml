@@ -142,6 +142,9 @@ providers:
       # age on its own. Without this the feed accumulated deals from 2025.
       # Ignored for sources that publish no posting date (VTEX, MercadoLibre).
       maxAgeDays: "14"
+      # Slickdeals' feed carries no expiry flag, so a deal that ended simply stops appearing.
+      # 12h rather than the 48h default retires it the same day instead of two days later.
+      staleAfterHours: "12"
     listOptions:
       # Fixed feeds: the curated views. These do NOT paginate.
       urls:

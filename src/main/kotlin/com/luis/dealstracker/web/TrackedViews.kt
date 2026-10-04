@@ -246,6 +246,7 @@ private fun trackedUrl(
     brand: String? = null,
     origin: TrackedOrigin? = null,
     showNoShip: Boolean = false,
+    freeShip: Boolean = false,
 ): String {
     val params = buildList {
         if (types.isNotEmpty()) add("type=" + types.joinToString(",") { it.label })
@@ -255,6 +256,7 @@ private fun trackedUrl(
         origin?.let { add("origin=${it.label}") }
         // Hidden is the default, so only the opt-in is written.
         if (showNoShip) add("noship=show")
+        if (freeShip) add("freeship=1")
     }
     return if (params.isEmpty()) "/tracked" else "/tracked?" + params.joinToString("&")
 }
@@ -274,9 +276,10 @@ private fun kotlinx.html.TR.sortTh(
     brand: String?,
     origin: TrackedOrigin?,
     showNoShip: Boolean,
+    freeShip: Boolean = false,
     tooltip: String? = null,
 ) {
-    val href = trackedUrl(selected, sort, brand, origin, showNoShip)
+    val href = trackedUrl(selected, sort, brand, origin, showNoShip, freeShip)
 
     th(classes = classes) {
         tooltip?.let { title = it }
@@ -307,6 +310,80 @@ private fun kotlinx.html.TR.sortTh(
  * A plain POST-and-redirect rather than htmx: the add costs a live Amazon fetch and can take
  * seconds, so a full response with a result message is clearer than a silent swap.
  */
+/**
+ * The configured searches, grouped by garment, each with a switch. Off searches are skipped by the
+ * next fetch. Group totals count the rows currently on the tab, not per search: `deals` does not
+ * record which search found a row.
+ */
+private fun MAIN.searchesPanel(
+    toggles: List<Triple<String, String, Boolean>>,
+    deals: List<Deal>,
+    open: Boolean,
+) {
+    if (toggles.isEmpty()) return
+    val rowsByType = deals.groupingBy { ProductType.of(it.title) }.eachCount()
+    details("additem searches") {
+        id = "searches"
+        if (open) attributes["open"] = ""
+        summary {
+            +tr("Manage searches", "Gestionar búsquedas")
+            +" (${toggles.count { it.third }}/${toggles.size})"
+        }
+        div("additem-notice") {
+            +tr(
+                "A search that is off is skipped by the next fetch. Its price history is kept, and switching it back on resumes it.",
+                "Una búsqueda apagada se omite en la próxima consulta. Su historial de precios se conserva y al encenderla se reanuda.",
+            )
+        }
+        div("search-cols") {
+            toggles.groupBy { ProductType.of(it.second) }.forEach { (type, group) ->
+                val allOn = group.all { it.third }
+                div("search-grp") {
+                    div("search-hd") {
+                        span { +type.display }
+                        span("search-n") { +tr("${rowsByType[type] ?: 0} item(s)", "${rowsByType[type] ?: 0} producto(s)") }
+                        searchForm(group, !allOn) {
+                            button(type = kotlinx.html.ButtonType.submit, classes = "search-all") {
+                                +if (allOn) tr("turn all off", "apagar todo") else tr("turn all on", "encender todo")
+                            }
+                        }
+                    }
+                    group.forEach { g ->
+                        val (_, term, enabled) = g
+                        div(if (enabled) "search-row" else "search-row off") {
+                            searchForm(listOf(g), !enabled) {
+                                button(type = kotlinx.html.ButtonType.submit, classes = if (enabled) "sw on" else "sw") {
+                                    attributes["role"] = "switch"
+                                    attributes["aria-checked"] = enabled.toString()
+                                    attributes["aria-label"] = term
+                                }
+                            }
+                            span { +term }
+                            if (!enabled) span("search-n") { +tr("paused", "en pausa") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun kotlinx.html.FlowContent.searchForm(
+    group: List<Triple<String, String, Boolean>>,
+    enable: Boolean,
+    block: kotlinx.html.FORM.() -> Unit,
+) {
+    form {
+        attributes["method"] = "post"
+        attributes["action"] = "/tracked/search"
+        group.forEach { (provider, term, _) ->
+            input(type = InputType.hidden, name = "search") { value = "$provider\t$term" }
+        }
+        input(type = InputType.hidden, name = "enabled") { value = enable.toString() }
+        block()
+    }
+}
+
 private fun MAIN.addItemForm(notice: String?) {
     details("additem") {
         // Open when there is a result to show. The notice lives inside the details, and a collapsed
@@ -381,6 +458,7 @@ private fun MAIN.brandPicker(
     brand: String?,
     origin: TrackedOrigin?,
     showNoShip: Boolean,
+    freeShip: Boolean = false,
 ) {
     // Case-insensitive grouping: V12's backfill recovered the folded form (`adidas`) from
     // model_key while a fresh fetch stores the source's own casing (`Nike`), and the two must not
@@ -399,7 +477,7 @@ private fun MAIN.brandPicker(
                 attributes["onchange"] = "location.href=this.value"
 
                 option {
-                    value = trackedUrl(types, sort, null, origin, showNoShip)
+                    value = trackedUrl(types, sort, null, origin, showNoShip, freeShip)
                     if (brand.isNullOrBlank()) this.selected = true
                     +tr("all brands", "todas las marcas")
                 }
@@ -407,7 +485,7 @@ private fun MAIN.brandPicker(
                     .forEach { (key, n) ->
                         val name = display[key] ?: key
                         option {
-                            value = trackedUrl(types, sort, name, origin, showNoShip)
+                            value = trackedUrl(types, sort, name, origin, showNoShip, freeShip)
                             if (brand?.lowercase() == key) this.selected = true
                             +"$name ($n)"
                         }
@@ -432,6 +510,7 @@ private fun MAIN.originTags(
     brand: String?,
     origin: TrackedOrigin?,
     showNoShip: Boolean,
+    freeShip: Boolean = false,
 ) {
     val inBrand = deals.filter {
         brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase()
@@ -449,7 +528,7 @@ private fun MAIN.originTags(
             val on = origin == which
             a(
                 classes = if (on) "typetag on" else "typetag",
-                href = trackedUrl(selected, sort, brand, if (on) null else which, showNoShip),
+                href = trackedUrl(selected, sort, brand, if (on) null else which, showNoShip, freeShip),
             ) {
                 +which.display
                 span("typetag-n") { +n.toString() }
@@ -475,6 +554,7 @@ private fun MAIN.typeTags(
     brand: String?,
     origin: TrackedOrigin?,
     showNoShip: Boolean,
+    freeShip: Boolean = false,
 ) {
     // Counted within the active BRAND, but across all types.
     //
@@ -500,7 +580,7 @@ private fun MAIN.typeTags(
 
             val on = type in selected
             val next = if (on) selected - type else selected + type
-            val href = trackedUrl(next, sort, brand, origin, showNoShip)
+            val href = trackedUrl(next, sort, brand, origin, showNoShip, freeShip)
 
             a(classes = if (on) "typetag on" else "typetag", href = href) {
                 +type.display
@@ -511,7 +591,7 @@ private fun MAIN.typeTags(
         if (selected.isNotEmpty()) {
             // Clears the TYPE filter only. Resetting the sort too would be a second, unasked-for
             // change hiding behind one control.
-            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +tr("clear", "quitar") }
+            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip, freeShip)) { +tr("clear", "quitar") }
         }
     }
 }
@@ -534,20 +614,50 @@ private fun MAIN.noShipToggle(
     origin: TrackedOrigin?,
     manualAsins: Set<String>,
     showNoShip: Boolean,
+    freeShip: Boolean = false,
 ) {
     val n = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip = true)
         .count { it.coShipping == CoShipping.NO }
-    if (n == 0 && !showNoShip) return
+    if (freeShip || (n == 0 && !showNoShip)) return
 
     div("noship-toggle") {
         label {
             input(type = InputType.checkBox) {
                 checked = showNoShip
                 attributes["onchange"] =
-                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, true)}'" +
-                    ":'${trackedUrl(selected, sort, brand, origin, false)}'"
+                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, true, freeShip)}'" +
+                    ":'${trackedUrl(selected, sort, brand, origin, false, freeShip)}'"
             }
             +tr(" show items that don't ship to Colombia", " mostrar productos que no envían a Colombia")
+            span("typetag-n") { +n.toString() }
+        }
+    }
+}
+
+/**
+ * "Only free shipping to Colombia". Off by default; the state lives in the query string like the
+ * other toggles. The count is of rows that would remain, so ticking it changes the table by
+ * exactly the number it promised.
+ */
+private fun MAIN.freeShipToggle(
+    deals: List<Deal>,
+    selected: Set<ProductType>,
+    sort: TrackedSort,
+    brand: String?,
+    origin: TrackedOrigin?,
+    showNoShip: Boolean,
+    freeShip: Boolean,
+) {
+    val n = deals.count { it.freeShipToColombia }
+    div("noship-toggle") {
+        label {
+            input(type = InputType.checkBox) {
+                checked = freeShip
+                attributes["onchange"] =
+                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, showNoShip, true)}'" +
+                    ":'${trackedUrl(selected, sort, brand, origin, showNoShip, false)}'"
+            }
+            +tr(" only free shipping to Colombia", " solo envío gratis a Colombia")
             span("typetag-n") { +n.toString() }
         }
     }
@@ -596,12 +706,16 @@ internal fun MAIN.trackedPage(
     manualAsins: Set<String> = emptySet(),
     origin: TrackedOrigin? = null,
     showNoShip: Boolean = false,
+    freeShip: Boolean = false,
+    searchToggles: List<Triple<String, String, Boolean>> = emptyList(),
+    searchesOpen: Boolean = false,
 ) {
     addItemForm(notice)
 
     // Before anything counts rows, so the tags, the total and the table all agree on one row per
     // product. See collapseVariants.
     val (deals, variants) = collapseVariants(allDeals, manualAsins)
+    searchesPanel(searchToggles, deals, searchesOpen)
 
     p("tracked-intro") {
         +tr(
@@ -644,21 +758,23 @@ internal fun MAIN.trackedPage(
     // Rows Amazon refuses to ship to Colombia are out of the population entirely unless asked for,
     // tags included: a tag counting rows the table then hides is the mismatch the brand and type
     // counts were built to avoid.
-    val pool = if (showNoShip) deals else deals.filterNot { it.coShipping == CoShipping.NO }
+    val pool = (if (showNoShip) deals else deals.filterNot { it.coShipping == CoShipping.NO })
+        .filter { !freeShip || it.freeShipToColombia }
 
     // Tags are built from the UNFILTERED set, so the counts stay stable and a deselected type does
     // not vanish from the row the moment you click it.
-    brandPicker(pool, selected, sort, brand, origin, showNoShip)
-    typeTags(pool, selected, sort, brand, origin, showNoShip)
-    originTags(pool, manualAsins, selected, sort, brand, origin, showNoShip)
-    noShipToggle(deals, selected, sort, brand, origin, manualAsins, showNoShip)
+    brandPicker(pool, selected, sort, brand, origin, showNoShip, freeShip)
+    typeTags(pool, selected, sort, brand, origin, showNoShip, freeShip)
+    originTags(pool, manualAsins, selected, sort, brand, origin, showNoShip, freeShip)
+    noShipToggle(deals, selected, sort, brand, origin, manualAsins, showNoShip, freeShip)
+    freeShipToggle(deals, selected, sort, brand, origin, showNoShip, freeShip)
 
-    val shown = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip)
+    val shown = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip, freeShip)
 
     if (shown.isEmpty()) {
         div("empty") {
             +tr("No tracked items of that type. ", "No hay productos en seguimiento de ese tipo. ")
-            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip)) { +tr("Show all", "Ver todos") }
+            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip, freeShip)) { +tr("Show all", "Ver todos") }
             +"."
         }
         return
@@ -700,7 +816,7 @@ internal fun MAIN.trackedPage(
             tr("Lowest yet", "Mínimo histórico") to TrackedSort.LOWEST,
             tr("Checked", "Revisado") to TrackedSort.CHECKED,
         )
-            .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip), sort == s) },
+            .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip, freeShip), sort == s) },
     )
     table("deals tracked") {
         thead {
@@ -708,7 +824,7 @@ internal fun MAIN.trackedPage(
                 th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                 th(classes = "col-deal") { +tr("Item", "Producto") }
                 th(classes = "col-size") { +tr("Size", "Talla") }
-                sortTh(tr("Now", "Ahora"), TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip)
+                sortTh(tr("Now", "Ahora"), TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip, freeShip)
                 th(classes = "col-price") {
                     title = tr(
                         "Amazon's own \"List:\" price, where it publishes one",
@@ -717,7 +833,7 @@ internal fun MAIN.trackedPage(
                     +tr("List", "Lista")
                 }
                 sortTh(
-                    tr("Off", "Dto."), TrackedSort.OFF, sort, selected, "col-disc", brand, origin, showNoShip,
+                    tr("Off", "Dto."), TrackedSort.OFF, sort, selected, "col-disc", brand, origin, showNoShip, freeShip,
                     tooltip = tr(
                         "Discount against Amazon's list price — its claim about its own " +
                             "former price, not a decline we observed. Blank where no list price is " +
@@ -747,7 +863,7 @@ internal fun MAIN.trackedPage(
                     +tr("Highest", "Máximo")
                 }
                 sortTh(
-                    tr("Low", "Mín."), TrackedSort.LOWEST, sort, selected, "col-low", brand, origin, showNoShip,
+                    tr("Low", "Mín."), TrackedSort.LOWEST, sort, selected, "col-low", brand, origin, showNoShip, freeShip,
                     tooltip = tr(
                         "At the lowest price we have ever recorded, AND genuinely down from " +
                             "a higher one we saw. A price that never moved does not qualify.",
@@ -764,7 +880,7 @@ internal fun MAIN.trackedPage(
                     )
                     +tr("Change", "Cambio")
                 }
-                sortTh(tr("Checked", "Revisado"), TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip)
+                sortTh(tr("Checked", "Revisado"), TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip, freeShip)
                 th(classes = "col-act") { +"" }
             }
         }
@@ -820,6 +936,37 @@ internal fun collapseVariants(deals: List<Deal>, manualAsins: Set<String>): Coll
 }
 
 /**
+ * Drops rows that only a switched-off search would be refreshing.
+ *
+ * `deals` does not record which search found a row, so a row is matched to a search the way a
+ * person would: same brand (the term's words before " men") and same product type. A row is hidden
+ * only when a disabled search covers it AND no enabled search does, so switching off "nike men
+ * shoes" does not hide shoes that "nike men running shoes" still tracks.
+ *
+ * When EVERY search for a product type is off, the whole type goes, whatever the brand: a search
+ * for "nike men boxer" also returns Reebok and Hanes boxers, and those are as unwanted as Nike's.
+ * Items added by URL are never hidden: they are tracked by ASIN, not by search.
+ */
+internal fun withoutSwitchedOffSearches(
+    deals: List<Deal>,
+    toggles: List<Triple<String, String, Boolean>>,
+    manualAsins: Set<String>,
+): List<Deal> {
+    if (toggles.all { it.third }) return deals
+    fun key(term: String) = term.substringBefore(" men").trim().lowercase() to ProductType.of(term)
+    val on = toggles.filter { it.third }.map { key(it.second) }.toSet()
+    val off = toggles.filterNot { it.third }.map { key(it.second) }.toSet() - on
+    val typesOff = toggles.groupBy { ProductType.of(it.second) }.filterValues { g -> g.none { it.third } }.keys
+    return deals.filterNot { d ->
+        if (d.asin != null && d.asin in manualAsins) return@filterNot false
+        val type = ProductType.of(d.title)
+        if (type in typesOff) return@filterNot true
+        val brand = d.brand?.trim()?.lowercase() ?: return@filterNot false
+        off.any { (b, t) -> brand == b && type == t }
+    }
+}
+
+/**
  * The rows the tracked tab shows for a given set of controls, in the order it shows them.
  *
  * Extracted so the Ask panel reads exactly what the page renders. A second copy of these filters
@@ -833,11 +980,13 @@ internal fun trackedShown(
     manualAsins: Set<String>,
     sort: TrackedSort,
     showNoShip: Boolean = false,
+    freeShip: Boolean = false,
 ): List<Deal> = deals
     // A verified "does not ship" is not a price worth watching, so it is hidden unless asked for.
     // Only a NO: an unchecked row stays, since it may well ship and hiding it would hide most of
     // the tab while the check catches up.
     .filter { showNoShip || it.coShipping != CoShipping.NO }
+    .filter { !freeShip || it.freeShipToColombia }
     .filter { selected.isEmpty() || ProductType.of(it.title) in selected }
     // Case-insensitive, for the same reason the picker groups that way: the stored casing
     // differs between a V12-backfilled row and a freshly fetched one.
@@ -1197,6 +1346,13 @@ private fun kotlinx.html.TD.priceOrDash(amount: BigDecimal?, deal: Deal) {
  * all. The same condition [extraCosts] renders as "unchecked", kept in one place so the chip and
  * the count above the table cannot disagree.
  */
+/**
+ * Verified free to ship to Colombia: a quoted fee of exactly zero. A row with a fee, or with no
+ * quote at all (not yet verified), is not free -- null is "unknown", never zero.
+ */
+internal val Deal.freeShipToColombia: Boolean
+    get() = coShipping != CoShipping.NO && coShippingCost?.signum() == 0
+
 internal val Deal.shippingUnchecked: Boolean
     get() = coShipping != CoShipping.NO && coShippingCost == null && coShippingImportFree != false
 

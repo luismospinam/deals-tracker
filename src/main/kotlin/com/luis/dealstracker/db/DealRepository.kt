@@ -47,12 +47,60 @@ data class FeedFilter(
      * Default false, so no existing query changes behaviour by omission.
      */
     val includeInactive: Boolean = false,
+    /**
+     * Leaves out deals a watch already covers, a disabled one included, so the feed shows what no watch is
+     * hunting. The watch's own page is where those belong.
+     *
+     * Matched the way [WatchRepository.candidates] matches, minus the trigram fuzzy tail: an
+     * exact substring on the watch's terms (accent-folded), its exclusions, category, sources,
+     * and the price band when the deal is in the watch's currency. The fuzzy tail is left out
+     * because here a false match hides a deal from the operator, which is worse than a watch
+     * alert that is one row too generous.
+     */
+    val hideWatched: Boolean = false,
+    /**
+     * Leaves out deals verified as NOT shipping to Colombia. UNKNOWN and YES stay: an unverified
+     * deal is not a refusal, and Amazon items start unverified. Ignored when [coShipping] names
+     * values, since choosing "no" by hand is an explicit request to see them.
+     */
+    val hideNoShip: Boolean = false,
     // High enough that the whole feed renders in one page at current volume (a few
     // hundred deals across four sources). The UI states the total when this does cap
     // the page, so truncation is visible rather than silent. Proper pagination is the
     // fix once volume outgrows this.
     val limit: Int = 1000,
 )
+
+/**
+ * True for a deal some watch covers, enabled or not; used negated by [FeedFilter.hideWatched].
+ *
+ * Needs `po` and `agg` from the feed query, for the watch's price band. `terms` and
+ * `exclude_terms` are split on `|` here because they are stored as the pipe-separated text the
+ * search box takes, and LIKE metacharacters are escaped the way [escapeLike] does.
+ */
+private const val WATCHED_DEAL_CLAUSE = """NOT EXISTS (
+    SELECT 1 FROM watches w
+    WHERE (
+          EXISTS (SELECT 1 FROM watch_sourced_deals ws WHERE ws.watch_id = w.id AND ws.deal_id = d.id)
+          OR EXISTS (
+              SELECT 1 FROM unnest(string_to_array(w.terms, '|')) AS t(term)
+              WHERE btrim(t.term) <> ''
+                AND unaccent(d.title) ILIKE unaccent(
+                    '%' || replace(replace(replace(btrim(t.term), '\', '\\'), '%', '\%'), '_', '\_') || '%')
+          )
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM unnest(string_to_array(COALESCE(w.exclude_terms, ''), '|')) AS x(term)
+          WHERE btrim(x.term) <> ''
+            AND unaccent(d.title) ILIKE unaccent(
+                '%' || replace(replace(replace(btrim(x.term), '\', '\\'), '%', '\%'), '_', '\_') || '%')
+      )
+      AND (w.category_group IS NULL OR w.category_group = '' OR w.category_group = d.category_group)
+      AND (cardinality(w.sources) = 0 OR d.source = ANY (w.sources))
+      AND (w.currency <> d.currency OR (
+          (w.min_price IS NULL OR agg.max_price >= w.min_price)
+          AND (w.max_price IS NULL OR po.price <= w.max_price)))
+)"""
 
 /** Most terms anyone would type; guards against a pathological query from a pasted blob. */
 private const val MAX_SEARCH_TERMS = 20
@@ -520,6 +568,8 @@ class DealRepository(
         if (filter.coShipping.isNotEmpty()) {
             where += "d.co_shipping = ANY (?)"
             params.add(filter.coShipping.map { it.name })
+        } else if (filter.hideNoShip) {
+            where += "d.co_shipping <> 'NO'"
         }
         // "airpods | airtag | !refurbished": any inclusion, no exclusion -- see [SearchQuery].
         // Trigram similarity (deals_title_trgm_idx) backs the fuzzy half of inclusion.
@@ -554,6 +604,7 @@ class DealRepository(
             where += "(d.posted_at IS NULL OR d.posted_at >= now() - make_interval(days => ?))"
             params += filter.maxAgeDays
         }
+        if (filter.hideWatched) where += WATCHED_DEAL_CLAUSE
         if (filter.onlyPromoted) where += "d.promoted"
         if (filter.onlyLowestEver) where += "po.price <= agg.min_price"
 

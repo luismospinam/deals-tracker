@@ -24,7 +24,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "45"
+private const val CSS_VERSION = "48"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -358,6 +358,20 @@ fun MAIN.feedScopes(q: Map<String, String>, screen: FeedScreen, favoriteCount: I
     }
 }
 
+/** One on-by-default checkbox of the filter form's toggle row; see the comment where it is used. */
+private fun FlowContent.checkToggle(name: String, on: Boolean, text: String, hint: String) {
+    label("check-toggle") {
+        title = hint
+        input(type = InputType.checkBox, name = name) {
+            value = "1"
+            checked = on
+            attributes["onchange"] = "this.form.requestSubmit ? this.form.requestSubmit() : this.form.submit()"
+        }
+        input(type = InputType.hidden, name = name) { value = "0" }
+        +text
+    }
+}
+
 fun MAIN.filterForm(
     sources: List<String>,
     categories: List<String>,
@@ -476,6 +490,35 @@ fun MAIN.filterForm(
                 attributes["hx-swap"] = "none"
                 type = ButtonType.button
                 +tr("Refresh now", "Actualizar ahora")
+            }
+        }
+
+        div("fbreak") {}
+        // Checkboxes rather than chips: plain on/off switches with nothing to clear. Both are ON by
+        // default, so "off" has to be sent explicitly: the hidden `0` after each box is what an
+        // unticked form submits (see `feedFilterFrom`, which reads the FIRST value, so the hidden
+        // input must come after its box). Feed only -- see `favoritesFilter`. They submit on
+        // change, like the chips do.
+        if (screen == FeedScreen.FEED) {
+            div("toggles") {
+                checkToggle(
+                    "hideWatched", q["hideWatched"] != "0",
+                    tr("Hide watched items", "Ocultar items vigilados"),
+                    tr(
+                        "Hide deals that one of your watches already covers, paused ones included",
+                        "Oculta las ofertas que ya cubre alguna de tus vigilancias, incluidas las pausadas",
+                    ),
+                )
+                checkToggle(
+                    "hideNoShip", q["hideNoShip"] != "0",
+                    tr("Hide items that don't ship to Colombia", "Ocultar items que no envían a Colombia"),
+                    tr(
+                        "Hide deals verified as NOT shipping to Colombia. Unverified ones stay: " +
+                            "unknown is not a no.",
+                        "Oculta las ofertas verificadas como sin envío a Colombia. Las no verificadas " +
+                            "se quedan: desconocido no es un no.",
+                    ),
+                )
             }
         }
 

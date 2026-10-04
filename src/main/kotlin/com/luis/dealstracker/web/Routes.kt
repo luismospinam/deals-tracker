@@ -61,6 +61,7 @@ fun Application.routes(
     ask: AskService,
     rates: ExchangeRates,
     groceries: GroceryRepository,
+    disabledSearches: com.luis.dealstracker.db.DisabledSearchRepository,
 ) {
     routing {
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
@@ -297,6 +298,13 @@ fun Application.routes(
             val manualAsins = withContext(Dispatchers.IO) { manualItems.trackedAsins() }
             // Items Amazon refuses to ship to Colombia are hidden unless this is set.
             val showNoShip = call.request.queryParameters["noship"] == "show"
+            val searchToggles = withContext(Dispatchers.IO) {
+                app.enabledProviders.filter { it.id in sources }.flatMap { p ->
+                    val off = disabledSearches.disabled(p.id)
+                    p.list("trackSearches").map { Triple(p.id, it, it !in off) }
+                }
+            }
+            val visible = withoutSwitchedOffSearches(deals, searchToggles, manualAsins)
 
             call.respondPage {
                 page(tr("Tracked — Deals Tracker", "Seguimiento — Deals Tracker")) {
@@ -307,7 +315,7 @@ fun Application.routes(
                             "p. ej. ¿cuál de estos ha bajado más, y vale la pena comprarlo ahora?",
                         ),
                     )
-                    trackedPage(deals, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip)
+                    trackedPage(visible, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip, searchToggles = searchToggles, searchesOpen = call.request.queryParameters["searches"] == "open", freeShip = call.request.queryParameters["freeship"] == "1")
                 }
             }
         }
@@ -339,6 +347,20 @@ fun Application.routes(
          * that names no product. The result is carried back as a `notice` on the redirect target, so a
          * reload does not re-submit.
          */
+        post("/tracked/search") {
+            val params = call.receiveParameters()
+            val enabled = params["enabled"] == "true"
+            // Each value is "provider<TAB>term"; a group switch sends several. Only a term that is
+            // actually configured can be toggled, so this cannot grow junk rows.
+            val picks = params.getAll("search").orEmpty().mapNotNull { v ->
+                val (provider, term) = v.split('\t', limit = 2).takeIf { it.size == 2 } ?: return@mapNotNull null
+                (provider to term).takeIf { app.enabledProviders.any { p -> p.id == provider && term in p.list("trackSearches") } }
+            }
+            if (picks.isEmpty()) return@post call.respondText("unknown search", status = HttpStatusCode.BadRequest)
+            withContext(Dispatchers.IO) { picks.forEach { (p, t) -> disabledSearches.setEnabled(p, t, enabled) } }
+            call.respondRedirect("/tracked?searches=open#searches")
+        }
+
         post("/tracked/add") {
             val params = call.receiveParameters()
             val url = params["url"]?.trim().orEmpty()
@@ -456,6 +478,11 @@ fun Application.routes(
                 ?: return@post call.respondText("bad state", status = HttpStatusCode.BadRequest)
 
             repo.updateState(id, state)
+            // A dismissed row is not on the page after a reload, so it must not be after the click
+            // either. Re-rendering it looked like Hide had done nothing: the row has no dismissed
+            // styling, so it stayed put until the next reload. Empty body + the button's outerHTML
+            // swap removes the <tr>, the same way /tracked/{id}/hide does.
+            if (state == DealState.DISMISSED) return@post call.respondText("", ContentType.Text.Html)
             respondRow(id, repo)
         }
 
@@ -731,7 +758,7 @@ private val BUSY = VerifyOutcome()
 
 /** Query parameters the filter form round-trips, so a submitted value survives re-render. */
 internal val FILTER_PARAMS = listOf(
-    "q", "source", "category", "minDiscount", "maxPrice", "minScore", "co", "state", "sort", "only",
+    "q", "source", "category", "minDiscount", "maxPrice", "minScore", "co", "state", "sort", "only", "hideWatched", "hideNoShip",
 )
 
 /**
@@ -741,7 +768,7 @@ internal val FILTER_PARAMS = listOf(
  * on that screen. So neither can be the reason a favorite is missing, and treating either as a
  * narrowing filter would offer to clear something that was never excluding anything.
  */
-private val NON_NARROWING_PARAMS = setOf("sort", "state")
+private val NON_NARROWING_PARAMS = setOf("sort", "state", "hideWatched", "hideNoShip")
 
 /**
  * Builds a [FeedFilter] from the filter form's query parameters.
@@ -771,6 +798,11 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
     categoryGroups = listOfNotNull(params["category"]?.takeIf { it.isNotBlank() }),
     onlyPromoted = params["only"] == "promoted",
     onlyLowestEver = params["only"] == "lowest",
+    // On unless the form says otherwise. An unchecked checkbox submits nothing, so the form
+    // sends a trailing hidden `0`; `params[]` returns the FIRST value, which is the box's `1`
+    // when it is ticked and that `0` when it is not.
+    hideWatched = params["hideWatched"] != "0",
+    hideNoShip = params["hideNoShip"] != "0",
     // "relevance" (promoted first, then recency, then discount) rather than "discount",
     // which buries every source that publishes no list price.
     sort = params["sort"]?.takeIf { it.isNotBlank() } ?: "relevance",
@@ -822,6 +854,9 @@ internal fun feedScreenFilter(params: Parameters, app: AppConfig): FeedFilter =
 internal fun favoritesFilter(params: Parameters): FeedFilter = feedFilterFrom(params).copy(
     states = listOf(DealState.FAVORITE),
     includeInactive = true,
+    // The checkbox is not rendered here, and a favorite is yours whether or not a watch covers it.
+    hideWatched = false,
+    hideNoShip = false,
 )
 
 private fun String.toBigDecimalOrNull(): BigDecimal? = runCatching { BigDecimal(this) }.getOrNull()

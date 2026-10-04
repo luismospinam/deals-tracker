@@ -50,7 +50,10 @@ import com.luis.dealstracker.sources.encodeQueryValue
  * for one size, in different places, and this path reads the rail. No aliasing is invented, so a
  * size the rail does not offer is reported by name at the end of the run rather than guessed at.
  */
-class AmazonSource : DealSource {
+class AmazonSource(
+    /** Terms switched off in the UI for a provider, read at fetch time so a toggle needs no restart. */
+    private val disabledTerms: (providerId: String) -> Set<String> = { emptySet() },
+) : DealSource {
 
     override val type = "amazon"
 
@@ -71,9 +74,12 @@ class AmazonSource : DealSource {
         // Using a key injection does not know about means opting out is structural rather than
         // a flag someone has to remember, and a watch can still reach Amazon the way it always
         // did: through the `slickdeals` provider.
-        val searches = cfg.list("trackSearches")
+        val configured = cfg.list("trackSearches")
+        val off = if (configured.isEmpty()) emptySet() else disabledTerms(cfg.id)
+        val searches = configured.filterNot { it in off }
+        if (off.isNotEmpty()) println("[${cfg.id}] skipping ${configured.size - searches.size} disabled search(es)")
         if (searches.isEmpty()) {
-            println("[${cfg.id}] no trackSearches configured; nothing to fetch")
+            println("[${cfg.id}] no enabled trackSearches; nothing to fetch")
             return emptyList()
         }
         val injected = cfg.list("searches").size
