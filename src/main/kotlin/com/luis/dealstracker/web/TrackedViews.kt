@@ -1177,12 +1177,12 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
                             "de precios, y se puede recuperar desde el filtro Estado del listado.",
                     )
                     title = tr(
-                        "Stop showing this item. Soft delete — the row and its price history " +
-                            "are kept, and the next poll will not bring it back.",
-                        "Deja de mostrar este producto. Se oculta sin borrarse — la fila y su historial " +
-                            "de precios se conservan, y la próxima consulta no lo traerá de vuelta.",
+                        "Stop tracking this item. The row and its price history are kept, " +
+                            "and the next poll will not bring it back.",
+                        "Deja de seguir este producto. La fila y su historial de precios se " +
+                            "conservan, y la próxima consulta no lo traerá de vuelta.",
                     )
-                    +tr("hide", "ocultar")
+                    +tr("stop tracking", "dejar de seguir")
                 }
             }
         }

@@ -24,7 +24,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "48"
+private const val CSS_VERSION = "49"
 
 /**
  * Which feed-shaped screen is being rendered.

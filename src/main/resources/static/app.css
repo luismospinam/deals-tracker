@@ -33,7 +33,7 @@
 
   --text: #f2ede3;
   --text-dim: #a79e8d;
-  --text-faint: #756e60;
+  --text-faint: #8e897d;
 
   --accent: #f2761b;
   --accent-line: #6b3a12;
@@ -56,6 +56,12 @@
   /* Pink-red rather than orange-red, so a negative state is never read as a hot discount. */
   --bad: #d9566e;
 
+  /* Type scale. Every font-size below routes through these four. */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13.5px;
+  --fs-lg: 14.5px;
+
   --radius: 3px;
   --radius-sm: 2px;
 
@@ -75,7 +81,7 @@ html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   color: var(--text);
-  font: 400 13.5px/1.5 var(--sans);
+  font: 400 var(--fs-md)/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 
@@ -99,12 +105,20 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 
+/* Links inside running text are told apart from it by more than colour: the accent is only 2.4:1
+ * against body text and about 1:1 against the dim text prose uses, so without an underline a link
+ * in a sentence reads as plain words. */
+.hint a, .tracked-intro a, .ask-claude a, .ask-product a, .empty a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
 /* Every number in the app routes through this, so digits align down a column and a price
  * never re-flows as it updates. */
 .price, .was, .disc, .score, .seen, .runs td, table.history td, .result-count strong {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
 }
 
 /* ---------- masthead ---------- */
@@ -157,7 +171,7 @@ header h1::after {
 
 .sub {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -201,7 +215,7 @@ main { padding: 20px 22px 72px; max-width: 1500px; }
   gap: 7px;
   padding: 7px 15px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -221,7 +235,7 @@ main { padding: 20px 22px 72px; max-width: 1500px; }
 
 /* Reads against the ember fill when active and the dim surface when not, so it needs both. */
 .scope-count {
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 999px;
@@ -259,7 +273,7 @@ label {
   flex-direction: column;
   gap: 5px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -267,7 +281,7 @@ label {
 }
 
 input, select, button {
-  font: 400 13px/1.35 var(--sans);
+  font: 400 var(--fs-md)/1.35 var(--sans);
   color: var(--text);
   background: #0f0e0b;
   border: 1px solid var(--line);
@@ -275,13 +289,13 @@ input, select, button {
   padding: 7px 9px;
   transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease, color 0.14s ease;
 }
-input::placeholder { color: #5c564b; }
+input::placeholder { color: var(--text-faint); }
 
 input:hover, select:hover { border-color: #40392e; }
-input:focus, select:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-wash);
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 /* Keyboard focus still gets a ring on controls whose :focus style is a border change. */
 button:focus-visible, a:focus-visible {
@@ -327,7 +341,7 @@ button.primary:hover {
   padding: 5px 11px;
   border-radius: 999px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -356,7 +370,7 @@ details.more > summary {
   border: 1px dashed var(--line);
   border-radius: var(--radius-sm);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -364,7 +378,7 @@ details.more > summary {
 }
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > summary:hover { color: var(--accent); border-color: var(--accent-line); }
-details.more > summary::before { content: "▸"; font-size: 9px; }
+details.more > summary::before { content: "▸"; font-size: var(--fs-xs); }
 details.more[open] > summary::before { content: "▾"; }
 details.more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -378,7 +392,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   color: #1a0d02;
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
 }
 
 .more-grid {
@@ -396,12 +410,12 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .result-count {
   margin: 0 0 12px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
-.result-count strong { color: var(--text); font-weight: 600; font-size: 12px; }
+.result-count strong { color: var(--text); font-weight: 600; font-size: var(--fs-sm); }
 
 /* ---------- deal table ---------- */
 
@@ -427,7 +441,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   z-index: 20;
   padding: 10px 12px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-align: left;
   color: var(--text-faint);
@@ -506,7 +520,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .col-co    { width: 132px; }
 .col-seen  { width: 88px; }
 /* Wide enough for Save / Hide / history on one line — at 122px it wrapped. */
-.col-act   { width: 168px; }
+.col-act   { width: 184px; }
 
 .thumb {
   width: 56px;
@@ -566,7 +580,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-weight: 500;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   line-height: 1.36;
   letter-spacing: -0.004em;
   color: var(--text);
@@ -580,7 +594,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   gap: 8px;
   flex-wrap: wrap;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.03em;
   color: var(--text-faint);
 }
@@ -599,16 +613,16 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 /* Prices: right-aligned and monospaced so magnitudes can be compared down the column
  * without reading every character. */
 .price {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.015em;
   white-space: nowrap;
 }
 .was {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
   text-decoration: line-through;
-  text-decoration-color: rgba(117, 110, 96, 0.65);
+  text-decoration-color: rgba(142, 137, 125, 0.65);
   white-space: nowrap;
   margin-top: 2px;
 }
@@ -620,7 +634,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   display: inline-block;
   padding: 3px 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: 0.005em;
   white-space: nowrap;
@@ -641,7 +655,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   box-shadow: 0 0 14px rgba(255, 61, 20, 0.3);
 }
 
-.no-disc { font-family: var(--mono); color: #5c564b; font-size: 12px; }
+.no-disc { font-family: var(--mono); color: var(--text-faint); font-size: var(--fs-sm); }
 
 /* Community score. Visually distinct from the discount badge — square, not a pill — so a
  * vote count is never misread as a percentage. Tiers follow the observed distribution;
@@ -651,7 +665,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   min-width: 44px;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-align: center;
   border: 1px solid var(--line);
@@ -672,7 +686,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
  * the row is worse than nothing rather than merely weak. */
 .rank {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-dim);
   cursor: help;
@@ -687,7 +701,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   padding: 2px 7px;
   border-radius: 999px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -726,7 +740,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .co { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .co-yes, .co-no, .co-unk {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -746,7 +760,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
 .actions button, .actions a {
   padding: 3px 8px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -764,8 +778,8 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   text-decoration: none;
 }
 
-.seen { font-size: 10.5px; color: var(--text-faint); letter-spacing: 0.02em; }
-.seen + .seen { margin-top: 3px; color: #5c564b; }
+.seen { font-size: var(--fs-xs); color: var(--text-faint); letter-spacing: 0.02em; }
+.seen + .seen { margin-top: 3px; }
 
 .empty {
   padding: 64px 20px;
@@ -782,7 +796,7 @@ details.more > summary:focus-visible { outline: 2px solid var(--accent); outline
   color: var(--accent);
   padding: 3px 7px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* ---------- detail page ---------- */
@@ -842,7 +856,7 @@ table.history {
 }
 table.history th {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -851,7 +865,7 @@ table.history th {
 table.history th, table.history td {
   padding: 7px 10px;
   border-bottom: 1px solid var(--line-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   text-align: left;
 }
 table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
@@ -862,12 +876,12 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   margin-top: 40px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 .runs h2 {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.13em;
@@ -882,7 +896,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 }
 .runs th {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -963,7 +977,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   background: var(--surface-3);
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -982,11 +996,11 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * against stored verdicts, 23 of 27 quoted fees exceeded half the item's price and 10
  * exceeded the whole price — $248.68 of shipping on a $267.99 television — and every one
  * of them rendered as a green "ships" with a mild amber note. A fee that large is not a
- * caveat on a good deal, it is the reason it is not one, so it gets the same red as the
- * top of the discount ramp and states the percentage rather than only the amount. */
+ * caveat on a good deal, it is the reason it is not one, so it gets the negative pink-red
+ * (not the discount ramp's red, which means a big saving) and states the percentage rather than only the amount. */
 .prov.kill-prov {
-  background: rgba(255, 61, 20, 0.16);
-  color: var(--d-max);
+  background: rgba(217, 86, 110, 0.16);
+  color: var(--bad);
   font-weight: 700;
 }
 
@@ -997,7 +1011,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   background: var(--surface-3);
   color: var(--text-dim);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
@@ -1044,7 +1058,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   gap: 5px;
   margin-top: 4px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--accent);
@@ -1079,7 +1093,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 .co-note {
   margin-top: 4px;
   max-width: 190px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 1.35;
   color: var(--text-faint);
   white-space: normal;
@@ -1129,7 +1143,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * prose to be read once, not a scannable label. */
 .hint {
   max-width: 70ch;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--text-dim);
 }
@@ -1143,7 +1157,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 
 /* A price equal to the watch's window floor. Reuses the feed's signal-chip colour so
  * "this is the cheapest on record" reads the same way in both places. */
-.watchmatches .chip-low { font-size: 12px; padding: 2px 7px; }
+.watchmatches .chip-low { font-size: var(--fs-sm); padding: 2px 7px; }
 
 /* Sortable column headings on the watch tables.
  *
@@ -1183,7 +1197,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   gap: 14px;
   margin: 10px 0;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1237,7 +1251,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * but it is a fact about the row, not an alert, so it stays neutral rather than accented. */
 .size-chip {
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -1269,7 +1283,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 
 .typetags-label {
   color: var(--text-faint);
-  font-size: 0.8rem;
+  font-size: var(--fs-md);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-right: 2px;
@@ -1284,7 +1298,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   border-radius: 999px;
   color: var(--text-dim);
   text-decoration: none;
-  font-size: 0.86rem;
+  font-size: var(--fs-md);
 }
 
 .typetag:hover { border-color: var(--accent-line); color: var(--text); }
@@ -1297,7 +1311,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   font-weight: 700;
 }
 
-.typetag-n { color: var(--text-faint); font-size: 0.78rem; }
+.typetag-n { color: var(--text-faint); font-size: var(--fs-sm); }
 .typetag.on .typetag-n { color: var(--accent); }
 
 .typetag.clear { border-style: dashed; color: var(--text-faint); }
@@ -1332,7 +1346,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 .extra-total {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 
@@ -1349,7 +1363,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * Deal.isAtLowestEver, which is why a price that never moved cannot show this. */
 .lowbadge {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   white-space: nowrap;
   color: var(--good);
@@ -1378,7 +1392,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   align-items: center;
   gap: 8px;
   font-family: inherit;
-  font-size: 0.86rem;
+  font-size: var(--fs-md);
   text-transform: none;
   letter-spacing: normal;
   color: var(--text-dim);
@@ -1406,7 +1420,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   cursor: pointer;
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1445,7 +1459,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * Quieter than those two: it is provenance, not news. */
 .manual-badge {
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--good);
@@ -1458,7 +1472,7 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * alarming: it explains a count, it is not a verdict. */
 .variants-note {
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   border: 1px dashed var(--line);
   border-radius: 3px;
@@ -1482,7 +1496,7 @@ details.ask > summary {
   cursor: pointer;
   padding: 8px 12px;
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: var(--fs-md);
   letter-spacing: 0.03em;
   color: var(--text-dim);
   list-style: none;
@@ -1513,7 +1527,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 .ask-claude { border-left: 2px solid var(--accent-line); background: var(--surface); color: var(--text); }
 .ask-claude a { color: var(--accent); }
 .ask-pending { color: var(--text-dim); }
-.ask-status { font-family: var(--mono); font-size: 0.75rem; color: var(--text-faint); }
+.ask-status { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text-faint); }
 .ask-error { border-left-color: var(--bad); }
 
 .ask-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -1527,7 +1541,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   border-radius: var(--radius-sm);
   padding: 8px 10px;
 }
-.ask-q:focus { outline: none; border-color: var(--accent); }
+.ask-q:focus { border-color: var(--accent); }
 .ask-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ask-send {
   border: 1px solid var(--accent);
@@ -1536,7 +1550,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   font-weight: 700;
 }
 .ask-send:disabled { opacity: 0.5; cursor: progress; }
-.ask-hint { font-family: var(--mono); font-size: 0.72rem; color: var(--text-faint); }
+.ask-hint { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text-faint); }
 
 /* One clickable line per product an answer mentions. Normal wrapping here, not the answer's
  * pre-wrap, so a long title wraps under itself instead of keeping stray newlines. */
@@ -1551,13 +1565,13 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 }
 .ask-products-h {
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 .ask-product a { color: var(--accent); }
-.ask-product-meta { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); }
+.ask-product-meta { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text-dim); }
 
 /* ---------------------------------------------------------------------------
  * Groceries (/groceries)
@@ -1571,12 +1585,12 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 .store-alt {
   margin-top: 3px;
   font-family: var(--mono);
-  font-size: 0.74rem;
+  font-size: var(--fs-sm);
   color: var(--text-faint);
   white-space: nowrap;
 }
 
-.grocery-search { display: flex; gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
+.grocery-search { gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
 .grocery-search input[type="search"] { min-width: 22rem; }
 
 /* A pinned staple Laureles no longer stocks: kept, but visibly not buyable. */
@@ -1588,7 +1602,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 .card-price {
   margin-top: 3px;
   font-family: var(--mono);
-  font-size: 0.74rem;
+  font-size: var(--fs-sm);
   white-space: nowrap;
   color: var(--good);
 }
@@ -1704,7 +1718,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   /* Claims the rest of the image's line, so the labelled cells start on the next one rather
    * than squeezing the title into a column two words wide. */
   .deals td.col-deal { flex: 1 1 calc(100% - 76px); min-width: 0; }
-  .title { -webkit-line-clamp: 3; font-size: 14.5px; }
+  .title { -webkit-line-clamp: 3; font-size: var(--fs-lg); }
 
   /* Three facts to a line; a fourth wraps rather than squeezing the others. */
   .deals td[data-label] { flex: 1 1 calc(33.33% - 8px); min-width: 88px; }
@@ -1713,7 +1727,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
     display: block;
     margin-bottom: 3px;
     font-family: var(--mono);
-    font-size: 9px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -1740,7 +1754,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: var(--fs-xs);
   }
 
   /* Non-card tables that are narrow enough to keep, but scroll inside themselves if not. */
@@ -1753,13 +1767,13 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 .search-grp { margin: 0 0 14px; }
 .search-hd {
   display: flex; align-items: center; gap: 10px; padding-bottom: 5px;
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint);
+  font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint);
 }
 .search-hd form { margin-left: auto; }
-.search-n { font-family: var(--mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0; text-transform: none; }
+.search-n { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint); letter-spacing: 0; text-transform: none; }
 .search-all { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--accent); }
 .search-all:hover { text-decoration: underline; }
-.search-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+.search-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: var(--fs-md); }
 .search-row.off { color: var(--text-faint); }
 .search-row .search-n { margin-left: auto; }
 .sw {
