@@ -6,6 +6,9 @@ import com.luis.dealstracker.ask.SYSTEM_PROMPT
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.GroceryRepository
+import com.luis.dealstracker.db.HistoryPruner
+import com.luis.dealstracker.db.SettingsRepository
+import com.luis.dealstracker.db.pruneDue
 import com.luis.dealstracker.db.Db
 import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
@@ -45,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
 
 /**
  * How often the poller checks whether its next cycle is due.
@@ -206,6 +210,20 @@ fun main(args: Array<String>) {
         return
     }
 
+    // Thins old price readings that repeat their predecessor. `--dry-run` counts without deleting;
+    // `--days=N` overrides `defaults.pruneHistoryAfterDays`. Back the table up before a first real run.
+    if (args.contains("--prune-history")) {
+        val days = args.firstOrNull { it.startsWith("--days=") }?.substringAfter("=")?.toIntOrNull()
+            ?: app.defaults.pruneHistoryAfterDays
+        if (days <= 0) {
+            println("pruning is off (pruneHistoryAfterDays = ${app.defaults.pruneHistoryAfterDays}); pass --days=N")
+        } else {
+            println(HistoryPruner(Db.dataSource).run(days, dryRun = args.contains("--dry-run")).summary())
+        }
+        http.close()
+        return
+    }
+
     if (args.contains("--purge-excluded")) {
         purgeExcluded(repo, ingest, app, dryRun = args.contains("--dry-run"), onlySource = onlySource)
         http.close()
@@ -306,12 +324,39 @@ fun main(args: Array<String>) {
         }
     }
 
+    // Weekly thinning of old price history. Due-ness comes from a timestamp in app_settings rather than
+    // a timer, so a restart neither skips a week nor runs it again at once, and a Mac that slept through
+    // the week catches up on its next tick. Delayed after boot so it never competes with startup.
+    if (app.defaults.pruneHistoryAfterDays > 0 && app.defaults.pruneHistoryEveryDays > 0) {
+        scope.launch {
+            val settings = SettingsRepository(Db.dataSource)
+            delay(10 * 60_000L)
+            while (true) {
+                runCatching {
+                    val last = settings.get(SettingsRepository.HISTORY_PRUNED_AT)?.let { Instant.parse(it) }
+                    if (pruneDue(last, Instant.now(), app.defaults.pruneHistoryEveryDays)) {
+                        val report = withContext(Dispatchers.IO) {
+                            HistoryPruner(Db.dataSource).run(app.defaults.pruneHistoryAfterDays, dryRun = false)
+                        }
+                        settings.set(mapOf(SettingsRepository.HISTORY_PRUNED_AT to Instant.now().toString()))
+                        println("[prune] ${report.summary()}")
+                    }
+                }.onFailure { println("[prune] failed: ${it.message}") }
+                delay(30 * 60_000L)
+            }
+        }
+    }
+
     // The scheduled grocery crawls, on their own short tick. Separate from the hourly loop above so a
     // 40-minute run window cannot fall between two hourly polls, and so a 6-minute crawl never delays
     // the rest of the cycle. `runScheduled` does nothing unless a window's chosen minute has passed.
     scope.launch {
+        val groceries = GroceryRepository(Db.dataSource)
         while (true) {
             runCatching { ingest.runScheduled() }.onFailure { println("[schedule] failed: ${it.message}") }
+            // Rebuilds the stored usual prices when the date has turned (V28); a no-op the rest of the day.
+            runCatching { groceries.refreshUsualPrices().takeIf { it > 0 }?.let { println("[groceries] usual prices refreshed for $it rows") } }
+                .onFailure { println("[groceries] usual-price refresh failed: ${it.message}") }
             delay(SCHEDULE_TICK_MILLIS)
         }
     }

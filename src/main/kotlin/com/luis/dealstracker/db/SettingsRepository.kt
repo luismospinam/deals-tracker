@@ -34,6 +34,9 @@ class SettingsRepository(private val ds: DataSource) {
     companion object {
         const val LANGUAGE = "language"
 
+        /** ISO-8601 instant of the last finished price-history prune. */
+        const val HISTORY_PRUNED_AT = "history_pruned_at"
+
         /** "true" once the language was picked with the switch rather than read from a browser. */
         const val LANGUAGE_CHOSEN = "language_chosen"
     }

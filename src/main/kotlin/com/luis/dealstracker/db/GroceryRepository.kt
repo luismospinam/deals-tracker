@@ -180,22 +180,12 @@ class GroceryRepository(private val ds: DataSource) {
                 SELECT price, list_price, card_price, card_percent, card_scope FROM price_observations
                 WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
             ) po ON TRUE
-            JOIN LATERAL (
-                SELECT MIN(price) AS min_price, MAX(price) AS max_price, COUNT(*) AS n
-                FROM price_observations WHERE deal_id = d.id
-            ) agg ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY price) AS usual,
-                       MIN(price) AS low, COUNT(*) AS days
-                FROM (
-                    SELECT observed_at::date, MIN(price) AS price
-                    FROM price_observations
-                    WHERE deal_id = d.id
-                      AND observed_at >= current_date - $WINDOW_DAYS
-                      AND observed_at < current_date
-                    GROUP BY 1
-                ) daily
-            ) hist ON TRUE
+            ${OBSERVATION_SUMMARY_JOIN}
+            -- The usual price is read, not computed: V28 keeps it on the deal and refreshUsualPrices
+            -- rebuilds it when the date turns. Computing it here, per row, per page load, was ~2.5s.
+            CROSS JOIN LATERAL (
+                SELECT d.usual_price AS usual, d.usual_low AS low, d.usual_days AS days
+            ) hist
             WHERE ${where.joinToString(" AND ") { "($it)" }}
               AND (s.since IS NULL OR d.last_seen_at >= s.since OR d.pinned_at IS NOT NULL)
             ORDER BY d.title, d.id
@@ -240,6 +230,40 @@ class GroceryRepository(private val ds: DataSource) {
                 }
             }
         }
+    }
+
+    /**
+     * Rebuilds the stored usual price of every grocery row not yet computed for today, and returns how
+     * many it touched. Same definition as the table shows: the median of each day's CHEAPEST reading
+     * over the [WINDOW_DAYS] days before today, today excluded.
+     *
+     * Cheap to call often: with every row current it is one indexed-free scan of `deals` that updates
+     * nothing. The scheduler calls it on its 5-minute tick, so the first tick after midnight does the
+     * day's work (~1-2s), off any page load.
+     */
+    fun refreshUsualPrices(): Int = ds.connection.use { conn ->
+        conn.prepareStatement(
+            """
+            UPDATE deals d
+               SET usual_price = h.usual,
+                   usual_low   = h.low,
+                   usual_days  = COALESCE(h.days, 0),
+                   usual_as_of = current_date
+              FROM (SELECT id FROM deals
+                     WHERE grocery_group IS NOT NULL AND usual_as_of IS DISTINCT FROM current_date) g
+              LEFT JOIN LATERAL (
+                    SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY price) AS usual,
+                           MIN(price) AS low, COUNT(*) AS days
+                      FROM (SELECT observed_at::date, MIN(price) AS price
+                              FROM price_observations
+                             WHERE deal_id = g.id
+                               AND observed_at >= current_date - $WINDOW_DAYS
+                               AND observed_at < current_date
+                             GROUP BY 1) daily
+                   ) h ON TRUE
+             WHERE d.id = g.id
+            """.trimIndent(),
+        ).use { it.executeUpdate() }
     }
 
     /**

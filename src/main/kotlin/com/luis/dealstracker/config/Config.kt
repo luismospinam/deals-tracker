@@ -146,6 +146,15 @@ data class Defaults(
     val pageCleanupEveryMinutes: Int = 20,
 
     /**
+     * Price readings older than this many days are thinned: within an unchanged stretch only the first
+     * is kept (see `HistoryPruner`). Anything that changed -- price, list price, card price, or the
+     * promotions in force -- is kept. Pinned items are never touched. 0 turns pruning off.
+     */
+    val pruneHistoryAfterDays: Int = 14,
+    /** Days between automatic prunes. The last run is remembered in `app_settings`, so a restart does not reset it. */
+    val pruneHistoryEveryDays: Int = 7,
+
+    /**
      * Warn when this percentage of active deals has landed in the `Other` category. 0 disables.
      *
      * Category rules need gardening as the sources' catalogs shift, and there was a feedback

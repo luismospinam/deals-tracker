@@ -73,15 +73,30 @@ data class FeedFilter(
 )
 
 /**
+ * Gives a query `agg.min_price`, `agg.max_price` and `agg.n` for the deal `d`.
+ *
+ * Read from the columns V27 keeps on `deals`, never rebuilt from `price_observations`: that scan, run
+ * for every row of the feed, was most of its load time. A test pins that this fragment stays off the
+ * history table.
+ */
+internal const val OBSERVATION_SUMMARY_JOIN =
+    "JOIN LATERAL (SELECT d.obs_min_price AS min_price, d.obs_max_price AS max_price, d.obs_count AS n) agg ON TRUE"
+
+/**
  * True for a deal some watch covers, enabled or not; used negated by [FeedFilter.hideWatched].
  *
  * Needs `po` and `agg` from the feed query, for the watch's price band. `terms` and
  * `exclude_terms` are split on `|` here because they are stored as the pipe-separated text the
  * search box takes, and LIKE metacharacters are escaped the way [escapeLike] does.
  */
-private const val WATCHED_DEAL_CLAUSE = """NOT EXISTS (
+internal const val WATCHED_DEAL_CLAUSE = """NOT EXISTS (
     SELECT 1 FROM watches w
-    WHERE (
+    WHERE (w.category_group IS NULL OR w.category_group = '' OR w.category_group = d.category_group)
+      AND (cardinality(w.sources) = 0 OR d.source = ANY (w.sources))
+      -- CASE, not AND: it fixes the order of evaluation. Left as AND, the planner ran every watch's
+      -- exclusion terms (an accent-stripping ILIKE each) against every deal BEFORE asking whether the
+      -- deal matched the watch at all -- ~20,000 of them per page load, half the feed's wait.
+      AND CASE WHEN (
           EXISTS (SELECT 1 FROM watch_sourced_deals ws WHERE ws.watch_id = w.id AND ws.deal_id = d.id)
           OR EXISTS (
               SELECT 1 FROM unnest(string_to_array(w.terms, '|')) AS t(term)
@@ -89,18 +104,17 @@ private const val WATCHED_DEAL_CLAUSE = """NOT EXISTS (
                 AND unaccent(d.title) ILIKE unaccent(
                     '%' || replace(replace(replace(btrim(t.term), '\', '\\'), '%', '\%'), '_', '\_') || '%')
           )
-      )
-      AND NOT EXISTS (
-          SELECT 1 FROM unnest(string_to_array(COALESCE(w.exclude_terms, ''), '|')) AS x(term)
-          WHERE btrim(x.term) <> ''
-            AND unaccent(d.title) ILIKE unaccent(
-                '%' || replace(replace(replace(btrim(x.term), '\', '\\'), '%', '\%'), '_', '\_') || '%')
-      )
-      AND (w.category_group IS NULL OR w.category_group = '' OR w.category_group = d.category_group)
-      AND (cardinality(w.sources) = 0 OR d.source = ANY (w.sources))
-      AND (w.currency <> d.currency OR (
-          (w.min_price IS NULL OR agg.max_price >= w.min_price)
-          AND (w.max_price IS NULL OR po.price <= w.max_price)))
+      ) THEN (
+          NOT EXISTS (
+              SELECT 1 FROM unnest(string_to_array(COALESCE(w.exclude_terms, ''), '|')) AS x(term)
+              WHERE btrim(x.term) <> ''
+                AND unaccent(d.title) ILIKE unaccent(
+                    '%' || replace(replace(replace(btrim(x.term), '\', '\\'), '%', '\%'), '_', '\_') || '%')
+          )
+          AND (w.currency <> d.currency OR (
+              (w.min_price IS NULL OR agg.max_price >= w.min_price)
+              AND (w.max_price IS NULL OR po.price <= w.max_price)))
+      ) ELSE FALSE END
 )"""
 
 /** Most terms anyone would type; guards against a pathological query from a pasted blob. */
@@ -540,8 +554,16 @@ class DealRepository(
         val truncated: Boolean get() = totalMatching > deals.size
     }
 
-    fun feedPage(filter: FeedFilter): FeedPage =
-        FeedPage(feed(filter), countMatching(filter))
+    /**
+     * The page and the total it was cut from, in ONE query: `COUNT(*) OVER ()` is computed over every
+     * matching row before LIMIT. Two queries meant the watched-deal filter, the dearest part of the
+     * feed, ran twice per page load. An empty page has no rows to carry the total, and then nothing
+     * matched, so the total is 0.
+     */
+    fun feedPage(filter: FeedFilter): FeedPage {
+        val (deals, total) = feedWithTotal(filter)
+        return FeedPage(deals, total)
+    }
 
     /** Built once and shared by [feed] and [countMatching] so the two cannot disagree. */
     private data class Criteria(val where: String, val params: List<Any>)
@@ -625,10 +647,7 @@ class DealRepository(
                 SELECT price, list_price FROM price_observations
                 WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
             ) po ON TRUE
-            JOIN LATERAL (
-                SELECT MIN(price) AS min_price, MAX(price) AS max_price, COUNT(*) AS n
-                FROM price_observations WHERE deal_id = d.id
-            ) agg ON TRUE
+            ${OBSERVATION_SUMMARY_JOIN}
             WHERE ${c.where}
         """.trimIndent()
         return ds.connection.use { conn ->
@@ -639,7 +658,9 @@ class DealRepository(
         }
     }
 
-    fun feed(filter: FeedFilter): List<Deal> {
+    fun feed(filter: FeedFilter): List<Deal> = feedWithTotal(filter).first
+
+    private fun feedWithTotal(filter: FeedFilter): Pair<List<Deal>, Int> {
         val c = criteria(filter)
         val where = c.where
         val params = c.params
@@ -685,16 +706,14 @@ class DealRepository(
 
         val sql = """
             SELECT d.*, po.price, po.list_price, agg.min_price, agg.max_price, agg.n,
-                   ${DealScore.SQL} AS relevance
+                   ${DealScore.SQL} AS relevance,
+                   COUNT(*) OVER () AS total_matching
             FROM deals d
             JOIN LATERAL (
                 SELECT price, list_price FROM price_observations
                 WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
             ) po ON TRUE
-            JOIN LATERAL (
-                SELECT MIN(price) AS min_price, MAX(price) AS max_price, COUNT(*) AS n
-                FROM price_observations WHERE deal_id = d.id
-            ) agg ON TRUE
+            ${OBSERVATION_SUMMARY_JOIN}
             WHERE $where
             ORDER BY $orderBy
             LIMIT ${filter.limit}
@@ -703,7 +722,16 @@ class DealRepository(
         return ds.connection.use { conn ->
             conn.prepareStatement(sql).use { st ->
                 bind(conn, st, params)
-                st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.toDeal()) } }
+                st.executeQuery().use { rs ->
+                    var total = 0
+                    val deals = buildList {
+                        while (rs.next()) {
+                            if (isEmpty()) total = rs.getInt("total_matching")
+                            add(rs.toDeal())
+                        }
+                    }
+                    deals to total
+                }
             }
         }
     }
@@ -742,10 +770,7 @@ class DealRepository(
             SELECT price, list_price FROM price_observations
             WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
         ) po ON TRUE
-        JOIN LATERAL (
-            SELECT MIN(price) AS min_price, MAX(price) AS max_price, COUNT(*) AS n
-            FROM price_observations WHERE deal_id = d.id
-        ) agg ON TRUE
+        ${OBSERVATION_SUMMARY_JOIN}
         WHERE $where
     """.trimIndent()
 

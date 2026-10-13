@@ -48,3 +48,6 @@ logs/
 
 # Private planning notes, not for the repo
 docs/exito-order-placement.md
+
+# Database dumps taken before destructive maintenance
+backups/
