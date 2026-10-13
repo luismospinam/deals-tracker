@@ -44,6 +44,7 @@ Tests (no database or network needed — they run against captured fixtures):
 | `jumbo` | `vtex` | working — Cencosud hypermarket, config-only; **cleaning aisle excluded by category** |
 | `alfa` | `vtex` | working — bathroom-fixture maker, config-only; **its prices never compare across sites** |
 | `fullhogar` | `shopify` | working — public `products.json` |
+| `kaiuhome` | `woocommerce` | working — Colombian furniture maker; public Store API, `salas` category (sofas, sofá camas, puffs) |
 | `grupomansion` | `prestashop` | working — theme grid; selectors are config |
 | `alkomprar` | `algolia` | working — public search key; **100% GTIN coverage** |
 | `homecenter` | `falabella-next` | working — Sodimac; **category crawl only**, robots disallows its search |
@@ -327,7 +328,7 @@ Alerts arrive as a macOS notification, one per watch per cycle rather than one p
 
 A watch can also search amazon.com: fill in **Amazon terms** on its form, in English
 (`55 inch 4k tv | smart tv 65`). The `amazon-watches` provider runs those searches each poll —
-20 items per term, at most 2 pages — and links every row it finds to the watch that asked for it
+20 items per term, at most 3 pages — and links every row it finds to the watch that asked for it
 (`watch_sourced_deals`, V15). Blank means the watch does not search Amazon.
 
 - **A separate field, not the watch's terms.** Those are Spanish, for Colombian retailers, and
@@ -717,6 +718,23 @@ Alimentos only, like the other two chains. These are left out, with counts at La
 
 The category ids are in `config/sources.yaml`, and adding one is one line.
 
+## Since yesterday
+
+Tracked, Groceries and each watch page open with a collapsed **Since yesterday** banner: what got
+cheaper compared with the last reading before today. Nothing is stored. It is computed on each load
+from `price_observations`, so there is no job to miss while the Mac sleeps, and it shows nothing
+when nothing moved.
+
+- **Price drop:** today's latest price is below the last price recorded before today.
+- **New low:** today's price is below every earlier recorded price.
+- **Newly under usual (Groceries):** a deal by the tab's own rule today (10% under usual), and not yesterday.
+- **Alerts fired today (watches):** the watch's own alerts, even when the price did not move.
+- **It follows the page's filters.** Tracked uses `trackedShown`, Groceries the same `GroceryFilter`
+  as the table (store, aisles, search, Pinned), and a watch its source filter. Several at once work.
+- **Only downward moves**, and a first-ever reading never counts. A banner lists 40 rows, largest drop first.
+
+Code: `db/DailyChanges.kt` (the query), `web/DailyDigest.kt` (lines and banner).
+
 ## Ask Claude about the rows on screen
 
 The feed, favorites, tracked and watch-detail screens each carry a collapsed **✦ Ask Claude
@@ -726,7 +744,7 @@ the answer streams in, ranked, with every product it mentions linked to the reta
 It runs the local `claude` CLI (`claude -p`) on the Claude Code login already on this machine —
 there is no API key here, so the panel spends plan usage rather than a separate bill. Configure
 it under `defaults:` in `config/sources.yaml`: `askModel` (default `sonnet`), `askEffort`
-(`low`), `askMaxRows` (500), `askMaxBudgetUsd` (0.30), `askClaudePath` (blank = find it).
+(`low`), `askMaxRows` (500), `askHistoryRows` (100), `askMaxBudgetUsd` (0.30), `askClaudePath` (blank = find it).
 
 ### What it sees
 
@@ -738,6 +756,12 @@ never sends rows, so an answer is always about what the page shows. A watch send
 Rows go as a compact pipe-separated table at ~50 tokens a row: the 335 candidates of the
 "Soporte TV" watch are ~17K tokens. If a screen exceeds `askMaxRows`, the prompt says how many
 were left out.
+
+The first `askHistoryRows` rows also get a **Price history** block: per row, the days its price
+*changed* over the last 90 days (at most the latest 8), so a question can be about a trend rather
+than only the low/high/count. Flat rows are omitted and the prompt says how many rows were checked.
+A row that flips price constantly (a few have 300+ changes in 90 days) shows only its latest 8
+points. Set `askHistoryRows: 0` to turn it off.
 
 ### Why these settings
 
@@ -765,6 +789,67 @@ Typical cost: 3–10 cents per question depending on row count.
   compare COP with USD only at the rate the screen states, Éxito vs Carulla is weak evidence — because a model reading these
   rows falls into the same traps the app already did.
 - **Answers are inserted as text, never HTML**: they are model output about third-party titles.
+
+### Specifications on watch screens
+
+Adapters keep what a retailer says a product *is* — its spec table and description — in
+`deal_specs` (`V26`): VTEX stores (Easy, Jumbo, Carulla, Éxito, Olímpica, Alfa) and Kaiu Home today,
+because that data is already in the responses they read.
+
+Falabella and Homecenter publish theirs only on each product's own page (~1 MB each), so a throttled
+job reads those: `SpecPageJob`, a batch of `defaults.specPageBatch` pages (30) per poll cycle, only
+for products an enabled watch is hunting (title matches its terms, none of its exclusions), newest
+watch first. A page with no table is stored as an empty marker and retried after a week; a page whose
+shape is unrecognised is *not* marked, so a site redesign cannot silently mark everything as checked.
+Drain the backlog on demand, optionally for one watch:
+
+```bash
+./dt run --args="--fetch-specs --limit=100 --watch=8"
+```
+
+On a **watch** screen the first prompt carries just the ids that *have* specs. If the question
+depends on them ("which has the chaise on the left?", "bed size?") the model replies
+`NEED_SPECS: id, id, …` instead of an answer; that line is held back from the panel, the server
+resumes the same session with those rows' specs (at most 100), and the answer streams from there.
+Price questions never pay for it. The CLI keeps `--tools ""`: the model is asked, never given a way
+to fetch. The row cap still applies (`askMaxRows`), so on a 700-row watch narrow the source first —
+specs can only be requested for rows that were sent.
+
+## Price history and page speed
+
+`price_observations` is append-only and grows by thousands of rows an hour, so three things keep the
+pages fast. All three were measured on 2026-10-10: the feed took 6.0s and Groceries 3.8s; after, 1.3s and 0.75s.
+
+- **Per-deal summary on `deals` (`V27`).** `obs_min_price`, `obs_max_price` and `obs_count` are kept by a
+  trigger on insert, so the feed no longer aggregates a deal's whole history per row per page load.
+  `obs_count` counts *stored* readings, so pruning lowers it. Queries get it through
+  `OBSERVATION_SUMMARY_JOIN` (`agg.min_price`, `agg.max_price`, `agg.n`).
+- **Stored usual price (`V28`).** A grocery item's usual price is the median of its daily lows over the 30
+  days before today, so it cannot change until the date does. It lives in `usual_price`, `usual_low`,
+  `usual_days`, rebuilt by `GroceryRepository.refreshUsualPrices` on the scheduler's 5-minute tick (a
+  no-op once every row is stamped with today's `usual_as_of`). A row from yesterday is shown until the
+  first tick after midnight rebuilds it.
+- **The watched-deal filter evaluates a watch's exclusions only after the deal matched it.** "Hide
+  watched" is on by default; as plain `AND`s the planner ran every watch's exclusion terms against every
+  deal first (~20,000 accent-stripping `ILIKE`s). The `CASE` in `WATCHED_DEAL_CLAUSE` fixes the order.
+  The feed also fetches its total in the same query (`COUNT(*) OVER ()`) rather than a second one.
+
+### Thinning old history
+
+```bash
+./dt run --args="--prune-history --dry-run"     # count what would go
+./dt run --args="--prune-history"               # do it; --days=N overrides the cutoff
+```
+
+Readings older than `pruneHistoryAfterDays` (14) that repeat the reading before them are deleted, keeping
+the first of each unchanged stretch. "Repeat" means the same price, list price, currency, card price,
+card percent, card scope **and set of promotions**; `stock_qty` is ignored. Never deleted: a deal's last
+reading, anything on a pinned item, and any reading where something changed. The app runs it every
+`pruneHistoryEveryDays` (7); the last run is in `app_settings.history_pruned_at`. The first run removed
+869,782 of 3.27M rows (26%); a dump was taken first (`backups/`, gitignored).
+
+Because days inside an unchanged stretch have no reading after pruning, the Groceries usual price
+(a median over days that *have* readings) weights a long flat stretch as one day. That was accepted.
 
 ## Cross-site product identity
 

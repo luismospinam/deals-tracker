@@ -24,6 +24,14 @@ CSS lives at `src/main/resources/static/app.css` and is served
 from disk, so style-only edits need just a browser refresh — but bump `CSS_VERSION` in
 `web/Views.kt` when you change it, or browsers will serve the cached stylesheet.
 
+## Every new feature ships with tests
+
+Any new functionality gets tests in the same change, not afterwards and not on request. Put them
+in `src/test/kotlin/...` mirroring the package of the code (a view in `web/`, a rule in `ingest/`).
+The suite needs no database or network, so keep logic that touches SQL thin and test the rules and
+rendering around it: pull a rule out of a route into a plain function (as `newlyUnderUsual` was) so
+it can be tested. Run `./dt test` and report the result before calling the work done.
+
 ## Every change needs the local app restarted
 
 There is no hot reload — Ktor's `development mode` is off, and the log says so on boot

@@ -183,13 +183,8 @@ data class Defaults(
      * and makes the ordering a pure function of the score. (It was once a bucket length in hours.
      * The name is kept so existing `sources.yaml` files still parse.)
      *
-     * 3 hours is a compromise between two real costs. Reseeding faster means a deal you were
-     * still deciding on is hard to find ten minutes later; slower means several visits in a day
-     * all look the same. (This once lined up with `coShippingEveryNPolls`; that is now 1, so
-     * the two cadences are unrelated and neither should be tuned on account of the other.)
-     *
-     * See `DealScore.rotating` — the offset is bounded so it can reorder comparable deals but
-     * never lift a weak one above a strong one.
+     * Exists because a deterministic score gives an identical page on every visit: most of its
+     * inputs never change. See `DealScore.rotating` for the bound on how far a row can move.
      */
     val feedRotationHours: Int = 3,
 

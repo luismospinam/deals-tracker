@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# psql against the local deals database, with credentials read from .env.
+# libpq is keg-only under Homebrew, so `psql` is not on PATH; this finds it.
+#
+# Usage:
+#   ./psql                         interactive shell
+#   ./psql -c 'select count(*) from watches'
+set -euo pipefail
+cd "$(dirname "$0")"
+
+PSQL="$(command -v psql || true)"
+for p in /opt/homebrew/opt/libpq/bin/psql /usr/local/opt/libpq/bin/psql; do
+  [ -z "$PSQL" ] && [ -x "$p" ] && PSQL="$p"
+done
+[ -n "$PSQL" ] || { echo "psql not found: brew install libpq" >&2; exit 1; }
+
+get() { grep -E "^$1=" .env | head -1 | cut -d= -f2-; }
+export PGPASSWORD="$(get POSTGRES_PASSWORD)"
+exec "$PSQL" -h localhost -U "$(get POSTGRES_USER)" -d "$(get POSTGRES_DB)" "$@"

@@ -969,7 +969,7 @@ providers:
     # Shipping to Colombia is unknown until the verifier checks it, as for every Amazon row.
     coShippingDefault: UNKNOWN
     options:
-      # Same limits as the tracker's searches: 20 distinct items per term, over at most 2 pages.
+      # Same limits as the tracker's searches: 20 distinct items per term, over at most 3 pages.
       maxItemsPerSearch: "20"
       maxPagesPerSearch: "3"
       allowBrowserFallback: "true"
