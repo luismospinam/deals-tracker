@@ -140,4 +140,38 @@ class FeedHiddenSourcesTest {
         assertEquals(listOf("amazon", "amazon-watches"), feedScreenFilter(io.ktor.http.Parameters.Empty, app).excludeSources)
         assertTrue(favoritesFilter(io.ktor.http.Parameters.Empty).excludeSources.isEmpty(), "a favorite stays yours")
     }
+
+    @Test
+    fun `the feed opens on slickdeals when the URL names no source`() {
+        val p = io.ktor.http.Parameters.Empty
+        assertEquals("slickdeals", feedSourceParam(p, app))
+        assertEquals(listOf("slickdeals"), feedScreenFilter(p, app).sources)
+    }
+
+    @Test
+    fun `choosing all sources is a blank source and stays all`() {
+        val all = io.ktor.http.parametersOf("source", "")
+        assertEquals("", feedSourceParam(all, app))
+        assertTrue(feedScreenFilter(all, app).sources.isEmpty())
+    }
+
+    @Test
+    fun `an explicit source wins over the default`() {
+        val p = io.ktor.http.parametersOf("source", "exito")
+        assertEquals(listOf("exito"), feedScreenFilter(p, app).sources)
+    }
+
+    @Test
+    fun `the default is skipped when slickdeals is not an enabled provider`() {
+        val exito = com.luis.dealstracker.config.ProviderConfig(id = "exito", type = "vtex")
+        val without = app(exito)
+        assertEquals("", feedSourceParam(io.ktor.http.Parameters.Empty, without))
+        val disabled = app(exito, com.luis.dealstracker.config.ProviderConfig(id = "slickdeals", type = "rss-slickdeals", enabled = false))
+        assertEquals("", feedSourceParam(io.ktor.http.Parameters.Empty, disabled))
+    }
+
+    @Test
+    fun `favorites does not inherit the slickdeals default`() {
+        assertTrue(favoritesFilter(io.ktor.http.Parameters.Empty).sources.isEmpty())
+    }
 }

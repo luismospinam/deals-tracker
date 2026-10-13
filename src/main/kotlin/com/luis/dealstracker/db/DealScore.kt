@@ -38,7 +38,7 @@ package com.luis.dealstracker.db
  * top of the page forever. See each for the measurements behind it.
  *
  * [SQL] is the honest score — shown in the UI and used to order the verification queue.
- * [rotating] adds a bounded, deterministic offset and is used *only* for the feed's default
+ * [rotating] adds a bounded, random offset and is used *only* for the feed's default
  * ordering, so the page varies between visits without the reported number ever lying.
  *
  * **Requires the `po` and `agg` lateral joins** to be in scope — the latest observation and
@@ -52,13 +52,12 @@ internal object DealScore {
     /**
      * How far the rotation term may move a row, in points, either way.
      *
-     * 4 is chosen against the measured shape of the distribution rather than picked for feel.
-     * The gap from the best deal (61.8) to the 20th (45.4) is 16.4 points, so an 8-point swing
-     * can reorder the top of the page and churn the 20-60 band — where only ~3 points separate
-     * 86 deals — while being far too small to lift a mediocre row over a genuinely good one.
-     * Rotation should change what you look at first, never what the score claims is best.
+     * 10 because the previous 4 changed nothing visible: the best deal (61.8) sat 16.4 points above
+     * the 20th, so a +-4 swing could not reorder the top of the page, and the top of the page is what
+     * gets read. At 10 the leaders still tend to lead but the top ~20 differ between loads. A wider
+     * value lets weak rows reach the top; narrower brings the static page back.
      */
-    private const val ROTATION_AMPLITUDE = 4.0
+    private const val ROTATION_AMPLITUDE = 10.0
 
     val SQL: String = """
         (
@@ -152,53 +151,49 @@ internal object DealScore {
     """.trimIndent()
 
     /**
-     * [SQL] plus a rotation offset, for the feed's default ordering only.
+     * [SQL] plus a random offset, for the feed's default ordering only.
      *
      * ## Why the feed needs this and the score does not
      *
      * A score that is a pure function of stored facts produces a page whose top is identical
      * every time you open it, because most of those facts never change: only 14.6% of tracked
      * deals have ever moved on price, and nothing here records that you have already looked at
-     * something — every active deal is still `state = NEW`, since `SEEN` is in the enum and in
+     * something -- every active deal is still `state = NEW`, since `SEEN` is in the enum and in
      * the filter but no code path has ever written it.
      *
-     * The offset is **deterministic, not random**: it is a hash of the deal id and the current
-     * time bucket, so every query inside one bucket agrees on the ordering, the page can be
-     * reloaded without rows jumping, and there is no per-session state to keep. When the bucket
-     * rolls over, the ordering reshuffles.
+     * The offset is **random per query**, so every page load reshuffles. This replaced a hash of
+     * the deal id and a 3-hour bucket: reloads inside a bucket were identical, and the +-4 swing
+     * was too small to move the top of the page at all (the best deal sat 16 points above the
+     * 20th). The cost is that two loads disagree on order; the Rank column is unaffected because
+     * it shows plain [SQL].
      *
-     * Bounded by [ROTATION_AMPLITUDE] so it can only reorder deals of genuinely similar quality.
-     * A rotation that could put a weak deal above a strong one would not be variety, it would be
-     * a broken ranking.
+     * Bounded by [ROTATION_AMPLITUDE], and a downvoted deal is held below every upvoted one
+     * whatever the jitter says -- see [DOWNVOTED_LAST].
      *
      * ## Deliberately not applied everywhere
      *
      * Only the default sort uses this. The value **displayed** in the Rank column is plain [SQL],
      * because showing a jittered number would make the column disagree with itself between
-     * refreshes and there would be no way to tell a real change from a reshuffle. The
-     * verification queue also stays on plain [SQL]: its budget is scarce and should go to the
-     * best candidates in a defensible order, and repeated failures are already handled by the
-     * exponential backoff rather than needing to be shuffled past.
+     * refreshes. The verification queue also stays on plain [SQL]: its budget is scarce and
+     * should go to the best candidates in a defensible order.
      *
-     * @param periodHours how often the ordering reseeds. 0 disables rotation entirely and
-     *   returns [SQL] unchanged, so the feature can be turned off in config without a rebuild.
+     * @param enabled false returns [SQL] unchanged, so the feature can be turned off in config
+     *   without a rebuild.
      */
-    fun rotating(periodHours: Int): String {
-        if (periodHours <= 0) return SQL
-        val periodSeconds = periodHours * 3_600
-
-        // hashtext() is a Postgres internal, which is acceptable precisely because nothing
-        // depends on its exact output: if an upgrade changes the hash, the shuffle changes and
-        // nothing else does. Cast to bigint BEFORE abs() -- hashtext returns integer, and
-        // abs(-2147483648) overflows an int4, which would fail the whole query rather than
-        // merely misplacing one row.
+    fun rotating(enabled: Boolean): String {
+        if (!enabled) return SQL
         return """
             (
                 $SQL
-              + ((abs(hashtext(d.id::text || ':' ||
-                     floor(EXTRACT(EPOCH FROM now()) / $periodSeconds)::bigint::text)::bigint)
-                   % 2001) - 1000) / 1000.0 * $ROTATION_AMPLITUDE
+              + (random() * 2 - 1) * $ROTATION_AMPLITUDE
             )
         """.trimIndent()
     }
+
+    /**
+     * Leading sort key for the default ordering: false (voted down, score <= 0) sorts after true.
+     * A NULL score counts as fine, since VTEX publishes none and a missing vote is not a downvote.
+     * Without it the random offset could float a -14 listing above a +40 one.
+     */
+    const val DOWNVOTED_LAST = "(COALESCE(d.community_score, 1) > 0)"
 }

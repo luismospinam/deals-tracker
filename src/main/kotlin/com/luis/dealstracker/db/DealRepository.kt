@@ -129,8 +129,8 @@ internal fun escapeLike(term: String): String =
     term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 /**
- * @param feedRotationHours how often the feed's default ordering reshuffles among comparable
- *   deals; 0 for a pure score ordering. Repository-wide policy rather than a per-query flag,
+ * @param feedRotationHours non-zero reshuffles the feed's default ordering on every load; 0 for a
+ *   pure score ordering. Repository-wide policy rather than a per-query flag,
  *   so the feed cannot accidentally be rendered with rotation on in one place and off in
  *   another. Only the default sort is affected — see `DealScore.rotating`.
  */
@@ -670,7 +670,7 @@ class DealRepository(
             // The *only* place rotation is applied, and only to the ordering: the score shown in
             // the Rank column stays plain `DealScore.SQL`, so a reshuffle can never be mistaken
             // for the number having changed.
-            else -> "${DealScore.rotating(feedRotationHours)} DESC"
+            else -> "${DealScore.DOWNVOTED_LAST} DESC, ${DealScore.rotating(feedRotationHours > 0)} DESC"
         }
 
         // Every sort key above has ties, and some are enormous: a whole poll batch shares a

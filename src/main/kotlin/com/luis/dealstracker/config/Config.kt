@@ -148,13 +148,9 @@ data class Defaults(
     val usdCopRate: Double = 3200.0,
 
     /**
-     * How often the feed's default ordering reshuffles among deals of similar quality, in hours.
-     * 0 turns rotation off and makes the ordering a pure function of the score.
-     *
-     * Exists because a deterministic score gives you an identical page on every visit: most of
-     * its inputs never change (only 14.6% of tracked deals have ever moved on price), and nothing
-     * records what you have already looked at — every active deal is still `state = NEW`, because
-     * `SEEN` is in the enum and the filter but no code path writes it.
+     * Any non-zero value reshuffles the feed's default ordering on every page load; 0 turns it off
+     * and makes the ordering a pure function of the score. (It was once a bucket length in hours.
+     * The name is kept so existing `sources.yaml` files still parse.)
      *
      * 3 hours is a compromise between two real costs. Reseeding faster means a deal you were
      * still deciding on is hard to find ten minutes later; slower means several visits in a day

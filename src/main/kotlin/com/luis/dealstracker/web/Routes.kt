@@ -73,7 +73,7 @@ fun Application.routes(
 
         get("/") {
             val params = call.request.queryParameters
-            val q = FILTER_PARAMS.associateWith { params[it].orEmpty() }
+            val q = FILTER_PARAMS.associateWith { params[it].orEmpty() } + ("source" to feedSourceParam(params, app))
             val filter = feedScreenFilter(params, app)
 
             val page = repo.feedPage(filter)
@@ -831,8 +831,27 @@ internal fun feedHiddenSources(app: AppConfig): List<String> =
  * Favorites deliberately does NOT use it: a row the operator chose stays theirs wherever it came
  * from.
  */
-internal fun feedScreenFilter(params: Parameters, app: AppConfig): FeedFilter =
-    feedFilterFrom(params).copy(excludeSources = feedHiddenSources(app))
+internal fun feedScreenFilter(params: Parameters, app: AppConfig): FeedFilter {
+    val source = feedSourceParam(params, app)
+    return feedFilterFrom(params).copy(
+        sources = listOfNotNull(source.takeIf { it.isNotBlank() }),
+        excludeSources = feedHiddenSources(app),
+    )
+}
+
+/** The provider the feed opens on, because it is the one whose deals are community-vetted. */
+internal const val FEED_DEFAULT_SOURCE = "slickdeals"
+
+/**
+ * The feed's effective `source`: what the form sent, or [FEED_DEFAULT_SOURCE] when the URL has no
+ * `source` at all. A blank value is a choice -- the "all" option submits `source=` -- so only an
+ * absent parameter falls back, and "all" stays one click away. Blank means all. The default is
+ * skipped when that provider is not enabled, so a config without it still shows something.
+ */
+internal fun feedSourceParam(params: Parameters, app: AppConfig): String {
+    if (params.contains("source")) return params["source"].orEmpty()
+    return FEED_DEFAULT_SOURCE.takeIf { id -> app.providers.any { it.id == id && it.enabled } }.orEmpty()
+}
 
 /**
  * The favorites scope, as a [FeedFilter].
