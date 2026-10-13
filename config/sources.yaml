@@ -722,6 +722,29 @@ providers:
     listOptions:
       collections: ["neveras", "nevecones", "refrigeracion", "televisores", "lavadoras"]
 
+  - id: kaiuhome
+    type: woocommerce
+    # Colombian furniture maker, found by looking at where the good sofas were. WooCommerce, so
+    # the public Store API (/wp-json/wc/store/v1/products) gives price, was-price, stock and image
+    # as first-party JSON; its robots.txt disallows only cart, admin and upload folders.
+    #
+    # One category covers it: `salas` includes sofas, sofa-camas, salas-en-l, puffs and chairs
+    # (142 products), so the watch terms do the narrowing. It publishes no barcode, so identity
+    # is brand plus the model code in the title, which for its own-brand furniture rarely
+    # clusters with another retailer -- cross-site alerts here are the exception, not the rule.
+    #
+    # Every product is a "was" price plus an everyday sale price, so the discount shown is the
+    # store's own claim and no evidence the price ever held; the watch window is what tests it.
+    enabled: true
+    baseUrl: "https://www.kaiuhome.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      pageSize: "100"
+      maxPagesPerCategory: "3"
+    listOptions:
+      categories: ["salas"]
+
   - id: grupomansion
     type: prestashop
     # Added because a Google search for a model code found it selling a Samsung side-by-side

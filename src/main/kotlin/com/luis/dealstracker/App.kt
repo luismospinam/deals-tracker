@@ -25,6 +25,7 @@ import com.luis.dealstracker.sources.falabella.FalabellaNextSource
 import com.luis.dealstracker.sources.mercadolibre.MercadoLibreSource
 import com.luis.dealstracker.sources.prestashop.PrestashopSource
 import com.luis.dealstracker.sources.shopify.ShopifySource
+import com.luis.dealstracker.sources.woocommerce.WooCommerceSource
 import com.luis.dealstracker.sources.slickdeals.SlickdealsSource
 import com.luis.dealstracker.sources.vtex.VtexGrocerySource
 import com.luis.dealstracker.sources.pricesmart.PriceSmartSource
@@ -79,6 +80,7 @@ fun main(args: Array<String>) {
             FalabellaNextSource(),
             // Both are platform adapters, so the next retailer on either is config only.
             ShopifySource(),
+            WooCommerceSource(),
             PrestashopSource(),
             AlgoliaSource(),
             MercadoLibreSource(),

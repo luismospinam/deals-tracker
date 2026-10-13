@@ -1,0 +1,108 @@
+[
+ {
+  "id": 14496,
+  "name": "Sofá Cama Ultimate",
+  "slug": "sofa-cama-ultimate",
+  "parent": 0,
+  "type": "variable",
+  "permalink": "https://www.kaiuhome.com/producto/sofa-cama-ultimate/",
+  "sku": "",
+  "on_sale": true,
+  "prices": {
+   "price": "1799900",
+   "regular_price": "3199900",
+   "sale_price": "1799900",
+   "price_range": null,
+   "currency_code": "COP",
+   "currency_symbol": "$",
+   "currency_minor_unit": 0,
+   "currency_decimal_separator": ".",
+   "currency_thousand_separator": ",",
+   "currency_prefix": "$",
+   "currency_suffix": ""
+  },
+  "images": [
+   {
+    "id": 14500,
+    "src": "https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4.png",
+    "thumbnail": "https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-480x480.png",
+    "srcset": "https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4.png 1500w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-300x300.png 300w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-1024x1024.png 1024w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-150x150.png 150w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-768x768.png 768w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-32x32.png 32w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-480x480.png 480w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-720x720.png 720w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-100x100.png 100w",
+    "sizes": "(max-width: 1500px) 100vw, 1500px",
+    "thumbnail_srcset": "https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-480x480.png 480w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-300x300.png 300w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-1024x1024.png 1024w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-150x150.png 150w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-768x768.png 768w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-32x32.png 32w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-720x720.png 720w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4-100x100.png 100w, https://www.kaiuhome.com/wp-content/uploads/2026/09/0-4.png 1500w",
+    "thumbnail_sizes": "(max-width: 480px) 100vw, 480px",
+    "name": "0",
+    "alt": ""
+   }
+  ],
+  "categories": [
+   {
+    "id": 32,
+    "name": "Salas",
+    "slug": "salas",
+    "link": "https://www.kaiuhome.com/categoria/salas/"
+   },
+   {
+    "id": 56,
+    "name": "Sofá Camas",
+    "slug": "sofa-camas",
+    "link": "https://www.kaiuhome.com/categoria/salas/sofa-camas/"
+   }
+  ],
+  "brands": [],
+  "is_in_stock": true,
+  "is_purchasable": true
+ },
+ {
+  "id": 11020,
+  "name": "Puff Baul Cubox &#8211; Cuero Sintetico Gris",
+  "slug": "puff-baul-cubox-cuero-sintetico-gris",
+  "parent": 0,
+  "type": "simple",
+  "permalink": "https://www.kaiuhome.com/producto/puff-baul-cubox-cuero-sintetico-gris/",
+  "sku": "",
+  "on_sale": true,
+  "prices": {
+   "price": "69000",
+   "regular_price": "200000",
+   "sale_price": "69000",
+   "price_range": null,
+   "currency_code": "COP",
+   "currency_symbol": "$",
+   "currency_minor_unit": 0,
+   "currency_decimal_separator": ".",
+   "currency_thousand_separator": ",",
+   "currency_prefix": "$",
+   "currency_suffix": ""
+  },
+  "images": [
+   {
+    "id": 14808,
+    "src": "https://www.kaiuhome.com/wp-content/uploads/2024/10/0.png",
+    "thumbnail": "https://www.kaiuhome.com/wp-content/uploads/2024/10/0-480x480.png",
+    "srcset": "https://www.kaiuhome.com/wp-content/uploads/2024/10/0.png 1501w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-300x300.png 300w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-1024x1024.png 1024w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-150x150.png 150w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-768x768.png 768w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-32x32.png 32w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-480x480.png 480w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-720x720.png 720w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-100x100.png 100w",
+    "sizes": "(max-width: 1501px) 100vw, 1501px",
+    "thumbnail_srcset": "https://www.kaiuhome.com/wp-content/uploads/2024/10/0-480x480.png 480w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-300x300.png 300w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-1024x1024.png 1024w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-150x150.png 150w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-768x768.png 768w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-32x32.png 32w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-720x720.png 720w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0-100x100.png 100w, https://www.kaiuhome.com/wp-content/uploads/2024/10/0.png 1501w",
+    "thumbnail_sizes": "(max-width: 480px) 100vw, 480px",
+    "name": "0",
+    "alt": ""
+   }
+  ],
+  "categories": [
+   {
+    "id": 47,
+    "name": "Dormitorio",
+    "slug": "dormitorio",
+    "link": "https://www.kaiuhome.com/categoria/dormitorio/"
+   },
+   {
+    "id": 113,
+    "name": "Puffs",
+    "slug": "puffs",
+    "link": "https://www.kaiuhome.com/categoria/salas/puffs/"
+   }
+  ],
+  "brands": [],
+  "is_in_stock": true,
+  "is_purchasable": true
+ }
+]
