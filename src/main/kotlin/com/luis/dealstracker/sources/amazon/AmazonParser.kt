@@ -287,6 +287,41 @@ internal object AmazonParser {
         return labels.getOrNull(if (index >= 0) index else 0)?.trim()?.takeIf { it.isNotEmpty() }
     }
 
+    /** One child of the product family: its ASIN, size label and colour label (either may be absent). */
+    data class Sibling(val asin: String, val size: String, val color: String?, val sameColor: Boolean = false)
+
+    /**
+     * The child ASIN of this page's family that comes in [wantedSize], read from the same variation
+     * table [parseOwnSize] uses -- which lists every child, so no further request is needed to find it.
+     *
+     * Prefers the current colourway; failing that, the first child in that size, because Amazon's size
+     * filter surfaced this family precisely because SOME colour of it comes in the size. Null when the
+     * page has no variation table, or the family has nothing in that size (it is not made, or sold out).
+     * Matching is exact after folding case and a decimal comma, the same rule as everywhere else: `8`
+     * must never match `8.5`.
+     */
+    fun siblingForSize(html: String, wantedSize: String): Sibling? {
+        val current = Regex(""""currentAsin"\s*:\s*"([A-Z0-9]{10})"""").find(html)?.groupValues?.get(1)
+        val map = SIZE_MAP_RE.find(html)?.groupValues?.get(1) ?: return null
+        val table = runCatching { json.parseToJsonElement(map) as JsonObject }.getOrNull() ?: return null
+        val dimensions = DIMENSIONS_RE.find(html)?.groupValues?.get(1)?.let { arr ->
+            runCatching { json.parseToJsonElement(arr).jsonArray.map { it.jsonPrimitive.content } }.getOrNull()
+        }.orEmpty()
+        val sizeAt = dimensions.indexOfFirst { it.contains("size", ignoreCase = true) }
+        if (sizeAt < 0) return null
+        val colorAt = dimensions.indexOfFirst { it.contains("color", ignoreCase = true) }
+
+        fun fold(label: String) = label.trim().lowercase().replace(Regex("""(?<=\d),(?=\d)"""), ".")
+        val children = table.entries.mapNotNull { (asin, v) ->
+            val labels = (v as? JsonArray)?.map { it.jsonPrimitive.content } ?: return@mapNotNull null
+            Sibling(asin, labels.getOrNull(sizeAt)?.trim() ?: return@mapNotNull null, labels.getOrNull(colorAt)?.trim())
+        }
+        val currentColor = children.firstOrNull { it.asin == current }?.color
+        val inSize = children.filter { fold(it.size) == fold(wantedSize) && it.asin != current }
+        inSize.firstOrNull { currentColor != null && it.color == currentColor }?.let { return it.copy(sameColor = true) }
+        return inSize.firstOrNull()
+    }
+
     /**
      * The buy-box price on a product page.
      *

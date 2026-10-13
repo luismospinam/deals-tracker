@@ -69,38 +69,53 @@ internal class ManualItemFetcher(
             return Result.Failed(Failure.Unreadable, asin)
         }
 
-        val priced = AmazonParser.parsePrice(html, selectors)
-            ?: return Result.Failed(Failure.NoPrice, asin)
-
-        val title = AmazonParser.parseTitle(html, selectors) ?: "Amazon item $asin"
-        // The size Amazon records for THIS ASIN -- definitive, unlike a filter-derived one.
-        val size = AmazonParser.parseOwnSize(html)
-
-        return Result.Ok(
-            RawDeal(
-                externalId = asin,
-                title = if (size.isNullOrBlank()) title else "$title — $size",
-                url = canonical,
-                price = priced.first,
-                currency = priced.second,
-                merchant = "amazon",
-                asin = asin,
-                // Override first, then the page's byline. Null stays null rather than being guessed
-                // from the title: a wrong brand produces a wrong identity key.
-                brand = brandOverride?.trim()?.takeIf { it.isNotEmpty() } ?: AmazonParser.parseBrand(html),
-                imageUrl = AmazonParser.parseImage(html),
-                listPrice = null,
-                // A type override doubles as the category hint; otherwise the breadcrumb, which
-                // Categorizer prefers to guessing from a title.
-                category = typeOverride?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: AmazonParser.parseBreadcrumb(html),
-                available = AmazonParser.parseAvailable(html, selectors),
-            ),
-            asin,
-        )
+        return fromPage(html, asin, canonical, selectors, brandOverride, typeOverride)
     }
 
     internal companion object {
+        /**
+         * Builds the deal from a product page already in hand -- the part of [fetch] after the request, so
+         * a caller that has the page open (the verifier, finding a size's sibling) reads it the same way.
+         */
+        fun fromPage(
+            html: String,
+            asin: String,
+            canonical: String,
+            selectors: AmazonSelectors,
+            brandOverride: String? = null,
+            typeOverride: String? = null,
+        ): Result {
+            val priced = AmazonParser.parsePrice(html, selectors)
+                ?: return Result.Failed(Failure.NoPrice, asin)
+
+            val title = AmazonParser.parseTitle(html, selectors) ?: "Amazon item $asin"
+            // The size Amazon records for THIS ASIN -- definitive, unlike a filter-derived one.
+            val size = AmazonParser.parseOwnSize(html)
+
+            return Result.Ok(
+                RawDeal(
+                    externalId = asin,
+                    title = if (size.isNullOrBlank()) title else "$title — $size",
+                    url = canonical,
+                    price = priced.first,
+                    currency = priced.second,
+                    merchant = "amazon",
+                    asin = asin,
+                    // Override first, then the page's byline. Null stays null rather than being guessed
+                    // from the title: a wrong brand produces a wrong identity key.
+                    brand = brandOverride?.trim()?.takeIf { it.isNotEmpty() } ?: AmazonParser.parseBrand(html),
+                    imageUrl = AmazonParser.parseImage(html),
+                    listPrice = null,
+                    // A type override doubles as the category hint; otherwise the breadcrumb, which
+                    // Categorizer prefers to guessing from a title.
+                    category = typeOverride?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: AmazonParser.parseBreadcrumb(html),
+                    available = AmazonParser.parseAvailable(html, selectors),
+                ),
+                asin,
+            )
+        }
+
         /** Explains a failure in the terms the operator can act on. */
         fun describe(reason: Failure): String = when (reason) {
             Failure.NotAProductUrl ->

@@ -1,5 +1,8 @@
 package com.luis.dealstracker.verify
 
+import com.luis.dealstracker.sources.amazon.AmazonParser
+import com.luis.dealstracker.sources.amazon.ManualItemFetcher
+import com.luis.dealstracker.sources.amazon.AmazonSelectors
 import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.model.CoShipping
@@ -87,6 +90,16 @@ data class CoShippingConfig(
      * its job between runs.
      */
     val maxProfileCacheMb: Long = 400,
+    /**
+     * The `amazon` provider's options, so a selector corrected in config applies to the page price
+     * read here too. Empty means the defaults.
+     */
+    val amazonOptions: Map<String, String> = emptyMap(),
+    /**
+     * Re-read a row's own page once it was last confirmed longer ago than this many days, so every
+     * Tracked row keeps a page-true price. 0 turns the refresh off; never-visited rows are unaffected.
+     */
+    val pageRecheckDays: Int = 7,
 )
 
 data class VerifyOutcome(
@@ -96,6 +109,12 @@ data class VerifyOutcome(
     val unclear: Int = 0,
     val protectedManual: Int = 0,
     val blocked: Boolean = false,
+    /** Rows retired because their own page showed a different size than the one tracked. */
+    val sizeRejected: Int = 0,
+    /** Rows whose price was re-read from the page and differed from the last tile reading. */
+    val priceCorrected: Int = 0,
+    /** Right-size siblings started in place of a retired row. */
+    val siblingsAdded: Int = 0,
 )
 
 /**
@@ -117,6 +136,7 @@ class AmazonVerifier(
     private val config: CoShippingConfig = CoShippingConfig(),
 ) {
     private val extractor = CoShippingExtractor(config.country)
+    private val selectors = AmazonSelectors.fromOptions(config.amazonOptions)
 
     /**
      * @param only verify just this one deal, for the UI's Verify button. Bypasses the
@@ -124,11 +144,24 @@ class AmazonVerifier(
      *   whereas a click is a person asking for this deal now.
      */
     fun run(limit: Int? = null, only: Long? = null): VerifyOutcome {
+        // Rows that still need their size and price read from their own page. Ahead of the shipping
+        // queue: they are the Tracked tab's rows, which `prioritySources` already puts first there.
+        var needsPage = emptySet<Long>()
+        // Rows whose SHIPPING is undecided. A row visited only for its page keeps its verdict.
+        var shipIds = emptySet<Long>()
+        // Retired wrong-size rows still owed a search of their family for the right size.
+        var recovery = emptySet<Long>()
         val candidates = if (only != null) {
-            listOfNotNull(repo.coShippingCandidate(only))
+            listOfNotNull(repo.coShippingCandidate(only)).also { shipIds = it.map { c -> c.first }.toSet() }
         } else {
             val take = (limit ?: config.batchSize).coerceAtMost(config.maxPerRun)
-            repo.coShippingCandidates(take, prioritySources = config.prioritySources)
+            val pages = repo.pageCheckCandidates(take, config.prioritySources, recheckDays = config.pageRecheckDays)
+            val recover = repo.siblingRecoveryCandidates(take, config.prioritySources)
+            val ship = repo.coShippingCandidates(take, prioritySources = config.prioritySources)
+            needsPage = pages.map { it.first }.toSet()
+            recovery = recover.map { it.first }.toSet()
+            shipIds = ship.map { it.first }.toSet()
+            (pages + recover + ship.filter { it.first !in needsPage }).take(take)
         }
 
         // Never a silent skip: deals with no ASIN cannot be looked up by this route and
@@ -186,13 +219,21 @@ class AmazonVerifier(
                     // here, and there is nothing on the page to learn: a Kindle book renders
                     // no shipping widget at all.
                     val titleOnly = PageSignals(title = title)
-                    if (extractor.isDigital(titleOnly)) {
+                    if (dealId !in needsPage && dealId !in recovery && extractor.isDigital(titleOnly)) {
                         val v = extractor.extract(titleOnly)
                         repo.recordCoShippingCheck(
                             dealId, v.value, v.unclear, v.evidence, v.importChargesIncluded, v.shippingCost,
                         )
                         outcome = outcome.copy(checked = outcome.checked + 1, yes = outcome.yes + 1)
                         println("[verify] $asin → ${v.value.name}  (digital, no page load needed)")
+                        continue
+                    }
+                    // Wrong wearer, evident from the stored name: retire without spending a page load.
+                    val wrongWearer = if (dealId in needsPage) SizeCheck.wrongAudience(title) else null
+                    if (wrongWearer != null) {
+                        repo.recordPageCheck(dealId, null, wrongWearer, null, null)
+                        println("[verify] $asin → RETIRED  $wrongWearer (no page load needed)")
+                        outcome = outcome.copy(checked = outcome.checked + 1, sizeRejected = outcome.sizeRejected + 1)
                         continue
                     }
                     lastHitAmazon = true
@@ -225,6 +266,43 @@ class AmazonVerifier(
                         println("[verify] blocked at $asin — stopping the run (attempt recorded, will back off)")
                         outcome = outcome.copy(blocked = true, unclear = outcome.unclear + 1)
                         break
+                    }
+
+                    // A retired row owed its family search: the page just loaded lists every child, so look
+                    // for the wanted size in it. Nothing else about the row is touched.
+                    if (dealId in recovery) {
+                        val claimed = SizeCheck.claimedSize(title)
+                        val sibling = if (signals.productPage) claimed?.let { AmazonParser.siblingForSize(lastPageHtml, it) } else null
+                        val added = sibling != null && trackSibling(page, sibling, dealId, asin, title)
+                        repo.recordSiblingAttempt(dealId, added)
+                        if (sibling == null) println("[verify] $asin → retired row: no size $claimed in the family${if (signals.productPage) "" else " (page unreadable)"}")
+                        outcome = outcome.copy(checked = outcome.checked + 1, siblingsAdded = outcome.siblingsAdded + (if (added) 1 else 0))
+                        continue
+                    }
+
+                    // Size and price first: a row its own page refutes has no shipping verdict worth
+                    // recording, and a corrected price should land even when shipping is unclear.
+                    if (dealId in needsPage) {
+                        val result = checkPage(dealId, asin, title, signals)
+                        outcome = outcome.copy(
+                            sizeRejected = outcome.sizeRejected + (if (result == PageResult.REJECTED) 1 else 0),
+                            priceCorrected = outcome.priceCorrected + (if (result == PageResult.PRICE_CORRECTED) 1 else 0),
+                        )
+                        if (result == PageResult.REJECTED) {
+                            outcome = outcome.copy(checked = outcome.checked + 1)
+                            val sibling = pendingSibling
+                            pendingSibling = null
+                            val added = sibling != null && trackSibling(page, sibling, dealId, asin, title)
+                            repo.recordSiblingAttempt(dealId, added)
+                            if (added) outcome = outcome.copy(siblingsAdded = outcome.siblingsAdded + 1)
+                            continue
+                        }
+                    }
+                    // A row only visited for its page was already decided on shipping; recording again
+                    // would overwrite a settled verdict with whatever this load happened to render.
+                    if (dealId !in shipIds) {
+                        outcome = outcome.copy(checked = outcome.checked + 1)
+                        continue
                     }
 
                     val verdict = extractor.extract(signals)
@@ -401,6 +479,8 @@ class AmazonVerifier(
     }
 
     /** Returns null when Amazon is blocking and the operator did not clear it. */
+    /** The product page the last [readSignals] saw, kept so a rejection can look for the right size in it. */
+    private var lastPageHtml = ""
     private var progressDone = 0
     private var progressTotal = 0
 
@@ -436,12 +516,111 @@ class AmazonVerifier(
             if (availability.isNotEmpty() || delivery.isNotEmpty()) break
             page.waitForTimeout(750.0)
         }
+        val global = text(page, "#amazonGlobal_feature_div")
+        val buybox = text(page, "#buybox")
+
+        // The ASIN's own size and price, from the same load. Only trusted on a demonstrable product
+        // page: an interstitial has neither, and "no size" there is not "no such size".
+        val html = runCatching { page.content() }.getOrDefault("")
+        lastPageHtml = html
+        val isProduct = AmazonParser.looksLikeProductPage(html)
+        val priced = if (isProduct) AmazonParser.parsePrice(html, selectors) else null
         return PageSignals(
             availability = availability,
             deliveryBlock = delivery,
-            amazonGlobal = text(page, "#amazonGlobal_feature_div"),
-            buybox = text(page, "#buybox"),
+            amazonGlobal = global,
+            buybox = buybox,
+            productPage = isProduct,
+            ownSize = if (isProduct) AmazonParser.parseOwnSize(html) else null,
+            pagePrice = priced?.first,
+            pageCurrency = priced?.second,
         )
+    }
+
+    /** Set by [checkPage] on a rejection when the family has the wanted size under another ASIN. */
+    private var pendingSibling: AmazonParser.Sibling? = null
+
+    private enum class PageResult { REJECTED, PRICE_CORRECTED, CONFIRMED, UNREADABLE }
+
+    /**
+     * Starts tracking the right-size child of a family whose shown child was the wrong size.
+     *
+     * Loads the sibling's own page -- one more request, paced like the rest -- and builds the row
+     * from it, so its price, size and shipping verdict are all first-hand rather than inferred. It is
+     * added only if THAT page confirms the size; the variation table naming it is not enough.
+     * Returns whether a row was added.
+     */
+    private fun trackSibling(page: Page, sibling: AmazonParser.Sibling, replacesDealId: Long, replacedAsin: String, title: String): Boolean {
+        val wanted = SizeCheck.claimedSize(title) ?: return false
+        page.waitForTimeout(config.delayMillis.toDouble())
+        val signals = try {
+            readSignals(page, sibling.asin)
+        } catch (e: TimeoutError) {
+            null
+        }
+        if (signals == null || !signals.productPage) {
+            println("[verify] ${sibling.asin} → right-size sibling of $replacedAsin could not be read; not added")
+            return false
+        }
+        if (SizeCheck.judge("x — $wanted", signals.ownSize) != SizeCheck.Verdict.Match) {
+            println("[verify] ${sibling.asin} → page says ${signals.ownSize ?: "no size"}, not $wanted; not added")
+            return false
+        }
+        val deal = (ManualItemFetcher.fromPage(lastPageHtml, sibling.asin, "https://www.amazon.com/dp/${sibling.asin}", selectors)
+            as? ManualItemFetcher.Result.Ok)?.deal
+        if (deal == null) {
+            println("[verify] ${sibling.asin} → size $wanted but no buy-box price (out of stock?); not added")
+            return false
+        }
+        // A different colourway is a different-looking shoe, so say so: two rows of one family must not
+        // read as duplicates, and the buyer should know it is not the colour they were looking at.
+        val named = if (sibling.sameColor || sibling.color.isNullOrBlank()) deal else {
+            deal.copy(title = deal.title.replace(" — ${signals.ownSize}", " (${sibling.color}) — ${signals.ownSize}"))
+        }
+        val id = repo.addSibling(named, replacesDealId, signals.ownSize) ?: return false
+        val verdict = extractor.extract(signals.copy(title = named.title))
+        repo.recordCoShippingCheck(
+            id, verdict.value, verdict.unclear, verdict.evidence, verdict.importChargesIncluded, verdict.shippingCost,
+        )
+        println("[verify] ${sibling.asin} → size $wanted found${if (sibling.sameColor) "" else " in ${sibling.color}"}; now tracked at ${named.currency} ${named.price}")
+        return true
+    }
+
+    /**
+     * Settles a tracked row's size and price from its own product page.
+     *
+     * A definite size mismatch retires the row (see [SizeCheck] for what counts as definite). Otherwise
+     * the row is marked visited and, if the page's buy-box price differs from the last reading, the
+     * page price is appended as the current one. A page that is not demonstrably a product page counts
+     * as a failed attempt, so it backs off instead of being retried every cycle.
+     */
+    private fun checkPage(dealId: Long, asin: String, title: String, signals: PageSignals): PageResult {
+        if (!signals.productPage) {
+            repo.recordPageAttempt(dealId)
+            println("[verify] $asin → page unreadable for size/price; will retry after backoff")
+            return PageResult.UNREADABLE
+        }
+        return when (val judged = SizeCheck.judge(title, signals.ownSize)) {
+            is SizeCheck.Verdict.Mismatch -> {
+                val claimed = SizeCheck.claimedSize(title)
+                repo.recordPageCheck(dealId, signals.ownSize, "page says ${judged.pageSize}, tracking $claimed", null, null)
+                println("[verify] $asin → WRONG SIZE  page says ${judged.pageSize}, tracking $claimed — retired")
+                // The same page lists every child of the family, so the right size is usually in it.
+                pendingSibling = claimed?.let { AmazonParser.siblingForSize(lastPageHtml, it) }
+                if (pendingSibling == null) println("[verify] $asin → no size $claimed in this family's variations")
+                PageResult.REJECTED
+            }
+            else -> {
+                val corrected = repo.recordPageCheck(dealId, signals.ownSize, null, signals.pagePrice, signals.pageCurrency)
+                if (corrected) {
+                    println("[verify] $asin → price corrected to ${signals.pageCurrency} ${signals.pagePrice} (page differs from the search tile)")
+                }
+                if (judged is SizeCheck.Verdict.Unknown) {
+                    println("[verify] $asin → size not comparable (page: ${signals.ownSize ?: "none"}); kept")
+                }
+                if (corrected) PageResult.PRICE_CORRECTED else PageResult.CONFIRMED
+            }
+        }
     }
 
     /**

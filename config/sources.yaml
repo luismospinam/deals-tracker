@@ -971,7 +971,7 @@ providers:
     options:
       # Same limits as the tracker's searches: 20 distinct items per term, over at most 2 pages.
       maxItemsPerSearch: "20"
-      maxPagesPerSearch: "2"
+      maxPagesPerSearch: "3"
       allowBrowserFallback: "true"
 
   - id: mercadolibre-co

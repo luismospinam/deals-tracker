@@ -122,6 +122,23 @@ data class Defaults(
      * open for three minutes waiting for a click that may never come.
      */
     val coShippingPollWallWaitMillis: Long = 45_000,
+    /**
+     * Rows per run of the page-check cleanup, which reads each search-found item's own size and price
+     * (see V23). Runs on its own timer, between and in addition to the poll's verification, for as long
+     * as unchecked rows remain, then goes quiet. 0 turns it off.
+     *
+     * 40 is the known-good batch (a 40-item run came back clean); the headed-session ceiling is
+     * 40-55 loads before Amazon walls.
+     */
+    val pageCleanupBatch: Int = 40,
+    /**
+     * Days after which a confirmed row's own page is read again, for a page-true price and a fresh look
+     * at stock. A size never changes, so this is about price, not size. The cleanup loop therefore never
+     * goes fully idle: roughly one row in [pageRecheckDays] comes due each day. 0 turns it off.
+     */
+    val pageRecheckDays: Int = 7,
+    /** Minutes between cleanup runs while there is a backlog. A block backs off for an hour instead. */
+    val pageCleanupEveryMinutes: Int = 20,
 
     /**
      * Warn when this percentage of active deals has landed in the `Other` category. 0 disables.

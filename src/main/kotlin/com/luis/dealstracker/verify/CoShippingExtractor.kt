@@ -30,6 +30,17 @@ data class PageSignals(
      * the shipping widgets — which for a digital item never render at all.
      */
     val title: String = "",
+    /**
+     * What the page says about the ASIN itself, read from the same load as the shipping regions.
+     * [productPage] is false for an interstitial or a partial render, and then the rest is empty:
+     * a page that is not demonstrably a product page proves nothing about size or price.
+     */
+    val productPage: Boolean = false,
+    /** The size Amazon records for THIS ASIN (`AmazonParser.parseOwnSize`); null if none is readable. */
+    val ownSize: String? = null,
+    /** The buy-box price and its currency; null when the page shows no featured offer. */
+    val pagePrice: java.math.BigDecimal? = null,
+    val pageCurrency: String? = null,
 )
 
 /** A verdict plus the evidence behind it, so a stored result can always be audited. */

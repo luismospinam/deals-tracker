@@ -26,16 +26,19 @@ internal data class AmazonSelectors(
     val productAvailability: String,
 ) {
     companion object {
-        fun from(cfg: ProviderConfig) = AmazonSelectors(
+        fun from(cfg: ProviderConfig) = fromOptions(cfg.options)
+
+        /** The same, from a bare options map, for callers that hold the map but not the provider. */
+        fun fromOptions(options: Map<String, String>) = AmazonSelectors(
             // Amazon's own marker for an organic result. Sponsored slots and grid scaffolding
             // lack it, so this filters ads without a separate rule.
-            resultTile = cfg.options["resultTileSelector"]
+            resultTile = options["resultTileSelector"]
                 ?: "div[data-component-type=s-search-result]",
             // The product NAME. Deliberately not the <h2> in the same block -- that holds the
             // brand ("Nike"), so reading it as the title gives every row an identical value.
-            resultTitleLink = cfg.options["resultTitleSelector"]
+            resultTitleLink = options["resultTitleSelector"]
                 ?: "[data-cy=title-recipe] a.a-link-normal.s-line-clamp-3, [data-cy=title-recipe] a.a-link-normal",
-            resultBrand = cfg.options["resultBrandSelector"]
+            resultBrand = options["resultBrandSelector"]
                 ?: "[data-cy=title-recipe] h2 span",
             // The screen-reader copy: one text node holding the whole amount. The visible price
             // is split across whole/decimal/fraction spans that concatenate unreliably.
@@ -44,17 +47,17 @@ internal data class AmazonSelectors(
             // matches both. It happens to be safe today -- on a 48-tile capture the sale price came
             // first every time -- but that is document order, not a guarantee, and reading a list
             // price as the sale price is a silent wrong number.
-            resultPrice = cfg.options["resultPriceSelector"]
+            resultPrice = options["resultPriceSelector"]
                 ?: "span.a-price:not(.a-text-price) span.a-offscreen",
             // Amazon's strikethrough "List:" price on a search tile. `a-text-price` is its own
             // marker for a was-price, and it is a SUBSET of `a-price` — so the sale-price selector
             // above matches it too, and the list price must be excluded there rather than merely
             // read here. Present on 17 of 48 tiles on a real capture, which is why a null list
             // price has to stay normal rather than look like a parse failure.
-            resultListPrice = cfg.options["resultListPriceSelector"]
+            resultListPrice = options["resultListPriceSelector"]
                 ?: "span.a-price.a-text-price span.a-offscreen",
-            resultImage = cfg.options["resultImageSelector"] ?: "img.s-image",
-            productTitle = cfg.options["productTitleSelector"] ?: "#productTitle",
+            resultImage = options["resultImageSelector"] ?: "img.s-image",
+            productTitle = options["productTitleSelector"] ?: "#productTitle",
             // Buy-box containers ONLY, in descending specificity, and deliberately WITHOUT a
             // bare `span.a-price` fallback.
             //
@@ -83,7 +86,7 @@ internal data class AmazonSelectors(
             //
             // `pricetopay` is Amazon's own name for the amount charged, which is exactly the thing
             // wanted, so it leads. The `:not()` is belt-and-braces for the later alternatives.
-            productPrice = cfg.options["productPriceSelector"]
+            productPrice = options["productPriceSelector"]
                 ?: ".apex-pricetopay-value span.a-offscreen, " +
                 "#corePrice_desktop span.a-offscreen:not(.apex-priceperunit-value), " +
                 "#corePriceDisplay_desktop_feature_div span.a-offscreen, " +
@@ -91,7 +94,7 @@ internal data class AmazonSelectors(
                 "#apex_desktop .a-price:not(.apex-priceperunit-value) span.a-offscreen, " +
                 "#buybox .priceToPay span.a-offscreen, " +
                 "#price_inside_buybox, #newBuyBoxPrice",
-            productAvailability = cfg.options["productAvailabilitySelector"] ?: "#availability",
+            productAvailability = options["productAvailabilitySelector"] ?: "#availability",
         )
     }
 }

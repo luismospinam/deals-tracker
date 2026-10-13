@@ -294,6 +294,19 @@ fun main(args: Array<String>) {
         }
     }
 
+    // Reads each search-found item's own page for its size and price, faster than the poll's drip while
+    // a backlog exists. Shares the verifier's Chrome profile through VerifySlot, so it simply skips a
+    // turn when the poll's run (or a click) has it. Quiet once nothing is left to check.
+    if (app.defaults.pageCleanupBatch > 0) {
+        scope.launch {
+            delay(5 * 60_000L)
+            while (true) {
+                val blocked = pageCleanupOnce(repo, app)
+                delay(if (blocked) 60 * 60_000L else app.defaults.pageCleanupEveryMinutes.coerceAtLeast(5) * 60_000L)
+            }
+        }
+    }
+
     // Questions go to the local `claude` CLI on the operator's own login -- see ClaudeCli for why
     // not the API. Its working directory is an empty folder under build/, so its session files are
     // filed apart from this repo's own Claude Code history.
@@ -451,12 +464,18 @@ internal fun verifyConfig(
     prioritySources = trackingSources(app),
     headless = headless,
     wallWaitMillis = wallWaitMillis,
+    // The Amazon provider's selectors, so a corrected price selector reaches the page-price read too.
+    amazonOptions = app.providers.firstOrNull { it.type == "amazon" }?.options.orEmpty(),
+    pageRecheckDays = app.defaults.pageRecheckDays,
 )
 
 private fun summarize(outcome: VerifyOutcome): String =
     "[verify] done: ${outcome.checked} checked — " +
         "${outcome.yes} ships, ${outcome.no} does not, ${outcome.unclear} unclear" +
         (if (outcome.protectedManual > 0) ", ${outcome.protectedManual} manual verdict(s) left untouched" else "") +
+        (if (outcome.sizeRejected > 0) ", ${outcome.sizeRejected} retired for the wrong size" else "") +
+        (if (outcome.siblingsAdded > 0) ", ${outcome.siblingsAdded} right-size replacement(s) added" else "") +
+        (if (outcome.priceCorrected > 0) ", ${outcome.priceCorrected} price(s) corrected from the page" else "") +
         (if (outcome.blocked) "  [STOPPED EARLY: Amazon was blocking]" else "")
 
 /**
@@ -502,6 +521,34 @@ private suspend fun verifyPeriodically(repo: DealRepository, app: AppConfig) {
         }.onFailure { println("[verify] automatic run failed: ${it.message}") }
     }
 }
+
+/** One cleanup run. Returns true when Amazon blocked it, so the caller backs off. */
+private suspend fun pageCleanupOnce(repo: DealRepository, app: AppConfig): Boolean =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val sources = trackingSources(app)
+            if (repo.pageCheckCandidates(1, sources, recheckDays = app.defaults.pageRecheckDays).isEmpty() &&
+                repo.siblingRecoveryCandidates(1, sources).isEmpty()
+            ) {
+                return@runCatching false
+            }
+            val cfg = verifyConfig(
+                app,
+                batchSize = app.defaults.pageCleanupBatch,
+                wallWaitMillis = app.defaults.coShippingPollWallWaitMillis,
+            )
+            val outcome = VerifySlot.tryWith(
+                VerifySlot.lockFileFor(cfg.profileDir),
+                onBusy = { null },
+            ) { AmazonVerifier(repo, cfg).run(limit = app.defaults.pageCleanupBatch) }
+                ?: return@runCatching false
+            if (outcome.checked > 0 || outcome.blocked) println("[cleanup] " + summarize(outcome))
+            outcome.blocked
+        }.getOrElse {
+            println("[cleanup] run failed: ${it.message}")
+            false
+        }
+    }
 
 /**
  * Loads the notification language from `app_settings` and saves it there when it changes. A

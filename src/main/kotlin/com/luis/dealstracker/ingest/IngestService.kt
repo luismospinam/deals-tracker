@@ -337,6 +337,9 @@ class IngestService(
                 val group = categorizer.categorize(raw.category, raw.title)
                 byCategory[group] = (byCategory[group] ?: 0) + 1
                 val upsert = repo.upsertDeal(conn, provider.id, raw, coShippingDefault, group)
+                // Refuted by its own product page (V23): no observation, or its wrong-size price
+                // would sit in the history of a row nobody can see.
+                if (upsert.rejected) return@forEach
                 if (upsert.isNew) newCount++
                 if (raw.watchIds.isNotEmpty()) watchLinks[upsert.dealId] = raw.watchIds
 

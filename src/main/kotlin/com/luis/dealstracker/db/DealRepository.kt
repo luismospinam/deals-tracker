@@ -13,7 +13,8 @@ import java.sql.Timestamp
 import java.time.Instant
 import javax.sql.DataSource
 
-data class UpsertResult(val dealId: Long, val isNew: Boolean)
+/** [rejected]: a product page refuted this row's size; it stays inactive and takes no observations. */
+data class UpsertResult(val dealId: Long, val isNew: Boolean, val rejected: Boolean = false)
 
 data class FeedFilter(
     val sources: List<String> = emptyList(),
@@ -220,9 +221,11 @@ class DealRepository(
                 unit_measure  = COALESCE(EXCLUDED.unit_measure, deals.unit_measure),
                 unit_quantity = COALESCE(EXCLUDED.unit_quantity, deals.unit_quantity),
                 grocery_group = COALESCE(EXCLUDED.grocery_group, deals.grocery_group),
-                is_active  = TRUE,
+                -- A row whose own page refuted its size (V23) stays retired: the next search returns
+                -- the same ASIN, and without this it would be reactivated every poll.
+                is_active  = NOT deals.size_rejected,
                 last_seen_at = now()
-            RETURNING id, (first_seen_at = last_seen_at) AS is_new
+            RETURNING id, (first_seen_at = last_seen_at) AS is_new, size_rejected
         """.trimIndent()
 
         conn.prepareStatement(sql).use { st ->
@@ -254,7 +257,7 @@ class DealRepository(
             st.setString(21, raw.groceryGroup)
             st.executeQuery().use { rs ->
                 rs.next()
-                return UpsertResult(rs.getLong("id"), rs.getBoolean("is_new"))
+                return UpsertResult(rs.getLong("id"), rs.getBoolean("is_new"), rs.getBoolean("size_rejected"))
             }
         }
     }
@@ -898,6 +901,203 @@ class DealRepository(
                         null
                     }
                 }
+            }
+        }
+
+    /**
+     * Rows found by search whose size no product page has confirmed yet.
+     *
+     * [sources] are the Tracked tab's providers: only those read size from a search tile. Items the
+     * operator added by URL are excluded -- their size already came from the ASIN's own page, and
+     * rejecting something explicitly asked for would be wrong. Never-visited rows come first, newest first, so
+     * a row is checked soon after it appears, which is when a wrong size does the most harm; then, when
+     * [recheckDays] is positive, rows last confirmed longer ago than that, oldest first, which keeps a page-true
+     * price on every row. Failed reads back off
+     * like the shipping check's (`2^attempts` hours, capped at a week).
+     */
+    fun pageCheckCandidates(
+        limit: Int,
+        sources: List<String>,
+        recheckDays: Int = 0,
+        baseBackoffHours: Int = 6,
+        maxBackoffHours: Int = 168,
+    ): List<Triple<Long, String, String>> =
+        if (sources.isEmpty()) emptyList() else ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT d.id, d.asin, d.title FROM deals d
+                 WHERE d.is_active
+                   AND NOT d.size_rejected
+                   AND d.asin IS NOT NULL
+                   AND d.source = ANY(?)
+                   AND (d.page_checked_at IS NULL
+                        OR (? > 0 AND d.page_checked_at < now() - make_interval(days => ?)))
+                   AND NOT EXISTS (SELECT 1 FROM manual_items m WHERE m.asin = d.asin)
+                   AND (
+                        d.page_attempted_at IS NULL
+                     OR d.page_attempted_at < now() - make_interval(
+                            hours => LEAST(? * POWER(2, d.page_attempts)::int, ?))
+                   )
+                 ORDER BY (d.page_checked_at IS NULL) DESC, d.page_checked_at ASC NULLS FIRST,
+                          d.first_seen_at DESC, d.id DESC
+                 LIMIT ?
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("text", sources.toTypedArray()))
+                st.setInt(2, recheckDays)
+                st.setInt(3, recheckDays)
+                st.setInt(4, baseBackoffHours)
+                st.setInt(5, maxBackoffHours)
+                st.setInt(6, limit)
+                st.executeQuery().use { rs ->
+                    buildList { while (rs.next()) add(Triple(rs.getLong("id"), rs.getString("asin"), rs.getString("title"))) }
+                }
+            }
+        }
+
+    /**
+     * Starts tracking [raw], the size-correct sibling of a row retired for the wrong size.
+     *
+     * Everything is written in one transaction -- the row, its first observation, and the fact that a
+     * page has already confirmed its size -- so it never exists half-made: a row with no observation
+     * would show on Tracked with no price. The category group is copied from the row it replaces
+     * (same product family) because the verifier has no categoriser; the source is copied too. A sibling that already exists
+     * is refreshed, and one already retired stays retired (see `upsertDeal`).
+     *
+     * @return the new row's id, or null when that row is retired and nothing was written.
+     */
+    fun addSibling(raw: RawDeal, replacesDealId: Long, pageSize: String?): Long? {
+        var id: Long? = null
+        tx { conn ->
+            val (source, group) = conn.prepareStatement("SELECT source, category_group FROM deals WHERE id = ?").use { st ->
+                st.setLong(1, replacesDealId)
+                st.executeQuery().use { rs -> if (rs.next()) rs.getString(1) to rs.getString(2) else return@tx }
+            }
+            val upsert = upsertDeal(conn, source, raw, CoShipping.UNKNOWN, group)
+            if (upsert.rejected) return@tx
+            recordObservation(conn, upsert.dealId, raw)
+            conn.prepareStatement(
+                "UPDATE deals SET page_checked_at = now(), page_size = ?, page_attempts = 0 WHERE id = ?",
+            ).use { st -> st.setString(1, pageSize); st.setLong(2, upsert.dealId); st.executeUpdate() }
+            id = upsert.dealId
+        }
+        return id
+    }
+
+    /**
+     * Retired wrong-size rows whose family has not been searched for the right size yet, or searched
+     * without luck more than [retryDays] ago and retired no more than [windowDays] ago. The window ends
+     * the retries: a size a family has not had in a month is not coming back soon.
+     */
+    fun siblingRecoveryCandidates(
+        limit: Int,
+        sources: List<String>,
+        retryDays: Int = 7,
+        windowDays: Int = 28,
+    ): List<Triple<Long, String, String>> =
+        if (sources.isEmpty()) emptyList() else ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT d.id, d.asin, d.title FROM deals d
+                 WHERE d.size_rejected
+                   AND d.size_reject_reason LIKE 'page says%'
+                   AND d.asin IS NOT NULL
+                   AND d.source = ANY(?)
+                   AND (d.sibling_checked_at IS NULL
+                        OR (NOT coalesce(d.sibling_added, FALSE)
+                            AND d.sibling_checked_at < now() - make_interval(days => ?)
+                            AND d.page_checked_at > now() - make_interval(days => ?)))
+                 ORDER BY d.sibling_checked_at ASC NULLS FIRST, d.id DESC
+                 LIMIT ?
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("text", sources.toTypedArray()))
+                st.setInt(2, retryDays)
+                st.setInt(3, windowDays)
+                st.setInt(4, limit)
+                st.executeQuery().use { rs ->
+                    buildList { while (rs.next()) add(Triple(rs.getLong("id"), rs.getString("asin"), rs.getString("title"))) }
+                }
+            }
+        }
+
+    /** Records that a retired row's family was searched for its size, and whether a replacement started. */
+    fun recordSiblingAttempt(id: Long, added: Boolean) {
+        ds.connection.use { conn ->
+            conn.prepareStatement("UPDATE deals SET sibling_checked_at = now(), sibling_added = ? WHERE id = ?")
+                .use { st -> st.setBoolean(1, added); st.setLong(2, id); st.executeUpdate() }
+        }
+    }
+
+    /** A visit that read nothing usable: counts toward backoff, changes nothing else. */
+    fun recordPageAttempt(id: Long) {
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE deals SET page_attempts = page_attempts + 1, page_attempted_at = now() WHERE id = ?",
+            ).use { st -> st.setLong(1, id); st.executeUpdate() }
+        }
+    }
+
+    /**
+     * Records what the product page said about a row's size, and corrects its price.
+     *
+     * [rejectReason] non-null retires the row for good (`size_rejected`, see V23). Otherwise the row
+     * is marked visited. A page price that differs from the latest observation is appended as a new
+     * observation rather than edited in: history stays an honest record of what was read when, and
+     * the tile reading that preceded it remains visible as the disagreement it was. The list price is
+     * carried over from that observation, since the buy box does not state one and a null would erase
+     * the discount the row displays. Returns whether a price was appended.
+     */
+    fun recordPageCheck(
+        id: Long,
+        pageSize: String?,
+        rejectReason: String?,
+        pagePrice: java.math.BigDecimal?,
+        pageCurrency: String?,
+    ): Boolean =
+        ds.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                conn.prepareStatement(
+                    """
+                    UPDATE deals
+                       SET page_checked_at = now(), page_size = ?, page_attempts = 0, page_attempted_at = now(),
+                           size_rejected = ?, size_reject_reason = ?,
+                           is_active = is_active AND NOT ?
+                     WHERE id = ?
+                    """.trimIndent(),
+                ).use { st ->
+                    st.setString(1, pageSize)
+                    st.setBoolean(2, rejectReason != null)
+                    st.setString(3, rejectReason?.take(300))
+                    st.setBoolean(4, rejectReason != null)
+                    st.setLong(5, id)
+                    st.executeUpdate()
+                }
+                var appended = false
+                if (rejectReason == null && pagePrice != null && pageCurrency != null) {
+                    appended = conn.prepareStatement(
+                        """
+                        INSERT INTO price_observations (deal_id, price, list_price, currency)
+                        SELECT deal_id, ?, list_price, currency FROM (
+                            SELECT deal_id, price, list_price, currency FROM price_observations
+                             WHERE deal_id = ? ORDER BY observed_at DESC LIMIT 1
+                        ) last
+                        WHERE last.currency = ? AND last.price <> ?
+                        """.trimIndent(),
+                    ).use { st ->
+                        st.setBigDecimal(1, pagePrice)
+                        st.setLong(2, id)
+                        st.setString(3, pageCurrency)
+                        st.setBigDecimal(4, pagePrice)
+                        st.executeUpdate() > 0
+                    }
+                }
+                conn.commit()
+                appended
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
             }
         }
 
