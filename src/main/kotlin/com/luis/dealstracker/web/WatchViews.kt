@@ -28,6 +28,7 @@ import kotlinx.html.div
 import kotlinx.html.form
 import kotlinx.html.h2
 import kotlinx.html.h3
+import kotlinx.html.img
 import kotlinx.html.input
 import kotlinx.html.label
 import kotlinx.html.option
@@ -583,6 +584,19 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
+                    label { +tr("Ships to Colombia only", "Solo envío a Colombia") }
+                    input(type = InputType.checkBox, name = "requireCoShipping") {
+                        value = "1"
+                        checked = watch?.requireCoShipping ?: true
+                    }
+                }
+                div("f") {
+                    label { +tr("Max shipping (US$)", "Envío máx. (US$)") }
+                    input(type = InputType.number, name = "maxShippingCost") {
+                        value = watch?.maxShippingCost?.stripTrailingZeros()?.toPlainString() ?: ""
+                    }
+                }
+                div("f") {
                     label { +tr("Cross-site %", "Entre sitios %") }
                     input(type = InputType.number, name = "crossSiteMinSpread") {
                         value = (watch?.crossSiteMinSpread ?: BigDecimal("15")).stripTrailingZeros().toPlainString()
@@ -621,6 +635,12 @@ fun MAIN.watchDetail(
         span { code { +watch.terms } }
         watch.amazonTerms?.takeIf { it.isNotBlank() }?.let { span { +"amazon: "; code { +it } } }
         span { +tr("${watch.lookbackDays}-day window", "ventana de ${watch.lookbackDays} días") }
+        if (watch.requireCoShipping) {
+            span {
+                +tr("ships to Colombia only", "solo envío a Colombia")
+                watch.maxShippingCost?.let { +" (≤ US$${it.stripTrailingZeros().toPlainString()})" }
+            }
+        }
         span { +tr("${candidates.size} matching now", "${candidates.size} coincidencias actuales") }
         if (!watch.enabled) span("chip") { +tr("paused", "pausada") }
     }
@@ -656,6 +676,7 @@ fun MAIN.watchDetail(
                     val th = { label: String, col: String, cls: String, desc: Boolean ->
                         sortableTh(label, col, cls, true, matchingSort, alertsSort, desc, basePath, matchingSource)
                     }
+                    th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                     th(tr("Deal", "Oferta"), "deal", "col-deal", false)
                     th(tr("Price", "Precio"), "price", "col-price", false)
                     th(tr("Why", "Motivo"), "why", "col-sig", false)
@@ -667,6 +688,7 @@ fun MAIN.watchDetail(
                 matches.sortedWith(alertsComparator(alertsSort, dealsById)).forEach { match ->
                     tr {
                         val deal = dealsById[match.dealId]
+                        thumbCell(deal?.imageUrl, deal?.url)
                         td(classes = "col-deal") {
                             div("title") {
                                 if (deal != null) {
@@ -818,6 +840,7 @@ private fun MAIN.matchingTable(
                 val th = { label: String, col: String, cls: String, desc: Boolean ->
                     sortableTh(label, col, cls, false, sort, alertsSort, desc, basePath, source)
                 }
+                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                 th(tr("Product", "Producto"), "product", "col-deal", false)
                 // Two sorts in one header, as on the Groceries tab: by the price anyone pays, or by
                 // how much a card saves on it. Written out rather than via `th` because that helper
@@ -855,6 +878,7 @@ private fun MAIN.matchingTable(
         tbody {
             shown.forEach { candidate ->
                 tr {
+                    thumbCell(candidate.imageUrl, candidate.url)
                     td(classes = "col-deal") {
                         div("title") {
                             a(href = "/deal/${candidate.dealId}") { +candidate.title }
@@ -1011,5 +1035,22 @@ private fun DIV.rivalNote(watch: Watch, candidate: WatchCandidate, rival: WatchC
         // Dearer here. Said plainly rather than hidden: the point of the comparison is to send
         // you to the cheaper shop, not to flatter the row you happen to be looking at.
         span("dim") { +tr("${rival.source} has it for ${rival.priceLabel()}", "${rival.source} lo tiene a ${rival.priceLabel()}") }
+    }
+}
+
+/** The product thumbnail cell, as on the feed and Tracked: linked to the retailer, blank when there is no image. */
+private fun TR.thumbCell(imageUrl: String?, href: String?) {
+    td(classes = "col-thumb") {
+        if (imageUrl == null) {
+            div("thumb-blank") {}
+        } else if (href != null) {
+            a(href = href) {
+                attributes["target"] = "_blank"
+                attributes["rel"] = "noopener noreferrer"
+                img(classes = "thumb", src = imageUrl, alt = "") { attributes["loading"] = "lazy" }
+            }
+        } else {
+            img(classes = "thumb", src = imageUrl, alt = "") { attributes["loading"] = "lazy" }
+        }
     }
 }

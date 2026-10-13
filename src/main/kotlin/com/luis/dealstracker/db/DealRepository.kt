@@ -848,7 +848,17 @@ class DealRepository(
                      OR d.co_shipping_checked_at < now() - make_interval(
                             hours => LEAST(? * POWER(2, d.co_shipping_attempts)::int, ?))
                    )
-                 ORDER BY (d.source = ANY(?)) DESC,
+                 ORDER BY EXISTS (
+                              -- A listing a shipping-gated watch is waiting on is held out of its
+                              -- alerts until this verdict lands, so it jumps the whole queue.
+                              SELECT 1 FROM watches w
+                               WHERE w.enabled AND w.require_co_shipping
+                                 AND (d.id IN (SELECT deal_id FROM watch_sourced_deals s WHERE s.watch_id = w.id)
+                                      OR EXISTS (SELECT 1 FROM unnest(string_to_array(w.terms, '|')) t
+                                                  WHERE btrim(t) <> ''
+                                                    AND unaccent(d.title) ILIKE unaccent('%' || btrim(t) || '%')))
+                          ) DESC,
+                          (d.source = ANY(?)) DESC,
                           ${DealScore.SQL} DESC,
                           d.co_shipping_checked_at ASC NULLS FIRST,
                           d.id ASC

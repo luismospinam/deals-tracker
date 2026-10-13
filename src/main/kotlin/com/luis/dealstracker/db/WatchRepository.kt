@@ -31,6 +31,10 @@ data class WatchDraft(
     val enabled: Boolean = true,
     /** See [Watch.amazonTerms]. Null means the watch does not search Amazon. */
     val amazonTerms: String? = null,
+    /** See [Watch.requireCoShipping]. */
+    val requireCoShipping: Boolean = true,
+    /** See [Watch.maxShippingCost]. */
+    val maxShippingCost: BigDecimal? = null,
 )
 
 /**
@@ -95,8 +99,9 @@ class WatchRepository(private val ds: DataSource) {
         val sql = """
             INSERT INTO watches (name, terms, exclude_terms, category_group, sources,
                                  min_price, max_price, currency, lookback_days,
-                                 cross_site_min_spread, enabled, amazon_terms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 cross_site_min_spread, enabled, amazon_terms,
+                                 require_co_shipping, max_shipping_cost)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
@@ -110,12 +115,13 @@ class WatchRepository(private val ds: DataSource) {
             UPDATE watches SET name = ?, terms = ?, exclude_terms = ?, category_group = ?,
                                sources = ?, min_price = ?, max_price = ?, currency = ?,
                                lookback_days = ?, cross_site_min_spread = ?, enabled = ?,
-                               amazon_terms = ?
+                               amazon_terms = ?, require_co_shipping = ?,
+                               max_shipping_cost = ?
             WHERE id = ?
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
             st.bindDraft(conn, draft)
-            st.setLong(13, id)
+            st.setLong(15, id)
             st.executeUpdate() > 0
         }
     }
@@ -186,6 +192,15 @@ class WatchRepository(private val ds: DataSource) {
             }
         }
 
+        // Only listings that can reach Colombia. UNKNOWN is held back rather than passed, so a
+        // watch never announces something the verifier has not yet cleared; it joins on YES.
+        if (watch.requireCoShipping) where += "d.co_shipping = 'YES'"
+        // A fee Amazon never quoted (NULL) passes: absence of a quote is not a high quote.
+        watch.maxShippingCost?.let {
+            where += "(d.co_shipping_cost IS NULL OR d.co_shipping_cost <= ?)"
+            params += it
+        }
+
         watch.categoryGroup?.takeIf { it.isNotBlank() }?.let {
             where += "d.category_group = ?"
             params += it
@@ -228,7 +243,7 @@ class WatchRepository(private val ds: DataSource) {
         }
 
         val sql = """
-            SELECT d.id, d.source, d.title, d.url, d.currency, d.match_key, d.model_key,
+            SELECT d.id, d.source, d.title, d.url, d.image_url, d.currency, d.match_key, d.model_key,
                    po.price, po.card_price, po.card_percent, po.card_scope,
                    prior.floor AS prior_floor, prior.card_floor
             FROM deals d
@@ -314,6 +329,7 @@ class WatchRepository(private val ds: DataSource) {
                                         )
                                     },
                                     cardFloor = rs.getBigDecimal("card_floor"),
+                                    imageUrl = rs.getString("image_url"),
                                 ),
                             )
                         }
@@ -494,6 +510,8 @@ private fun PreparedStatement.bindDraft(conn: Connection, d: WatchDraft) {
     setBigDecimal(10, d.crossSiteMinSpread)
     setBoolean(11, d.enabled)
     setString(12, d.amazonTerms?.trim()?.takeIf { it.isNotEmpty() })
+    setBoolean(13, d.requireCoShipping)
+    setBigDecimal(14, d.maxShippingCost)
 }
 
 /** Positional binder, dispatching on Kotlin type. Mirrors `DealRepository.bind`. */
@@ -526,6 +544,8 @@ private fun ResultSet.toWatch() = Watch(
     enabled = getBoolean("enabled"),
     createdAt = getTimestamp("created_at").toInstant(),
     amazonTerms = getString("amazon_terms"),
+    requireCoShipping = getBoolean("require_co_shipping"),
+    maxShippingCost = getBigDecimal("max_shipping_cost"),
 )
 
 private fun ResultSet.toWatchMatch() = WatchMatch(

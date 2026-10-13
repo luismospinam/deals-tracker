@@ -745,6 +745,11 @@ internal fun watchDraftFrom(params: Parameters): WatchDraft? {
         crossSiteMinSpread = params["crossSiteMinSpread"]?.takeIf { it.isNotBlank() }
             ?.toBigDecimalOrNull()?.coerceAtLeast(BigDecimal.ZERO) ?: BigDecimal("15.00"),
         amazonTerms = params["amazonTerms"]?.trim()?.takeIf { it.isNotEmpty() },
+        // A checkbox sends nothing when unticked, so absence is "off". Safe because the form
+        // always renders it; the default-on lives in the form's checked state, not here.
+        requireCoShipping = params["requireCoShipping"] != null,
+        maxShippingCost = params["maxShippingCost"]?.takeIf { it.isNotBlank() }
+            ?.toBigDecimalOrNull()?.coerceAtLeast(BigDecimal.ZERO),
     )
 }
 

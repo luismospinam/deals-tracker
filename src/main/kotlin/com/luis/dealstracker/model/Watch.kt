@@ -54,6 +54,16 @@ data class Watch(
      * budget, so it should be phrased for that site ("55 inch 4k tv").
      */
     val amazonTerms: String? = null,
+    /**
+     * Only consider listings verified as shipping to Colombia (`co_shipping = YES`).
+     *
+     * Applied when candidates are selected, so a listing that cannot reach Colombia neither
+     * alerts nor sets the floor others are judged against. An UNKNOWN verdict is held back, not
+     * passed: the verifier resolves it, and the listing joins the watch once it says YES.
+     */
+    val requireCoShipping: Boolean = true,
+    /** Ceiling on the quoted Colombia shipping fee, in US$. Null means no cap. */
+    val maxShippingCost: BigDecimal? = null,
 )
 
 /**
@@ -142,6 +152,8 @@ data class WatchCandidate(
      * than inventing a distinction the data does not support.
      */
     val cardFloor: BigDecimal? = null,
+    /** The retailer's product image, for the thumbnail column. Null when the source has none. */
+    val imageUrl: String? = null,
 ) {
     /** `US$399.99 ≈ $1,305,756` for a converted row, the plain price otherwise. */
     fun priceLabel(): String =
