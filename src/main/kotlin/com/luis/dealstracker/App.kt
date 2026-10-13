@@ -349,7 +349,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource))
     }.start(wait = true)
 }
 

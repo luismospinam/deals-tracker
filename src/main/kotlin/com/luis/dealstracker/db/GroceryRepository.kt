@@ -120,6 +120,8 @@ data class GroceryFilter(
     val pinnedOnly: Boolean = false,
     /** One product -- every store's copy of the row with this id -- for the htmx swap after a pin toggle. */
     val id: Long? = null,
+    /** Exactly these listings, e.g. the ones the daily digest found moving. */
+    val ids: Collection<Long>? = null,
     val limit: Int = 30_000,
 )
 
@@ -152,6 +154,10 @@ class GroceryRepository(private val ds: DataSource) {
         if (filter.pinnedOnly) where += "d.pinned_at IS NOT NULL"
         filter.id?.let {
             where += "(d.merchant, d.source_deal_id) = (SELECT merchant, source_deal_id FROM deals WHERE id = $it)"
+        }
+        filter.ids?.let {
+            where += "d.id::text = ANY (?)"
+            params.add(it.map(Long::toString))
         }
         val (searchClauses, searchParams) = SearchQuery.parse(filter.search).toSql()
         where += searchClauses
