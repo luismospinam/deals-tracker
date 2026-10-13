@@ -6,6 +6,7 @@ import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.model.asMoney
 import com.luis.dealstracker.sources.DealSource
 import com.luis.dealstracker.sources.PoliteHttp
+import com.luis.dealstracker.sources.SpecText
 import com.luis.dealstracker.sources.encodeQueryValue
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -15,7 +16,14 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.math.BigDecimal
 
@@ -145,7 +153,7 @@ class VtexSource : DealSource {
                     if (intelligentSearch) {
                         json.decodeFromString<IsSearchResponse>(body).products
                     } else {
-                        json.decodeFromString<List<VtexProduct>>(body)
+                        withSpecs(body)
                     }
                 } catch (e: Exception) {
                     println("[${cfg.id}] ${target.label} page $page unparseable: ${e.message}")
@@ -420,12 +428,42 @@ class VtexSource : DealSource {
             cardOffer = best.card,
             promotions = best.promotions,
             stockQty = best.qty,
+            specs = product.specs.ifEmpty { specsOf(product.properties) },
+            description = SpecText.description(product.description),
         )
     }
 
     companion object {
         // VTEX payloads carry hundreds of fields we do not use.
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+        /**
+         * Decodes a `catalog_system` response and attaches each product's specification table.
+         *
+         * That API lists the table's names in `allSpecifications` and then repeats each as its own
+         * top-level key (`"Lado Chaise": ["Izquierdo"]`), so the names are only known per product and
+         * the values must be read off the raw object.
+         */
+        internal fun withSpecs(body: String): List<VtexProduct> =
+            json.parseToJsonElement(body).jsonArray.map { el ->
+                val product = json.decodeFromJsonElement<VtexProduct>(el)
+                product.copy(specs = specsOf(el.jsonObject))
+            }
+
+        internal fun specsOf(product: JsonObject): Map<String, String> =
+            (product["allSpecifications"] as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                .mapNotNull { name ->
+                    val value = (product[name] as? JsonArray).orEmpty()
+                        .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        .joinToString("; ")
+                    SpecText.pair(name, value)
+                }
+                .toMap()
+
+        /** Intelligent Search's own shape of the same table. */
+        internal fun specsOf(properties: List<VtexProperty>?): Map<String, String> =
+            properties.orEmpty().mapNotNull { SpecText.pair(it.name, it.values.orEmpty().joinToString("; ")) }.toMap()
     }
 }
 
@@ -450,7 +488,18 @@ data class VtexProduct(
     val link: String? = null,
     val categories: List<String>? = null,
     val items: List<VtexItem> = emptyList(),
+    val description: String? = null,
+    /** Intelligent Search's spec table: `[{name, values}]`. `catalog_system` uses [specs] instead. */
+    val properties: List<VtexProperty>? = null,
+    /**
+     * Filled by [VtexSource.withSpecs] after decoding, never by the decoder: `catalog_system` spreads
+     * the table across the product as one key per name, which no fixed class can describe.
+     */
+    @kotlinx.serialization.Transient val specs: Map<String, String> = emptyMap(),
 )
+
+@Serializable
+data class VtexProperty(val name: String? = null, val values: List<String>? = null)
 
 @Serializable
 data class VtexItem(

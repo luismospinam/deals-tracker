@@ -3,6 +3,7 @@ package com.luis.dealstracker.ingest
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.config.ProviderConfig
 import com.luis.dealstracker.db.DealRepository
+import com.luis.dealstracker.db.DealSpecStore
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.sources.PoliteHttp
@@ -348,6 +349,8 @@ class IngestService(
                 // drop can never be detected.
                 val previousMin = repo.minPriceEver(conn, upsert.dealId)
                 val observationId = repo.recordObservation(conn, upsert.dealId, raw)
+                // What the retailer says the product is, for the Ask panel. Skipped when unchanged.
+                DealSpecStore.upsert(conn, upsert.dealId, raw)
                 repo.linkPromotions(conn, provider.id, observationId, raw, promotionIds)
 
                 val reason = promotionReason(raw, previousMin, floor, curated, upsert.isNew)

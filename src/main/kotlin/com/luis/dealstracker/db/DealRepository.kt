@@ -774,6 +774,41 @@ class DealRepository(
             }
         }
 
+    /**
+     * Each deal's price *changes* over the last [days] days, oldest first, at most [perDeal] of the
+     * most recent. A run of identical observations collapses to its first, so an hourly poll of a
+     * price that never moved is one point, not 2,000 — which is what makes a trend affordable to
+     * put in a prompt. The first point is the price at the window's start (or the first sighting).
+     */
+    fun priceChanges(ids: List<Long>, days: Int, perDeal: Int): Map<Long, List<Pair<java.time.LocalDate, BigDecimal>>> {
+        if (ids.isEmpty()) return emptyMap()
+        return ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT deal_id, observed_at::date AS day, price FROM (
+                    SELECT deal_id, observed_at, price,
+                           LAG(price) OVER (PARTITION BY deal_id ORDER BY observed_at) AS prev
+                    FROM price_observations
+                    WHERE deal_id = ANY(?) AND observed_at > now() - make_interval(days => ?)
+                ) o
+                WHERE prev IS NULL OR prev <> price
+                ORDER BY deal_id, observed_at
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("bigint", ids.toTypedArray()))
+                st.setInt(2, days)
+                st.executeQuery().use { rs ->
+                    val out = LinkedHashMap<Long, MutableList<Pair<java.time.LocalDate, BigDecimal>>>()
+                    while (rs.next()) {
+                        out.getOrPut(rs.getLong("deal_id")) { mutableListOf() }
+                            .add(rs.getDate("day").toLocalDate() to rs.getBigDecimal("price"))
+                    }
+                    out.mapValues { (_, v) -> v.takeLast(perDeal) }
+                }
+            }
+        }
+    }
+
     fun updateState(id: Long, state: DealState): Boolean =
         ds.connection.use { conn ->
             conn.prepareStatement("UPDATE deals SET state = ? WHERE id = ?").use { st ->

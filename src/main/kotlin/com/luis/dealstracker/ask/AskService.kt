@@ -27,6 +27,8 @@ class AskService(
     val maxRows: Int,
     /** Concurrent CLI processes. Each is a Node process and a slice of the plan's rate limit. */
     maxConcurrent: Int = 2,
+    /** Rows (from the top of the screen's order) that get a price history. 0 turns it off. */
+    val historyRows: Int = 100,
 ) {
     data class Conversation(val sessionId: String, val screenKey: String, val lastUsed: Instant, val turns: Int)
 

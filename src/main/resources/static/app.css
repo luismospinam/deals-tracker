@@ -1550,6 +1550,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   font-weight: 700;
 }
 .ask-send:disabled { opacity: 0.5; cursor: progress; }
+.ask-specs { display: inline-flex; gap: 6px; align-items: center; font-size: var(--fs-sm); color: var(--text-dim); cursor: pointer; }
 .ask-hint { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text-faint); }
 
 /* One clickable line per product an answer mentions. Normal wrapping here, not the answer's

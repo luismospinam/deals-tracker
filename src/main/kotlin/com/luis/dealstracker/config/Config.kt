@@ -132,6 +132,11 @@ data class Defaults(
      */
     val pageCleanupBatch: Int = 40,
     /**
+     * Product pages read per poll cycle to capture Falabella and Homecenter specifications, which live
+     * only on each page (~1 MB). Only products an enabled watch is hunting are read. 0 turns it off.
+     */
+    val specPageBatch: Int = 30,
+    /**
      * Days after which a confirmed row's own page is read again, for a page-true price and a fresh look
      * at stock. A size never changes, so this is about price, not size. The cleanup loop therefore never
      * goes fully idle: roughly one row in [pageRecheckDays] comes due each day. 0 turns it off.
@@ -208,6 +213,11 @@ data class Defaults(
      * binds on the unfiltered feed (1,000+ rows), where the prompt says how many were left out.
      */
     val askMaxRows: Int = 500,
+    /**
+     * How many of those rows also get their recent price changes (~25 tokens each where the price
+     * moved). The top of the screen's order, since that is what a question is mostly about; 0 off.
+     */
+    val askHistoryRows: Int = 100,
     /**
      * The `claude` executable. Blank means "find it": PATH first, then `~/.local/bin/claude`,
      * where the installer puts it — launchd starts the app with a bare PATH that lacks that

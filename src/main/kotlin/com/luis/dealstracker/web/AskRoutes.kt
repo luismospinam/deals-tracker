@@ -5,8 +5,15 @@ import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.ingest.WatchEvaluator
 import com.luis.dealstracker.model.FxRate
 import com.luis.dealstracker.ask.AskContext
+import com.luis.dealstracker.ask.HISTORY_DAYS
+import com.luis.dealstracker.ask.HISTORY_POINTS
 import com.luis.dealstracker.ask.AskService
+import com.luis.dealstracker.ask.SPEC_REQUEST
 import com.luis.dealstracker.ask.firstPrompt
+import com.luis.dealstracker.ask.parseSpecRequest
+import com.luis.dealstracker.ask.specsPrompt
+import com.luis.dealstracker.db.Db
+import com.luis.dealstracker.db.DealSpecStore
 import com.luis.dealstracker.ask.followUpPrompt
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
@@ -72,13 +79,30 @@ fun Routing.askRoutes(
         }
 
         val screen = form["screen"].orEmpty()
+        // The operator's tick box. Without it no spec is offered, so the model cannot ask for any.
+        val withSpecs = form["specs"] == "1"
         val qs = form["qs"].orEmpty().removePrefix("?")
         val context = withContext(Dispatchers.IO) {
             askContextFor(screen, parseQueryString(qs), ask.maxRows, repo, watches, manualItems, app, rates.current(), groceries)
+        }?.let { ctx ->
+            // Only a first prompt carries rows, so a follow-up skips the query. Failure degrades to
+            // the plain table: history is an enrichment, never a reason to refuse a question.
+            if (ask.historyRows <= 0) ctx else withContext(Dispatchers.IO) {
+                val ids = ctx.deals.take(ask.historyRows).map { it.id }
+                runCatching { ctx.withHistory(repo.priceChanges(ids, HISTORY_DAYS, HISTORY_POINTS), ids.size) }.getOrDefault(ctx)
+            }
+        }?.let { ctx ->
+            // Watch screens only, and only which rows HAVE specs -- the specs themselves are sent when
+            // the model asks for them. Failure degrades to the plain table, like history above.
+            if (!screen.startsWith("watch:") || !withSpecs) ctx else withContext(Dispatchers.IO) {
+                runCatching { ctx.withSpecIds(DealSpecStore.idsWithSpecs(Db.dataSource, ctx.deals.map { it.id })) }.getOrDefault(ctx)
+            }
         } ?: return@post call.respondText("unknown screen", status = HttpStatusCode.BadRequest)
 
         // The screen's identity for follow-ups: same screen, same filters. See AskService.
-        val screenKey = "$screen?$qs"
+        // Includes the tick: a session started without the list of rows that have specs cannot ask for
+        // them, so switching it on mid-conversation has to start a fresh one.
+        val screenKey = "$screen?$qs" + if (withSpecs) "|specs" else ""
         val (sessionId, resume) = ask.sessionFor(form["conversation"], screenKey)
         val prompt = if (resume) followUpPrompt(question) else context.firstPrompt(question)
 
@@ -103,11 +127,50 @@ fun Routing.askRoutes(
                     },
                 )
                 val answer = StringBuilder()
-                val outcome = withContext(Dispatchers.IO) {
-                    ask.run(prompt, sessionId, resume) { text ->
-                        answer.append(text)
-                        emit(buildJsonObject { put("t", text) })
+
+                // On a screen with stored specs the model may answer with `NEED_SPECS: ids` instead of an
+                // answer. That line is held back from the panel, and the second turn streams the real
+                // answer. Anything else is passed straight through, as before.
+                val canAskSpecs = context.specIds.isNotEmpty()
+                val held = StringBuilder()
+                var decided = !canAskSpecs
+                var requested = false
+                val firstTurn: (String) -> Unit = { text ->
+                    if (decided) {
+                        if (requested) held.append(text) else { answer.append(text); emit(buildJsonObject { put("t", text) }) }
+                    } else {
+                        held.append(text)
+                        val head = held.toString().trimStart()
+                        if (head.length >= SPEC_REQUEST.length || !SPEC_REQUEST.startsWith(head, ignoreCase = true)) {
+                            decided = true
+                            requested = head.startsWith(SPEC_REQUEST, ignoreCase = true)
+                            if (!requested) {
+                                answer.append(held); emit(buildJsonObject { put("t", held.toString()) }); held.clear()
+                            }
+                        }
                     }
+                }
+                var outcome = withContext(Dispatchers.IO) { ask.run(prompt, sessionId, resume, firstTurn) }
+                // A reply shorter than the marker never reached a decision; it is an answer.
+                if (!decided && held.isNotEmpty()) {
+                    answer.append(held); emit(buildJsonObject { put("t", held.toString()) }); held.clear()
+                }
+                if (requested && outcome.error == null) {
+                    val ids = context.parseSpecRequest(held.toString()).orEmpty()
+                    emit(buildJsonObject { put("status", l.tr("reading specifications of ${ids.size} item(s)…", "leyendo las especificaciones de ${ids.size} artículo(s)…")) })
+                    val specs = withContext(Dispatchers.IO) { DealSpecStore.load(Db.dataSource, ids) }
+                    val second = withContext(Dispatchers.IO) {
+                        ask.run(context.specsPrompt(specs, ids), sessionId, true) { text ->
+                            answer.append(text)
+                            emit(buildJsonObject { put("t", text) })
+                        }
+                    }
+                    println("[ask] specs turn: asked for ${ids.size}, ${specs.size} stored")
+                    // One answer to the operator, so one cost and one duration across both turns.
+                    outcome = second.copy(
+                        costUsd = listOfNotNull(outcome.costUsd, second.costUsd).sum().takeIf { outcome.costUsd != null || second.costUsd != null },
+                        durationMs = outcome.durationMs + second.durationMs,
+                    )
                 }
                 println(
                     "[ask] ${context.label}: ${context.deals.size} rows, resume=$resume, " +

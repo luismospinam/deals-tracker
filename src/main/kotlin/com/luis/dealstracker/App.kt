@@ -25,6 +25,7 @@ import com.luis.dealstracker.sources.falabella.FalabellaNextSource
 import com.luis.dealstracker.sources.mercadolibre.MercadoLibreSource
 import com.luis.dealstracker.sources.prestashop.PrestashopSource
 import com.luis.dealstracker.sources.shopify.ShopifySource
+import com.luis.dealstracker.ingest.SpecPageJob
 import com.luis.dealstracker.sources.woocommerce.WooCommerceSource
 import com.luis.dealstracker.sources.slickdeals.SlickdealsSource
 import com.luis.dealstracker.sources.vtex.VtexGrocerySource
@@ -177,6 +178,17 @@ fun main(args: Array<String>) {
         return
     }
 
+    // Reads specification tables off Falabella/Homecenter product pages for watched products. The poll
+    // does a small batch each cycle; this drains the backlog on demand, optionally for one watch.
+    if (args.contains("--fetch-specs")) {
+        val limit = args.firstOrNull { it.startsWith("--limit=") }?.substringAfter("=")?.toIntOrNull() ?: 100
+        val watchId = args.firstOrNull { it.startsWith("--watch=") }?.substringAfter("=")?.toLongOrNull()
+        val job = SpecPageJob(Db.dataSource, http, app.providers.filter { it.enabled && it.type == "falabella-next" }.map { it.id })
+        println(runBlocking { job.run(limit, watchId) }.summary())
+        http.close()
+        return
+    }
+
     if (args.contains("--recategorize")) {
         recategorize(repo, categorizer, showOther = args.contains("--show-other"))
         http.close()
@@ -222,6 +234,7 @@ fun main(args: Array<String>) {
     }
 
     val scope = CoroutineScope(SupervisorJob())
+    val falabellaSources = app.providers.filter { it.enabled && it.type == "falabella-next" }.map { it.id }
 
     // Hourly poll lives inside the app process rather than a separate cron entry
     // point, so the UI can also trigger a refresh on demand.
@@ -275,6 +288,15 @@ fun main(args: Array<String>) {
             runCatching { watchService.runAll() }
                 .onFailure { println("[watch] evaluation failed: ${it.message}") }
 
+            // A small batch of product pages per cycle, for watched Falabella/Homecenter items whose
+            // specs are on the page and nowhere else. Quiet when there is nothing to read.
+            if (app.defaults.specPageBatch > 0) {
+                runCatching {
+                    val report = SpecPageJob(Db.dataSource, http, falabellaSources).run(app.defaults.specPageBatch)
+                    if (report.tried > 0) println(report.summary())
+                }.onFailure { println("[specs] cycle failed: ${it.message}") }
+            }
+
             // Counted even when the fetch failed: a failed fetch does not make the
             // already-stored backlog any less worth verifying.
             cycle++
@@ -321,6 +343,7 @@ fun main(args: Array<String>) {
             systemPrompt = SYSTEM_PROMPT,
         ),
         maxRows = app.defaults.askMaxRows,
+        historyRows = app.defaults.askHistoryRows,
     )
     println("[ask] using $claudePath, model ${app.defaults.askModel}, effort ${app.defaults.askEffort}")
 

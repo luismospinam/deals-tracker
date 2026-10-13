@@ -162,6 +162,14 @@ data class RawDeal(
      * publishes no count.
      */
     val stockQty: Int? = null,
+    /**
+     * The retailer's specification table, label to value ("Lado Chaise" -> "Izquierdo"), exactly as
+     * published. Empty where the source gives none. Stored in `deal_specs` for the Ask panel; no rule
+     * or price depends on it.
+     */
+    val specs: Map<String, String> = emptyMap(),
+    /** The retailer's description as plain text, where it publishes one. Often holds the dimensions. */
+    val description: String? = null,
 ) {
     /**
      * Advertised discount as a percentage, or null when there's no usable list price.

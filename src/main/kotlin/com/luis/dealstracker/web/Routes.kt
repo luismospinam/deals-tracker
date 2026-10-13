@@ -610,6 +610,7 @@ fun Application.routes(
                             "e.g. which is the best option for what I'm looking for, and why?",
                             "p. ej. ¿cuál es la mejor opción para lo que busco, y por qué?",
                         ),
+                        offerSpecs = true,
                     )
                     watchDetail(
                         watch, candidates, matches, dealsById,

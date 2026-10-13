@@ -8,6 +8,7 @@ import kotlinx.html.div
 import kotlinx.html.form
 import kotlinx.html.id
 import kotlinx.html.input
+import kotlinx.html.label
 import kotlinx.html.InputType
 import kotlinx.html.script
 import kotlinx.html.span
@@ -31,7 +32,7 @@ import kotlinx.serialization.json.put
  * always asks about the page as it currently stands — including after htmx has changed nothing in
  * the URL — and there is no second copy of the filter state to fall out of step.
  */
-fun MAIN.askPanel(screen: String, placeholder: String) {
+fun MAIN.askPanel(screen: String, placeholder: String, offerSpecs: Boolean = false) {
     details("ask") {
         id = "ask"
         summary {
@@ -59,6 +60,18 @@ fun MAIN.askPanel(screen: String, placeholder: String) {
                     button(type = ButtonType.submit, classes = "ask-send") {
                         id = "ask-send"
                         +tr("Ask", "Preguntar")
+                    }
+                    // A choice, not an automatic: reading specifications is a second turn and costs more,
+                    // so it is the operator's call. Unticked, the panel behaves exactly as without specs.
+                    if (offerSpecs) {
+                        label("ask-specs") {
+                            title = tr(
+                                "Lets Claude read the retailers' specification tables (dimensions, bed size, chaise side, materials) for the rows it needs. Slower and costs more.",
+                                "Permite que Claude lea las fichas técnicas de las tiendas (medidas, tamaño de cama, lado del chaise, materiales) de las filas que necesite. Más lento y cuesta más.",
+                            )
+                            input(type = InputType.checkBox, name = "specs") { value = "1" }
+                            +tr(" Include product specs", " Incluir especificaciones")
+                        }
                     }
                     button(type = ButtonType.button, classes = "ask-reset") {
                         id = "ask-reset"

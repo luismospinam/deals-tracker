@@ -84,6 +84,29 @@ class AskTest {
     }
 
     @Test
+    fun `history lists only rows whose price moved, oldest first, and says how many were checked`() {
+        val moved = deal(id = 1)
+        val flat = deal(id = 2)
+        val d = java.time.LocalDate.of(2026, 9, 1)
+        val c = ctx(moved, flat).withHistory(
+            mapOf(
+                1L to listOf(d to java.math.BigDecimal("2199000"), d.plusDays(20) to java.math.BigDecimal("1899000")),
+                2L to listOf(d to java.math.BigDecimal("500000")),
+            ),
+            checked = 2,
+        )
+        assertEquals("1|2026-09-01 2199000 2026-09-21 1899000", c.historyBlock().trim())
+        val prompt = c.firstPrompt("q")
+        assertTrue("first 2 rows were checked" in prompt)
+        assertTrue(prompt.indexOf("Price history") < prompt.indexOf("Question:"))
+    }
+
+    @Test
+    fun `no history means no history section`() {
+        assertFalse("Price history" in ctx(deal(id = 1)).firstPrompt("q"))
+    }
+
+    @Test
     fun `the question comes last, after the rows`() {
         val prompt = ctx(deal()).firstPrompt("which is best for a 55 inch TV?")
         assertTrue(prompt.trimEnd().endsWith("Question: which is best for a 55 inch TV?"))
