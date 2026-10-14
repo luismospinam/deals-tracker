@@ -140,6 +140,27 @@ class GroceryViewsTest {
     }
 
     @Test
+    fun `pinned opens on the deepest discount versus usual, unknown last`() {
+        val rows = listOf(
+            row(id = 1, title = "Arroz", pinned = true, price = "19000"),                  // 5% under
+            row(id = 2, title = "Leche", pinned = true, price = "14000"),                  // 30% under
+            row(id = 3, title = "Aceite", pinned = true, price = "10000", days = 2),       // no usual yet
+            row(id = 4, title = "Cafe", pinned = true, price = "21000"),                   // 5% ABOVE usual
+            row(id = 5, title = "Sal", pinned = true, onShelf = false, price = "16000"),   // 20% under, off the shelf
+        )
+        val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned")))
+        assertEquals(GrocerySort.BELOW, pinned.sort)
+        assertEquals(listOf(2L, 5L, 1L, 4L, 3L), groceryShown(rows, pinned).map { it.deal.id })
+    }
+
+    @Test
+    fun `an explicit sort still wins on pinned, and all items still opens by name`() {
+        val byName = GroceryControls.from(parametersOf("view" to listOf("pinned"), "sort" to listOf("name")))
+        assertEquals(GrocerySort.NAME, byName.sort)
+        assertEquals(GrocerySort.NAME, GroceryControls.from(parametersOf("view" to listOf("all"))).sort)
+    }
+
+    @Test
     fun `pinned is a tab beside deals and all items, with a count`() {
         val html = createHTML().main {
             groceryPage(

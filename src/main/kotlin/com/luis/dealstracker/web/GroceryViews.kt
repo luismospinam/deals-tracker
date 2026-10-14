@@ -134,7 +134,7 @@ internal enum class GroceryView(val key: String, val label: String, private val 
 }
 
 internal enum class GrocerySort(val key: String, val label: String) {
-    /** Default on Deals: furthest under its own usual price first. */
+    /** Default on Deals and Pinned: furthest under its own usual price first. */
     BELOW("below", "vs usual"),
 
     /** Cheapest per 100 g / L / unit first -- how two pack sizes are compared. Unknown sizes last. */
@@ -156,7 +156,7 @@ internal enum class GrocerySort(val key: String, val label: String) {
     companion object {
         fun of(value: String?, view: GroceryView) =
             entries.firstOrNull { it.key.equals(value?.trim(), ignoreCase = true) }
-                ?: if (view == GroceryView.DEALS) BELOW else NAME
+                ?: if (view == GroceryView.ALL) NAME else BELOW
     }
 }
 
