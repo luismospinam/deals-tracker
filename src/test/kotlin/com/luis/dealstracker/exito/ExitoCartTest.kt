@@ -118,6 +118,31 @@ class ExitoCartTest {
         assertIs<CartResult.Refused>(interpretAdd(200, """{"items":[]}""", sku))
     }
 
+    // Exito's real answer for a product it cannot deliver (2026-10-15): HTTP 200, the line IS in the cart,
+    // flagged "cannotBeDelivered", with an error message. The old check called this a success.
+    private val undeliverable = """{"orderFormId":"f","items":[{"id":"7","quantity":1,"availability":"available"},
+        {"id":"901","name":"Papa RAPI","quantity":1,"availability":"cannotBeDelivered"}],
+        "messages":[{"code":"cannotBeDelivered","text":"El ítem Papa RAPI no pudo ser enviado","status":"error"},
+        {"code":"changedFreight","text":"El tipo de despacho fue cambiado.","status":"warning"}]}"""
+
+    @Test
+    fun `a line Exito flags as not deliverable is a refusal, in Exito's words, not a success`() {
+        assertEquals(CartResult.Refused("El ítem Papa RAPI no pudo ser enviado"), interpretAdd(200, undeliverable, sku))
+        val noMessage = """{"items":[{"id":"901","availability":"withoutStock"}]}"""
+        assertIs<CartResult.Refused>(interpretAdd(200, noMessage, sku))
+        // An explicit "available" and a missing field both still count as added.
+        assertIs<CartResult.Added>(interpretAdd(200, """{"items":[{"id":"901","availability":"available"}]}""", sku))
+        assertIs<CartResult.Added>(interpretAdd(200, """{"items":[{"id":"901"}]}""", sku))
+    }
+
+    @Test
+    fun `the refused line is found by position and removed by setting it to zero`() {
+        assertEquals(1, lineIndex(undeliverable, "901"))
+        assertNull(lineIndex(undeliverable, "nope"))
+        assertNull(lineIndex("<html>", "901"))
+        assertEquals("""{"orderItems":[{"index":1,"quantity":0}]}""", removeLinePayload(1))
+    }
+
     @Test
     fun `auth failures read as expired, other failures as failed`() {
         assertEquals(CartResult.Expired, interpretAdd(401, null, sku))

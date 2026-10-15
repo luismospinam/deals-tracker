@@ -237,8 +237,12 @@ class ExitoSessionProbe(
         val cart = browserCart(page)
         println("\n=== this browser's own cart (not the shopper's: see the class note) ===")
         println("  signed in: ${cart?.loggedIn}   items in it: ${cart?.items}")
+        // A renewed token lands under .tienda.exito.com only, which the browser does not send to www.exito.com, so
+        // the page can read "signed in: false" for a token that works. Try it the way the tracker will: as a header.
+        val works = cart?.loggedIn == true || (token != null && tokenWorks(ctx, token))
+        if (cart?.loggedIn != true && token != null) println("  token tried as the tracker sends it: ${if (works) "accepted" else "refused"}")
 
-        if (token == null || cart?.loggedIn != true) {
+        if (token == null || !works) {
             println("\n[exito] not signed in after the visit -- nothing to save.")
             return
         }
@@ -248,6 +252,16 @@ class ExitoSessionProbe(
         } else {
             println("\n[exito] signed in, token read. Not saved (add --save to store it).")
         }
+    }
+
+    private fun tokenWorks(ctx: BrowserContext, token: String): Boolean = try {
+        val resp = ctx.request().get(
+            "https://www.exito.com/api/checkout/pub/orderForm",
+            com.microsoft.playwright.options.RequestOptions.create().setHeader("Cookie", "$EXITO_COOKIE_NAME=$token"),
+        )
+        isLoggedIn(cartJson.parseToJsonElement(resp.text()))
+    } catch (_: Exception) {
+        false
     }
 
     private fun lifetime(expires: Double): String =

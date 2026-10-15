@@ -159,6 +159,11 @@ internal fun interpretAdd(status: Int, body: String?, sku: CartSku): CartResult 
     val line = (form["items"] as? JsonArray)?.map { it.jsonObject }?.firstOrNull {
         it["id"]?.jsonPrimitive?.contentOrNull == sku.skuId
     }
+    if (line != null && line["availability"]?.jsonPrimitive?.contentOrNull.let { it != null && it != "available" }) {
+        // Exito takes the line into the cart and flags it (seen 2026-10-15: HTTP 200, line present,
+        // availability "cannotBeDelivered", plus an error message). The line existing is not an add.
+        return CartResult.Refused(unavailableReason(form, sku))
+    }
     if (line != null) {
         return CartResult.Added(
             title = line["name"]?.jsonPrimitive?.contentOrNull ?: sku.name,
@@ -168,6 +173,26 @@ internal fun interpretAdd(status: Int, body: String?, sku: CartSku): CartResult 
     val message = (form["messages"] as? JsonArray)
         ?.firstNotNullOfOrNull { (it as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull }
     return CartResult.Refused(message ?: "Exito did not add it (out of stock at this store?)")
+}
+
+/** Exito's own words for why a line cannot be bought, or a plain default. */
+internal fun unavailableReason(form: JsonObject, sku: CartSku): String =
+    (form["messages"] as? JsonArray)?.map { it.jsonObject }
+        ?.firstOrNull { it["status"]?.jsonPrimitive?.contentOrNull == "error" }
+        ?.get("text")?.jsonPrimitive?.contentOrNull
+        ?: "${sku.name ?: "This product"} is not available for delivery at Laureles"
+
+/** Body that sets the line at [index] to quantity 0, which removes it. */
+internal fun removeLinePayload(index: Int): String = buildJsonObject {
+    put("orderItems", buildJsonArray { add(buildJsonObject { put("index", index); put("quantity", 0) }) })
+}.toString()
+
+/** Position of [skuId] among the order form's lines, or null. */
+internal fun lineIndex(body: String?, skuId: String): Int? = try {
+    (cartJson.parseToJsonElement(body ?: "").jsonObject["items"] as? JsonArray)
+        ?.indexOfFirst { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull == skuId }?.takeIf { it >= 0 }
+} catch (_: Exception) {
+    null
 }
 
 /** Whether an order form is the signed-in customer's rather than an anonymous basket. */
@@ -247,7 +272,20 @@ class ExitoCart(
                 addItemPayload(sku, quantity),
                 mapOf("Cookie" to "$login; checkout.vtex.com=__ofid=$cartId", "Accept" to "application/json"),
             )
-            interpretAdd(added.status, added.body, sku)
+            val result = interpretAdd(added.status, added.body, sku)
+            if (result is CartResult.Refused) {
+                // A refused line may still sit in the cart; take it out so the cart holds only what can be bought.
+                lineIndex(added.body, sku.skuId)?.let { index ->
+                    runCatching {
+                        http.postJson(
+                            "$baseUrl/api/checkout/pub/orderForm/$cartId/items/update",
+                            removeLinePayload(index),
+                            mapOf("Cookie" to "$login; checkout.vtex.com=__ofid=$cartId", "Accept" to "application/json"),
+                        )
+                    }
+                }
+            }
+            result
         } catch (e: Exception) {
             CartResult.Failed(e.message?.take(120) ?: e::class.simpleName.orEmpty())
         }
