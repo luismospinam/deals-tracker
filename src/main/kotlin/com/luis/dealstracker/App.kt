@@ -145,6 +145,18 @@ fun main(args: Array<String>) {
     val fetchOnce = args.contains("--fetch-once")
     val onlySource = args.firstOrNull { it.startsWith("--source=") }?.substringAfter("=")
 
+    // Reads the Exito cart credentials from a signed-in browser profile. Without --save it only reports.
+    if (args.contains("--exito-session")) {
+        com.luis.dealstracker.exito.ExitoSessionProbe(
+            headless = args.contains("--headless"),
+            save = if (args.contains("--save")) SettingsRepository(Db.dataSource) else null,
+            dropLoginFirst = args.contains("--drop-login"),
+            openCartId = if (args.contains("--open-saved-cart")) SettingsRepository(Db.dataSource).get(SettingsRepository.EXITO_CART_ID) else null,
+        ).run()
+        http.close()
+        return
+    }
+
     if (args.contains("--verify-co-shipping")) {
         val limit = args.firstOrNull { it.startsWith("--limit=") }?.substringAfter("=")?.toIntOrNull()
         val cfg = verifyConfig(app, headless = args.contains("--headless"))
@@ -252,11 +264,15 @@ fun main(args: Array<String>) {
     }
 
     val scope = CoroutineScope(SupervisorJob())
+    // A second copy under test shares the live database; if it polled too, every store would be
+    // crawled twice. DEALS_NO_POLLER=1 serves the UI and nothing else.
+    val pollerEnabled = System.getenv("DEALS_NO_POLLER") != "1"
+    if (!pollerEnabled) println("[poller] disabled by DEALS_NO_POLLER=1 -- serving the UI only")
     val falabellaSources = app.providers.filter { it.enabled && it.type == "falabella-next" }.map { it.id }
 
     // Hourly poll lives inside the app process rather than a separate cron entry
     // point, so the UI can also trigger a refresh on demand.
-    scope.launch {
+    if (pollerEnabled) scope.launch {
         val intervalMillis = app.defaults.pollIntervalMinutes * 60_000
         val everyN = app.defaults.coShippingEveryNPolls
         var cycle = 0
@@ -327,7 +343,7 @@ fun main(args: Array<String>) {
     // Weekly thinning of old price history. Due-ness comes from a timestamp in app_settings rather than
     // a timer, so a restart neither skips a week nor runs it again at once, and a Mac that slept through
     // the week catches up on its next tick. Delayed after boot so it never competes with startup.
-    if (app.defaults.pruneHistoryAfterDays > 0 && app.defaults.pruneHistoryEveryDays > 0) {
+    if (pollerEnabled && app.defaults.pruneHistoryAfterDays > 0 && app.defaults.pruneHistoryEveryDays > 0) {
         scope.launch {
             val settings = SettingsRepository(Db.dataSource)
             delay(10 * 60_000L)
@@ -350,7 +366,7 @@ fun main(args: Array<String>) {
     // The scheduled grocery crawls, on their own short tick. Separate from the hourly loop above so a
     // 40-minute run window cannot fall between two hourly polls, and so a 6-minute crawl never delays
     // the rest of the cycle. `runScheduled` does nothing unless a window's chosen minute has passed.
-    scope.launch {
+    if (pollerEnabled) scope.launch {
         val groceries = GroceryRepository(Db.dataSource)
         while (true) {
             runCatching { ingest.runScheduled() }.onFailure { println("[schedule] failed: ${it.message}") }
@@ -364,7 +380,7 @@ fun main(args: Array<String>) {
     // Reads each search-found item's own page for its size and price, faster than the poll's drip while
     // a backlog exists. Shares the verifier's Chrome profile through VerifySlot, so it simply skips a
     // turn when the poll's run (or a click) has it. Quiet once nothing is left to check.
-    if (app.defaults.pageCleanupBatch > 0) {
+    if (pollerEnabled && app.defaults.pageCleanupBatch > 0) {
         scope.launch {
             delay(5 * 60_000L)
             while (true) {
@@ -392,9 +408,19 @@ fun main(args: Array<String>) {
     )
     println("[ask] using $claudePath, model ${app.defaults.askModel}, effort ${app.defaults.askEffort}")
 
+    // The cart button is Exito Laureles only; its seller is that store's own, read from config so the
+    // two cannot drift apart.
+    val laureles = app.providers.firstOrNull { it.id == com.luis.dealstracker.exito.EXITO_CART_SOURCE }
+    val exitoCart = com.luis.dealstracker.exito.ExitoCart(
+        http,
+        SettingsRepository(Db.dataSource),
+        baseUrl = laureles?.baseUrl ?: "https://www.exito.com",
+        seller = laureles?.options?.get("regionSeller") ?: "exitocol037",
+    )
+
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource))
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart)
     }.start(wait = true)
 }
 

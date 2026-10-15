@@ -24,7 +24,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "51"
+private const val CSS_VERSION = "55"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -174,6 +174,29 @@ internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
 private val GENERIC_CATEGORIES = setOf("Hot Deals", "Marketplace Deals", "Deal Talk", "Freebies")
 
+/**
+ * Makes a cart button show its own result for a few seconds -- "✓ Added" in green, "! Check" in red -- on top of
+ * the toast. The toast alone was missed on a phone, so the answer is also put where the thumb just was. The
+ * words come from the button's own data attributes, which are rendered in the page's language. A success is
+ * recognised by the toast the server answered with, so the two can never disagree.
+ */
+internal const val CART_FEEDBACK_JS = """
+document.addEventListener('htmx:afterRequest', function (e) {
+  var b = e.detail && e.detail.elt;
+  if (!b || !b.classList || !b.classList.contains('cart-btn')) return;
+  var ok = e.detail.successful && (e.detail.xhr.responseText || '').indexOf('toast-ok') !== -1;
+  if (b.dataset.label === undefined) b.dataset.label = b.textContent;
+  clearTimeout(b._cartTimer);
+  b.textContent = ok ? b.dataset.done : b.dataset.fail;
+  b.classList.remove('cart-done', 'cart-fail');
+  b.classList.add(ok ? 'cart-done' : 'cart-fail');
+  b._cartTimer = setTimeout(function () {
+    b.textContent = b.dataset.label;
+    b.classList.remove('cart-done', 'cart-fail');
+  }, 3500);
+});
+"""
+
 fun HTML.page(title: String, block: MAIN.() -> Unit) {
     head {
         meta(charset = "utf-8")
@@ -184,6 +207,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         link(rel = "stylesheet", href = FONT_HREF)
         link(rel = "stylesheet", href = "/static/app.css?v=$CSS_VERSION")
         script(src = "https://unpkg.com/htmx.org@1.9.12") {}
+        script { unsafe { +CART_FEEDBACK_JS } }
     }
     body {
         header {
@@ -212,6 +236,8 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             languageSwitch()
         }
         main { block() }
+        // Where action buttons that change nothing on the page report back (the Exito cart button).
+        div { id = "toast"; attributes["aria-live"] = "polite" }
     }
 }
 

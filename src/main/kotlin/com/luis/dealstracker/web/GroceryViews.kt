@@ -267,6 +267,7 @@ internal fun MAIN.groceryPage(
     // After the table, whichever early return the body took: "when were these prices read?" matters
     // most on exactly the screens that show nothing, like an empty Deals view or a first run.
     syncFooter(sync)
+    exitoCartSlot()
     storage?.let { st ->
         p("tracked-note") {
             title = tr(
@@ -348,6 +349,10 @@ private fun MAIN.groceryBody(
             }
         }
     }
+
+    // Shopping happens from the shopping list: the cart buttons and the link to the cart they fill live on
+    // Pinned only, not on Deals or All items, where an item is being browsed rather than bought.
+    if (controls.view == GroceryView.PINNED) openCartSlot()
 
     if (controls.view != GroceryView.PINNED) {
         searchBox(
@@ -667,7 +672,10 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
             +row.days.toString()
         }
         td(classes = "col-act") {
-            div("actions") {
+            // The cart button leads on a row of its own and the pin sits at the far end of the next, so the
+            // one that spends money and the one that forgets a staple cannot be hit by the same thumb.
+            div("actions grocery-actions") {
+                if (view == GroceryView.PINNED) cartButton(row)
                 a(href = "/deal/${deal.id}") { +tr("history", "historial") }
                 val pinned = row.pinnedAt != null
                 button(classes = if (pinned) "fav-btn on" else "fav-btn") {
@@ -675,6 +683,9 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                     attributes["hx-target"] = "#grocery-${deal.id}"
                     attributes["hx-swap"] = "outerHTML"
                     attributes["aria-pressed"] = pinned.toString()
+                    // Unpinning drops the staple from the shopping list, and on Pinned the row vanishes with
+                    // it; pinning is harmless, so only the removal asks.
+                    if (pinned) attributes["hx-confirm"] = tr("Remove this item from Pinned?", "¿Quitar este producto de Fijados?")
                     title = if (pinned) {
                         tr("Unpin this staple", "Quitar este básico de fijados")
                     } else {

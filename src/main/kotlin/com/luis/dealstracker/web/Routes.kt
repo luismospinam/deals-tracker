@@ -63,6 +63,7 @@ fun Application.routes(
     groceries: GroceryRepository,
     disabledSearches: com.luis.dealstracker.db.DisabledSearchRepository,
     dailyChanges: com.luis.dealstracker.db.DailyChangeRepository,
+    exitoCart: com.luis.dealstracker.exito.ExitoCart,
 ) {
     routing {
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
@@ -474,6 +475,40 @@ fun Application.routes(
                 else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), groceryStores(app)).firstOrNull()
             } ?: return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
             call.respondFragment { if (view == GroceryView.PINNED && !pinned) "" else groceryRowFragment(row, view) }
+        }
+
+        // Puts the Exito Laureles copy of a product in the signed-in Exito cart. Answers with a toast
+        // fragment rather than a row: nothing on the page changes, the cart is Exito's.
+        post("/groceries/{id}/cart") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val deal = withContext(Dispatchers.IO) { repo.findById(id) }
+            val result = if (deal == null || deal.source != com.luis.dealstracker.exito.EXITO_CART_SOURCE) {
+                // Only Laureles has the button; a hand-made request for another store is refused, not guessed at.
+                com.luis.dealstracker.exito.CartResult.Refused("the cart button is for Exito Laureles items only")
+            } else {
+                exitoCart.add(deal.sourceDealId)
+            }
+            call.respondFragment { cartToast(result, deal?.title, exitoCart.cartLink()) }
+        }
+
+        // The Open cart link at the top of Groceries; an empty answer removes its slot until there is a cart.
+        get("/groceries/exito-cart/link") {
+            call.respondFragment { openCartLink(exitoCart.cartLink()) }
+        }
+
+        get("/groceries/exito-cart") {
+            call.respondFragment { exitoCartPanel(exitoCart.cookie(), exitoCart.cartId()) }
+        }
+
+        post("/groceries/exito-cart") {
+            val form = call.receiveParameters()
+            if (form["clear"] != null) {
+                exitoCart.clear()
+            } else {
+                form["cookie"]?.takeIf { it.isNotBlank() }?.let { exitoCart.save(it) }
+            }
+            call.respondFragment { exitoCartPanel(exitoCart.cookie(), exitoCart.cartId()) }
         }
 
         post("/tracked/{id}/hide") {

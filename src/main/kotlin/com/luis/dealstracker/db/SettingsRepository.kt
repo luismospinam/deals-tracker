@@ -39,5 +39,11 @@ class SettingsRepository(private val ds: DataSource) {
 
         /** "true" once the language was picked with the switch rather than read from a browser. */
         const val LANGUAGE_CHOSEN = "language_chosen"
+
+        /** The pasted exito.com `VtexIdclientAutCookie_exitocol` cookie the cart button acts as. Blank when cleared. */
+        const val EXITO_COOKIE = "exito_cookie"
+
+        /** The shopper's own cart id (the `checkout.vtex.com` cookie's `__ofid`), which the cart button adds to. */
+        const val EXITO_CART_ID = "exito_cart_id"
     }
 }

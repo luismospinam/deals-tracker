@@ -17,6 +17,9 @@ build/
 # cookies -- and a logged-in session if the operator signs in. Never commit.
 .amazon-profile/
 
+# The same for the Exito cart-credentials probe: a signed-in Exito session. Never commit.
+.exito-profile/
+
 # Runtime state
 logs/
 *.log
