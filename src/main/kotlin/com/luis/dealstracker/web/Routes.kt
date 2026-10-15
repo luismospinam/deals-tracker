@@ -3,6 +3,7 @@ package com.luis.dealstracker.web
 import com.luis.dealstracker.ask.AskService
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
+import com.luis.dealstracker.db.DigestRange
 import com.luis.dealstracker.db.FeedFilter
 import com.luis.dealstracker.db.GroceryFilter
 import com.luis.dealstracker.db.GroceryRepository
@@ -309,9 +310,10 @@ fun Application.routes(
             val visible = withoutSwitchedOffSearches(deals, searchToggles, manualAsins)
             // The rows the table will show, so the banner follows every control at once.
             val shownRows = trackedShown(visible, selected, brand, origin, manualAsins, sort, showNoShip, call.request.queryParameters["freeship"] == "1")
+            val digestRange = DigestRange.of(call.request.queryParameters["range"])
             val digest = withContext(Dispatchers.IO) {
                 digestLines(
-                    dailyChanges.forDeals(shownRows.map { it.id }), shownRows,
+                    dailyChanges.forDeals(shownRows.map { it.id }, digestRange), shownRows,
                     idOf = { it.id }, titleOf = { it.title }, currencyOf = { it.currency },
                 )
             }
@@ -325,7 +327,7 @@ fun Application.routes(
                             "p. ej. ¿cuál de estos ha bajado más, y vale la pena comprarlo ahora?",
                         ),
                     )
-                    sinceYesterday(digest)
+                    digestBanner(digest, digestRange)
                     trackedPage(visible, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip, searchToggles = searchToggles, searchesOpen = call.request.queryParameters["searches"] == "open", freeShip = call.request.queryParameters["freeship"] == "1")
                 }
             }
@@ -426,8 +428,9 @@ fun Application.routes(
             // The same filter the table uses (stores, aisles, search, Pinned), so the banner describes
             // the rows on screen. Only the listings that moved are loaded with their usual price, so
             // this costs a few hundred rows rather than the whole catalogue.
+            val digestRange = DigestRange.of(call.request.queryParameters["range"])
             val digest = withContext(Dispatchers.IO) {
-                val moved = dailyChanges.forSources(sources)
+                val moved = dailyChanges.forSources(sources, digestRange)
                 val filter = if (controls.view == GroceryView.PINNED) {
                     GroceryFilter(sources, pinnedOnly = true, ids = moved.keys)
                 } else {
@@ -450,7 +453,7 @@ fun Application.routes(
                             "p. ej. ¿qué carne está bastante por debajo de su precio habitual esta semana?",
                         ),
                     )
-                    sinceYesterday(digest)
+                    digestBanner(digest, digestRange)
                     groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
                 }
             }
@@ -665,17 +668,18 @@ fun Application.routes(
             val alertsSort = watchSortFrom(params, WatchSort.ALERTS_PARAM)
             val matchingPage = watchPageFrom(params)
             val matchingSource = watchSourceFrom(params)
+            val digestRange = DigestRange.of(params["range"])
             val digest = withContext(Dispatchers.IO) {
                 val inView = filterBySource(candidates, matchingSource)
-                val moved = dailyChanges.forDeals(inView.map { it.dealId })
+                val moved = dailyChanges.forDeals(inView.map { it.dealId }, digestRange)
                 val lines = digestLines(
                     moved, inView,
                     idOf = { it.dealId }, titleOf = { it.title }, currencyOf = { it.currency },
                     noteOf = { it.source },
                 ).associateBy { it.dealId }.toMutableMap()
-                // Alerts that fired today, whether or not their price moved since yesterday.
-                val midnight = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant()
-                matches.filter { it.matchedAt >= midnight }.forEach { m ->
+                // Alerts that fired in the range (today, for the default), whether or not their price moved.
+                val windowStart = LocalDate.now().minusDays(digestRange.days - 1L).atStartOfDay(ZoneId.systemDefault()).toInstant()
+                matches.filter { it.matchedAt >= windowStart }.forEach { m ->
                     val deal = dealsById[m.dealId]?.takeIf { matchingSource == null || it.source == matchingSource } ?: return@forEach
                     val existing = lines[m.dealId]
                     lines[m.dealId] = existing?.copy(kinds = existing.kinds + DigestKind.ALERT)
@@ -694,7 +698,7 @@ fun Application.routes(
                         ),
                         offerSpecs = true,
                     )
-                    sinceYesterday(digest)
+                    digestBanner(digest, digestRange)
                     watchDetail(
                         watch, candidates, matches, dealsById,
                         sourceNames(repo, app), categorizer.categoryNames,

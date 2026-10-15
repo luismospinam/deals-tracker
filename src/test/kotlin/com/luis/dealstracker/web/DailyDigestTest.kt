@@ -1,6 +1,7 @@
 package com.luis.dealstracker.web
 
 import com.luis.dealstracker.db.DayChange
+import com.luis.dealstracker.db.DigestRange
 import com.luis.dealstracker.db.GroceryRow
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
@@ -25,7 +26,8 @@ class DailyDigestTest {
         id: Long, yesterday: String?, today: String, vararg kinds: DigestKind, title: String = "Item $id", note: String? = null,
     ) = DigestLine(id, title, "COP", yesterday?.let(::BigDecimal), BigDecimal(today), kinds.toSet(), note)
 
-    private fun render(lines: List<DigestLine>) = createHTML().main { sinceYesterday(lines) }
+    private fun render(lines: List<DigestLine>, range: DigestRange = DigestRange.YESTERDAY) =
+        createHTML().main { digestBanner(lines, range) }
 
     // --- DayChange ----------------------------------------------------------------------------
 
@@ -136,8 +138,56 @@ class DailyDigestTest {
     // --- rendering ----------------------------------------------------------------------------
 
     @Test
-    fun `no lines renders nothing at all`() {
-        assertFalse("digest" in render(emptyList()))
+    fun `no lines renders no banner, only the range control`() {
+        val html = render(emptyList())
+        assertFalse("<details" in html, html)
+        assertFalse("digest-empty" in html, html)
+        assertTrue("digest-range" in html, html)
+    }
+
+    @Test
+    fun `an empty wider range says so rather than showing nothing`() {
+        val html = render(emptyList(), DigestRange.WEEK)
+        assertTrue("Nothing cheaper than the past 7 days." in html, html)
+    }
+
+    @Test
+    fun `the control offers every range and marks the current one pressed`() {
+        val html = render(emptyList(), DigestRange.FORTNIGHT)
+        assertEquals(DigestRange.entries.size, Regex("<button").findAll(html).count(), html)
+        assertTrue(Regex("""class="on"[^>]*aria-pressed="true"|aria-pressed="true"[^>]*class="on"""").containsMatchIn(html), html)
+        assertEquals(1, Regex("""aria-pressed="true"""").findAll(html).count(), html)
+    }
+
+    @Test
+    fun `each button sets its own range through window URL, because document URL shadows a bare URL`() {
+        val html = render(emptyList())
+        DigestRange.entries.forEach { assertTrue("set(&#39;range&#39;,&#39;${it.param}&#39;)" in html || "set('range','${it.param}')" in html, html) }
+        assertTrue("new window.URL(" in html, html)
+        assertFalse(Regex("""new URL\(""").containsMatchIn(html), html)
+    }
+
+    @Test
+    fun `the banner is titled by the range`() {
+        val lines = listOf(line(1, "100", "90", DigestKind.DROP))
+        assertTrue("Since yesterday</span>" in render(lines), render(lines))
+        assertTrue("Below the past 7 days</span>" in render(lines, DigestRange.WEEK), render(lines, DigestRange.WEEK))
+    }
+
+    @Test
+    fun `alert counts name the window they cover`() {
+        val lines = listOf(line(1, null, "90", DigestKind.ALERT))
+        assertTrue("1 alert fired in the past 14 days" in render(lines, DigestRange.FORTNIGHT), render(lines, DigestRange.FORTNIGHT))
+    }
+
+    @Test
+    fun `range parameter parsing falls back to yesterday`() {
+        assertEquals(DigestRange.WEEK, DigestRange.of("7"))
+        assertEquals(DigestRange.FORTNIGHT, DigestRange.of("14"))
+        assertEquals(DigestRange.YESTERDAY, DigestRange.of("1"))
+        assertEquals(DigestRange.YESTERDAY, DigestRange.of(null))
+        assertEquals(DigestRange.YESTERDAY, DigestRange.of("365"))
+        assertEquals(DigestRange.YESTERDAY, DigestRange.of("abc"))
     }
 
     @Test

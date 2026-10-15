@@ -1789,6 +1789,32 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
  * The daily digest banner on Tracked, Groceries and a watch. A <details> like the Ask panel: the
  * summary is the banner, the list one click away. It is a measured fact from our own price log, so
  * it takes the verified green -- the Ask panel's ember stays reserved for advice. */
+.digest-bar { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: flex-start; margin: 0 0 14px; }
+.digest-bar > details.digest { flex: 1 1 24rem; margin: 10px 0 0; }
+/* A segmented control: the choice is all visible, the current one takes the "this is on" treatment
+ * the type tags use. Joined into one pill so it reads as a single control beside the banner. */
+.digest-range {
+  margin-left: auto;
+  display: inline-flex;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.digest-range button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.digest-range button + button { border-left: 1px solid var(--line-soft); }
+.digest-range button:hover { color: var(--text); background: var(--surface-2); }
+.digest-range button.on { color: var(--text); background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); cursor: default; }
+.digest-range button:focus-visible { outline-offset: -2px; }
+.digest-empty { align-self: center; margin-top: 10px; color: var(--text-faint); }
 details.digest {
   margin: 10px 0 14px;
   border: 1px solid var(--line);
