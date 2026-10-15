@@ -152,6 +152,7 @@ fun main(args: Array<String>) {
             save = if (args.contains("--save")) SettingsRepository(Db.dataSource) else null,
             dropLoginFirst = args.contains("--drop-login"),
             openCartId = if (args.contains("--open-saved-cart")) SettingsRepository(Db.dataSource).get(SettingsRepository.EXITO_CART_ID) else null,
+            renew = args.contains("--renew"),
         ).run()
         http.close()
         return
@@ -374,6 +375,30 @@ fun main(args: Array<String>) {
             runCatching { groceries.refreshUsualPrices().takeIf { it > 0 }?.let { println("[groceries] usual prices refreshed for $it rows") } }
                 .onFailure { println("[groceries] usual-price refresh failed: ${it.message}") }
             delay(SCHEDULE_TICK_MILLIS)
+        }
+    }
+
+    // Renews the Exito login at the start of the day, headless, from the profile's 30-day refresh token, so the
+    // cart button keeps working without a paste. Shares the Chrome profile lock; a busy slot just waits a turn.
+    if (pollerEnabled) scope.launch {
+        val exitoSettings = SettingsRepository(Db.dataSource)
+        var lastAttempt: java.time.Instant? = null
+        while (true) {
+            val due = runCatching {
+                com.luis.dealstracker.exito.renewalDue(
+                    java.time.Instant.now(), exitoSettings.get(SettingsRepository.EXITO_COOKIE), lastAttempt, java.time.ZoneId.systemDefault(),
+                )
+            }.getOrDefault(false)
+            if (due) {
+                lastAttempt = java.time.Instant.now()
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        println("[exito] renewing the login for the day")
+                        com.luis.dealstracker.exito.ExitoSessionProbe(headless = true, save = exitoSettings, renew = true).run()
+                    }.onFailure { println("[exito] daily login renewal failed: ${it.message}") }
+                }
+            }
+            delay(15 * 60_000L)
         }
     }
 

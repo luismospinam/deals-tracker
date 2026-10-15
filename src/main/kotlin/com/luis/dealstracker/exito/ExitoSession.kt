@@ -47,8 +47,33 @@ data class CookieRow(val name: String, val domain: String, val value: String)
  */
 internal fun loginTokenFrom(cookies: List<CookieRow>): String? =
     cookies.filter { it.name == EXITO_COOKIE_NAME && it.value.isNotBlank() }
-        .sortedByDescending { it.domain.removePrefix(".") == "www.exito.com" }
+        // The freshest wins: a renewal lands under .tienda.exito.com while a stale copy can linger under www.
+        // Between equally fresh copies, the one the cart API is called with.
+        .sortedWith(
+            compareByDescending<CookieRow> { cookieExpiry(cleanCookie(it.value)) ?: Instant.MIN }
+                .thenByDescending { it.domain.removePrefix(".") == "www.exito.com" },
+        )
         .firstOrNull()?.value?.let(::cleanCookie)?.takeIf { it.isNotEmpty() }
+
+/**
+ * Whether the daily renewal should run now: from [startHour] local time on, once the saved login was not issued
+ * today (a token's `exp` is 24 hours after it was issued), and not within [retryAfter] of the last attempt.
+ * Stateless apart from [lastAttempt], so a Mac that slept through the morning renews as soon as it wakes.
+ */
+internal fun renewalDue(
+    now: Instant,
+    token: String?,
+    lastAttempt: Instant?,
+    zone: java.time.ZoneId,
+    startHour: Int = 6,
+    retryAfter: java.time.Duration = java.time.Duration.ofHours(1),
+): Boolean {
+    val local = now.atZone(zone)
+    if (local.hour < startHour) return false
+    if (lastAttempt != null && java.time.Duration.between(lastAttempt, now) < retryAfter) return false
+    val issued = token?.let(::cookieExpiry)?.minus(java.time.Duration.ofHours(24))
+    return issued == null || issued.atZone(zone).toLocalDate() != local.toLocalDate()
+}
 
 /** Stores the login token where the cart button reads it, leaving the saved cart id alone. */
 internal fun saveLogin(settings: SettingsRepository, token: String) {
@@ -81,6 +106,8 @@ class ExitoSessionProbe(
     private val dropLoginFirst: Boolean = false,
     /** When set, tests whether a link can open THAT cart in a browser that has never seen it. */
     private val openCartId: String? = null,
+    /** Asks for a new token even when the profile still holds an unexpired one: the daily run wants a full day. */
+    private val renew: Boolean = false,
     private val now: () -> Instant = Instant::now,
 ) {
     fun run() {
@@ -151,7 +178,7 @@ class ExitoSessionProbe(
                         "Run headed (without --headless) so you can clear it; the profile remembers.")
                     return
                 }
-                if (ctx.cookies().none { it.name == EXITO_COOKIE_NAME }) refreshLogin(ctx)
+                if (renew || ctx.cookies().none { it.name == EXITO_COOKIE_NAME }) refreshLogin(ctx)
                 if (!waitForLogin(ctx)) return
                 // The sign-in redirects through several pages, and the one opened first may be mid-navigation
                 // or gone. A fresh tab, after a pause, reads a settled page.
