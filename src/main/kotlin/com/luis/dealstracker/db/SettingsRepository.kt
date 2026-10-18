@@ -40,6 +40,10 @@ class SettingsRepository(private val ds: DataSource) {
         /** "true" once the language was picked with the switch rather than read from a browser. */
         const val LANGUAGE_CHOSEN = "language_chosen"
 
+        /** ISO-8601 instant of the last slot the pinned-on-sale post was handled for, per section. */
+        const val PINNED_ALERT_GROCERIES_SLOT = "pinned_alert_groceries_slot"
+        const val PINNED_ALERT_TRACKED_SLOT = "pinned_alert_tracked_slot"
+
         /** The pasted exito.com `VtexIdclientAutCookie_exitocol` cookie the cart button acts as. Blank when cleared. */
         const val EXITO_COOKIE = "exito_cookie"
 

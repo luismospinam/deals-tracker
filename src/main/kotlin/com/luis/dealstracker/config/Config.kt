@@ -157,6 +157,13 @@ data class Defaults(
     val pruneHistoryEveryDays: Int = 7,
 
     /**
+     * Local times of day the pinned-items-on-sale posts go to Discord. 08:00 is the morning read; 19:00
+     * sits after the last grocery crawl window ends (18:45). Move the second if a window in sources.yaml
+     * moves. See docs/pinned-notifications.md.
+     */
+    val pinnedAlertTimes: List<String> = listOf("08:00", "19:00"),
+
+    /**
      * Warn when this percentage of active deals has landed in the `Other` category. 0 disables.
      *
      * Category rules need gardening as the sources' catalogs shift, and there was a feedback
@@ -258,6 +265,9 @@ class AppConfig(
      */
     val mlClientId: String?,
     val mlClientSecret: String?,
+    /** Discord webhook URLs, one channel per section; null leaves that section's post off. From `.env`. */
+    val discordGroceriesWebhook: String? = null,
+    val discordTrackedWebhook: String? = null,
 ) {
     val enabledProviders: List<ProviderConfig> get() = providers.filter { it.enabled }
 
@@ -303,6 +313,8 @@ class AppConfig(
                     ?: local.getProperty("ml.clientId")?.takeIf { it.isNotBlank() },
                 mlClientSecret = System.getenv("ML_CLIENT_SECRET")
                     ?: local.getProperty("ml.clientSecret")?.takeIf { it.isNotBlank() },
+                discordGroceriesWebhook = setting("DISCORD_GROCERIES_WEBHOOK_URL", "").ifBlank { null },
+                discordTrackedWebhook = setting("DISCORD_TRACKED_WEBHOOK_URL", "").ifBlank { null },
             )
         }
 

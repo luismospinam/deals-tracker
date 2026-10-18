@@ -195,6 +195,17 @@ fun main(args: Array<String>) {
         return
     }
 
+    // Builds the pinned-on-sale posts now, ignoring the daily slots. `--dry-run` prints them instead of
+    // sending. See docs/pinned-notifications.md.
+    if (args.contains("--notify-pinned")) {
+        val alerts = com.luis.dealstracker.notify.PinnedAlerts(
+            app, repo, GroceryRepository(Db.dataSource), manualItems, SettingsRepository(Db.dataSource),
+        )
+        alerts.runNow(dryRun = args.contains("--dry-run")).forEach(::println)
+        http.close()
+        return
+    }
+
     // Reads specification tables off Falabella/Homecenter product pages for watched products. The poll
     // does a small batch each cycle; this drains the backlog on demand, optionally for one watch.
     if (args.contains("--fetch-specs")) {
@@ -374,6 +385,20 @@ fun main(args: Array<String>) {
             // Rebuilds the stored usual prices when the date has turned (V28); a no-op the rest of the day.
             runCatching { groceries.refreshUsualPrices().takeIf { it > 0 }?.let { println("[groceries] usual prices refreshed for $it rows") } }
                 .onFailure { println("[groceries] usual-price refresh failed: ${it.message}") }
+            delay(SCHEDULE_TICK_MILLIS)
+        }
+    }
+
+    // The twice-daily Discord posts of pinned items that are on sale. Due-ness is the latest configured time
+    // already passed and not yet recorded in app_settings, so a restart neither repeats nor skips a post.
+    if (pollerEnabled) scope.launch {
+        val alerts = com.luis.dealstracker.notify.PinnedAlerts(
+            app, repo, GroceryRepository(Db.dataSource), manualItems, SettingsRepository(Db.dataSource),
+        )
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching { alerts.runDue().forEach(::println) }.onFailure { println("[pinned-alerts] failed: ${it.message}") }
+            }
             delay(SCHEDULE_TICK_MILLIS)
         }
     }

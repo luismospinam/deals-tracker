@@ -267,6 +267,37 @@ class GroceryRepository(private val ds: DataSource) {
     }
 
     /**
+     * The usual price of arbitrary listings, as (median, days of history) by id -- the same definition
+     * [refreshUsualPrices] stores for groceries, computed on demand because only groceries have it stored.
+     * For the handful of pinned tracked items; not for a whole catalogue.
+     */
+    fun usualPrices(ids: List<Long>): Map<Long, Pair<BigDecimal, Int>> {
+        if (ids.isEmpty()) return emptyMap()
+        return ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT g.id, h.usual, COALESCE(h.days, 0) AS days
+                  FROM unnest(?::bigint[]) AS g(id)
+                  JOIN LATERAL (
+                        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY price) AS usual, COUNT(*) AS days
+                          FROM (SELECT observed_at::date, MIN(price) AS price
+                                  FROM price_observations
+                                 WHERE deal_id = g.id
+                                   AND observed_at >= current_date - $WINDOW_DAYS
+                                   AND observed_at < current_date
+                                 GROUP BY 1) daily
+                       ) h ON h.usual IS NOT NULL
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("bigint", ids.toTypedArray()))
+                st.executeQuery().use { rs ->
+                    buildMap { while (rs.next()) put(rs.getLong("id"), rs.getBigDecimal("usual") to rs.getInt("days")) }
+                }
+            }
+        }
+    }
+
+    /**
      * Distinct products on the shelf per source, for the store filter's counts.
      *
      * Per source; the view sums a chain's stores and cannot simply add them, since most products are at
