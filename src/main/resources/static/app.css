@@ -944,6 +944,15 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+
+  /* The cart toast is the exception. Its fade-out ends hidden and is held by `forwards`, so squeezing it to
+   * 0.01ms (the rule above) hides it at once -- on a Windows machine with animation effects off it flashed
+   * and vanished. Without motion it should still stay its full time: hold, then disappear in one step. */
+  #toast .toast { animation: toast-hold 8s steps(1, end) forwards !important; }
+}
+@keyframes toast-hold {
+  from { opacity: 1; }
+  to { opacity: 0; visibility: hidden; }
 }
 
 /* ---------- narrow screens ---------- */
