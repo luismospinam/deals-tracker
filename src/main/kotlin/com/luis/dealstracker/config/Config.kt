@@ -142,6 +142,8 @@ data class Defaults(
      * goes fully idle: roughly one row in [pageRecheckDays] comes due each day. 0 turns it off.
      */
     val pageRecheckDays: Int = 7,
+    /** Days after which a `YES` shipping verdict's fee is read again from the page. 0 turns it off. */
+    val shippingRecheckDays: Int = 7,
     /** Minutes between cleanup runs while there is a backlog. A block backs off for an hour instead. */
     val pageCleanupEveryMinutes: Int = 20,
 

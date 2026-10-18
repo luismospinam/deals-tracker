@@ -586,6 +586,7 @@ internal fun verifyConfig(
     // The Amazon provider's selectors, so a corrected price selector reaches the page-price read too.
     amazonOptions = app.providers.firstOrNull { it.type == "amazon" }?.options.orEmpty(),
     pageRecheckDays = app.defaults.pageRecheckDays,
+    shippingRecheckDays = app.defaults.shippingRecheckDays,
 )
 
 private fun summarize(outcome: VerifyOutcome): String =

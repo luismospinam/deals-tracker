@@ -887,6 +887,7 @@ class DealRepository(
         baseBackoffHours: Int = 6,
         maxBackoffHours: Int = 168,
         prioritySources: List<String> = emptyList(),
+        recheckYesDays: Int = 0,
     ): List<Triple<Long, String, String>> =
         ds.connection.use { conn ->
             conn.prepareStatement(
@@ -901,14 +902,18 @@ class DealRepository(
                 ) agg ON TRUE
                  WHERE d.is_active
                    AND d.asin IS NOT NULL
-                   AND d.co_shipping = 'UNKNOWN'
                    AND coalesce(d.co_shipping_source, '') <> 'MANUAL'
                    AND (
-                        d.co_shipping_checked_at IS NULL
-                     OR d.co_shipping_checked_at < now() - make_interval(
-                            hours => LEAST(? * POWER(2, d.co_shipping_attempts)::int, ?))
+                        (d.co_shipping = 'UNKNOWN' AND (
+                            d.co_shipping_checked_at IS NULL
+                         OR d.co_shipping_checked_at < now() - make_interval(
+                                hours => LEAST(? * POWER(2, d.co_shipping_attempts)::int, ?))))
+                     -- A settled YES carries a fee quoted at the item's price, which Amazon changes.
+                     OR (? > 0 AND d.co_shipping = 'YES'
+                         AND d.co_shipping_checked_at < now() - make_interval(days => ?))
                    )
-                 ORDER BY EXISTS (
+                 ORDER BY (d.co_shipping = 'UNKNOWN') DESC,
+                          EXISTS (
                               -- A listing a shipping-gated watch is waiting on is held out of its
                               -- alerts until this verdict lands, so it jumps the whole queue.
                               SELECT 1 FROM watches w
@@ -927,8 +932,10 @@ class DealRepository(
             ).use { st ->
                 st.setInt(1, baseBackoffHours)
                 st.setInt(2, maxBackoffHours)
-                st.setArray(3, conn.createArrayOf("text", prioritySources.toTypedArray()))
-                st.setInt(4, limit)
+                st.setInt(3, recheckYesDays)
+                st.setInt(4, recheckYesDays)
+                st.setArray(5, conn.createArrayOf("text", prioritySources.toTypedArray()))
+                st.setInt(6, limit)
                 st.executeQuery().use { rs ->
                     buildList {
                         while (rs.next()) {
@@ -1205,9 +1212,9 @@ class DealRepository(
                        co_shipping_source = CASE WHEN ? THEN co_shipping_source ELSE 'AUTO' END,
                        co_shipping_checked_at = now(),
                        co_shipping_attempts = CASE WHEN ? THEN co_shipping_attempts + 1 ELSE 0 END,
-                       co_shipping_evidence = ?,
-                       co_shipping_import_free = ?,
-                       co_shipping_cost = ?
+                       co_shipping_evidence = CASE WHEN ? THEN co_shipping_evidence ELSE ? END,
+                       co_shipping_import_free = CASE WHEN ? THEN co_shipping_import_free ELSE ? END,
+                       co_shipping_cost = CASE WHEN ? THEN co_shipping_cost ELSE ? END
                  WHERE id = ?
                    AND coalesce(co_shipping_source, '') <> 'MANUAL'
                 """.trimIndent(),
@@ -1216,10 +1223,13 @@ class DealRepository(
                 st.setString(2, verdict.name)
                 st.setBoolean(3, unclear)
                 st.setBoolean(4, unclear)
-                st.setString(5, evidence.take(300))
-                importFree?.let { st.setBoolean(6, it) } ?: st.setNull(6, java.sql.Types.BOOLEAN)
-                st.setBigDecimal(7, shippingCost)
-                st.setLong(8, id)
+                st.setBoolean(5, unclear)
+                st.setString(6, evidence.take(300))
+                st.setBoolean(7, unclear)
+                importFree?.let { st.setBoolean(8, it) } ?: st.setNull(8, java.sql.Types.BOOLEAN)
+                st.setBoolean(9, unclear)
+                st.setBigDecimal(10, shippingCost)
+                st.setLong(11, id)
                 st.executeUpdate() > 0
             }
         }

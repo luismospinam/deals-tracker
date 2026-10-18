@@ -100,6 +100,11 @@ data class CoShippingConfig(
      * Tracked row keeps a page-true price. 0 turns the refresh off; never-visited rows are unaffected.
      */
     val pageRecheckDays: Int = 7,
+    /**
+     * Re-check a `YES` verdict's shipping fee once it is older than this many days: the fee is quoted at the
+     * item's price and Amazon changes it. 0 turns it off.
+     */
+    val shippingRecheckDays: Int = 7,
 )
 
 data class VerifyOutcome(
@@ -157,7 +162,7 @@ class AmazonVerifier(
             val take = (limit ?: config.batchSize).coerceAtMost(config.maxPerRun)
             val pages = repo.pageCheckCandidates(take, config.prioritySources, recheckDays = config.pageRecheckDays)
             val recover = repo.siblingRecoveryCandidates(take, config.prioritySources)
-            val ship = repo.coShippingCandidates(take, prioritySources = config.prioritySources)
+            val ship = repo.coShippingCandidates(take, prioritySources = config.prioritySources, recheckYesDays = config.shippingRecheckDays)
             needsPage = pages.map { it.first }.toSet()
             recovery = recover.map { it.first }.toSet()
             shipIds = ship.map { it.first }.toSet()

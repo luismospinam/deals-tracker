@@ -372,4 +372,19 @@ class CoShippingExtractorTest {
         val v = extractor.extract(PageSignals(availability = "cannot be shipped to your selected delivery location " + "x".repeat(2000)))
         assertTrue(v.evidence.length <= CoShippingExtractor.EVIDENCE_LIMIT)
     }
+
+    @Test
+    fun `a paid shipping quote is a fee, never free`() {
+        // B0F79Y84YC, 2026-10-18: the page quotes $16.93, the row had been stored as free on 2026-09-24.
+        val verdict = extractor.extract(
+            PageSignals(
+                availability = "",
+                deliveryBlock = "",
+                amazonGlobal = "No Import Charges & \$16.93 Shipping to Colombia Details",
+            ),
+        )
+        assertEquals(CoShipping.YES, verdict.value)
+        assertEquals(java.math.BigDecimal("16.93"), verdict.shippingCost)
+        assertEquals(true, verdict.importChargesIncluded)
+    }
 }
