@@ -256,6 +256,11 @@ data class Deal(
      * value shown to the reader must be the value that did the sorting.
      */
     val relevance: Double = 0.0,
+    /**
+     * When the operator pinned this row, or null. A timestamp column on `deals` that `upsertDeal`
+     * never writes, so a pin survives every poll. Groceries pioneered it; the tracked tab reuses it.
+     */
+    val pinnedAt: Instant? = null,
 ) {
     val discountPercent: BigDecimal?
         get() {

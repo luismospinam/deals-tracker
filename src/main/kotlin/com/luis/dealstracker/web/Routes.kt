@@ -514,6 +514,32 @@ fun Application.routes(
             call.respondFragment { exitoCartPanel(exitoCart.cookie(), exitoCart.cartId()) }
         }
 
+        // Pins or unpins a tracked row. Answers with the button in its new state; on the Pinned list an
+        // unpin of a hand-pinned row answers empty and the row swap removes it. Added items stay on that
+        // list whatever their pin, so they get the button back.
+        post("/tracked/{id}/{action}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val pinned = when (call.parameters["action"]) {
+                "pin" -> true
+                "unpin" -> false
+                else -> return@post call.respondText("unknown action", status = HttpStatusCode.NotFound)
+            }
+            val also = call.request.queryParameters["also"]
+                ?.split(',')?.mapNotNull { it.trim().toLongOrNull() }.orEmpty()
+            val onPinnedView = call.request.queryParameters["view"] == "pinned"
+            val (deal, added) = withContext(Dispatchers.IO) {
+                repo.setPinned(listOf(id) + also, pinned)
+                repo.findById(id) to manualItems.trackedAsins()
+            }
+            if (deal == null) return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
+            val isAdded = deal.asin != null && deal.asin in added
+            val removesRow = onPinnedView && !isAdded
+            call.respondFragment {
+                if (removesRow && !pinned) "" else pinButtonFragment(id, pinned, also, onPinnedView, removesRow)
+            }
+        }
+
         post("/tracked/{id}/hide") {
             val id = call.parameters["id"]?.toLongOrNull()
                 ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
@@ -534,7 +560,7 @@ fun Application.routes(
                 ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
             val deal = repo.findById(id)
                 ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
-            call.respondPage { page(deal.title) { dealDetail(deal, repo.priceHistory(id)) } }
+            call.respondPage { page(deal.title) { dealDetail(deal, repo.priceHistory(id), pinnable = deal.source in trackingSources(app)) } }
         }
 
         post("/deal/{id}/state") {

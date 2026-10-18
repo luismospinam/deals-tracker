@@ -31,9 +31,11 @@ class TrackedViewsTest {
         listPrice: String? = null,
         minEver: String? = null,
         maxEver: String? = null,
+        pinned: Boolean = false,
+        asin: String = "B0",
     ) = Deal(
         id = 1, source = "amazon", sourceDealId = "B0", title = "Item — M",
-        url = "https://www.amazon.com/dp/B0", merchant = "amazon", asin = "B0",
+        url = "https://www.amazon.com/dp/B0", merchant = "amazon", asin = asin,
         category = null, imageUrl = null, brand = "adidas", gtin = null, modelCode = null,
         matchKey = null, modelKey = null, currency = "USD",
         firstSeenAt = Instant.EPOCH, lastSeenAt = Instant.EPOCH, isActive = true,
@@ -46,6 +48,7 @@ class TrackedViewsTest {
         minPriceEver = minEver?.let(::BigDecimal),
         maxPriceEver = maxEver?.let(::BigDecimal),
         observationCount = if (minEver != null) 2 else 1,
+        pinnedAt = if (pinned) Instant.EPOCH else null,
     )
 
     @Test
@@ -203,6 +206,65 @@ class TrackedViewsTest {
         assertNull(TrackedOrigin.of("manual"))
         assertNull(TrackedOrigin.of(null))
         assertNull(TrackedOrigin.of(""))
+    }
+
+    // --- pinned ---
+
+    @Test
+    fun `pinned origin parses from its label`() {
+        assertEquals(TrackedOrigin.PINNED, TrackedOrigin.of("pinned"))
+    }
+
+    @Test
+    fun `the pinned list is the pinned rows plus the added ones, and nothing else`() {
+        val pinned = trackedDeal(price = "10", pinned = true, asin = "P1")
+        val added = trackedDeal(price = "20", asin = "A1")
+        val found = trackedDeal(price = "30", asin = "F1")
+        val shown = trackedShown(
+            listOf(pinned, added, found), emptySet(), null, TrackedOrigin.PINNED, setOf("A1"), TrackedSort.PRICE,
+        )
+        assertEquals(listOf("P1", "A1"), shown.map { it.asin })
+    }
+
+    @Test
+    fun `an added item that is also pinned is listed once`() {
+        val both = trackedDeal(price = "10", pinned = true, asin = "A1")
+        val shown = trackedShown(listOf(both), emptySet(), null, TrackedOrigin.PINNED, setOf("A1"), TrackedSort.PRICE)
+        assertEquals(1, shown.size)
+    }
+
+    @Test
+    fun `the pin button posts the opposite action and carries the folded variants`() {
+        val off = pinButtonFragment(7, pinned = false, variants = listOf(8, 9), onPinnedView = false, removesRow = false)
+        assertTrue("/tracked/7/pin?also=8,9" in off, off)
+        assertTrue("☆ pin" in off, off)
+        assertTrue("hx-target=\"this\"" in off, off)
+        val on = pinButtonFragment(7, pinned = true, variants = emptyList(), onPinnedView = false, removesRow = false)
+        assertTrue("/tracked/7/unpin\"" in on, on)
+        assertTrue("★ pinned" in on, on)
+    }
+
+    @Test
+    fun `unpinning on the pinned list targets the row and asks first`() {
+        val html = pinButtonFragment(7, pinned = true, variants = emptyList(), onPinnedView = true, removesRow = true)
+        assertTrue("hx-target=\"#tracked-7\"" in html, html)
+        assertTrue("view=pinned" in html, html)
+        assertTrue("hx-confirm" in html, html)
+    }
+
+    private fun detailHtml(deal: Deal, pinnable: Boolean) =
+        kotlinx.html.stream.createHTML(prettyPrint = false).main { dealDetail(deal, emptyList(), pinnable) }
+
+    @Test
+    fun `the detail page shows the pin button for a tracked item, in its current state`() {
+        val html = detailHtml(trackedDeal(price = "10", pinned = true), pinnable = true)
+        assertTrue("/tracked/1/unpin" in html, html)
+        assertTrue("★ pinned" in html, html)
+    }
+
+    @Test
+    fun `the detail page has no pin button for a feed deal`() {
+        assertFalse("fav-btn" in detailHtml(trackedDeal(price = "10"), pinnable = false))
     }
 
     // --- extra charges (shipping / import) ---

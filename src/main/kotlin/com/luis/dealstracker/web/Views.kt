@@ -24,7 +24,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "56"
+private const val CSS_VERSION = "59"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -1242,7 +1242,7 @@ fun rowFragment(deal: Deal, note: String? = null, screen: FeedScreen = FeedScree
     return consumer.finalize()
 }
 
-fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
+fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boolean = false) {
     h1("detail-head") { a(href = deal.url, target = "_blank") { +deal.title } }
     div("meta") {
         span("src") {
@@ -1257,6 +1257,9 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>) {
         val firstSeen = relativeAgo(deal.firstSeenAt)
         span { +tr("first seen $firstSeen", "vista por primera vez $firstSeen") }
     }
+
+    // Tracked-tab rows only: the pin puts the item on Tracked's Pinned list, which means nothing for a feed deal.
+    if (pinnable) div("actions") { pinButton(deal.id, deal.pinnedAt != null, emptyList(), onPinnedView = false, removesRow = false) }
 
     // The feed's thumbnail is sized for recognition while scanning; this page is where the
     // decision happens, so it shows the image at something like the size the sources

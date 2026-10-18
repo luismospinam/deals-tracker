@@ -834,6 +834,21 @@ class DealRepository(
         }
     }
 
+    /**
+     * Pins or unpins the given rows, returning how many changed. Several ids because the tracked tab
+     * folds same-product variants into one row (see `collapseVariants`) and the pin must cover the
+     * group, or the next poll could surface an unpinned sibling in its place. Keeps the first pin time.
+     */
+    fun setPinned(ids: List<Long>, pinned: Boolean): Int =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE deals SET pinned_at = ${if (pinned) "COALESCE(pinned_at, now())" else "NULL"} WHERE id = ANY (?)",
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("bigint", ids.toTypedArray()))
+                st.executeUpdate()
+            }
+        }
+
     fun updateState(id: Long, state: DealState): Boolean =
         ds.connection.use { conn ->
             conn.prepareStatement("UPDATE deals SET state = ? WHERE id = ?").use { st ->
@@ -1399,4 +1414,5 @@ internal fun ResultSet.toDeal() = Deal(
     maxPriceEver = getBigDecimal("max_price"),
     observationCount = getInt("n"),
     relevance = getDouble("relevance"),
+    pinnedAt = getTimestamp("pinned_at")?.toInstant(),
 )

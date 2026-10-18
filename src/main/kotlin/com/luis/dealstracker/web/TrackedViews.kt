@@ -170,13 +170,21 @@ internal enum class ProductType(val label: String, internal val nouns: List<Stri
  */
 internal enum class TrackedOrigin(val label: String) {
     MANUAL("added"),
-    SEARCH("found");
+    SEARCH("found"),
+
+    /**
+     * The shopping list: rows pinned by hand, plus everything added by URL. Added items count as
+     * pinned because adding one is already a deliberate "keep watching this", so making the operator
+     * pin it a second time would only leave the list incomplete.
+     */
+    PINNED("pinned");
 
     /** The tag's text. [label] stays English because it is also the `origin=` URL value. */
     val display: String
         get() = when (this) {
             MANUAL -> tr("added", "agregados")
             SEARCH -> tr("found", "encontrados")
+            PINNED -> tr("pinned", "fijados")
         }
 
     companion object {
@@ -517,14 +525,23 @@ private fun MAIN.originTags(
     }
     val manual = inBrand.count { it.asin != null && it.asin in manualAsins }
     val found = inBrand.size - manual
+    val pinned = inBrand.count { isPinnedOrAdded(it, manualAsins) }
 
-    // Nothing to choose between if every row came the same way.
-    if (manual == 0 || found == 0) return
+    // Added and found only split when both exist; Pinned is offered as soon as there is anything on it,
+    // since it is a list to go to rather than a way of slicing one.
+    val tags = buildList {
+        if (pinned > 0) add(TrackedOrigin.PINNED to pinned)
+        if (manual > 0 && found > 0) {
+            add(TrackedOrigin.MANUAL to manual)
+            add(TrackedOrigin.SEARCH to found)
+        }
+    }
+    if (tags.isEmpty()) return
 
     div("typetags") {
         span("typetags-label") { +tr("Origin", "Origen") }
 
-        listOf(TrackedOrigin.MANUAL to manual, TrackedOrigin.SEARCH to found).forEach { (which, n) ->
+        tags.forEach { (which, n) ->
             val on = origin == which
             a(
                 classes = if (on) "typetag on" else "typetag",
@@ -885,7 +902,7 @@ internal fun MAIN.trackedPage(
             }
         }
         tbody {
-            shown.forEach { trackedRow(it, manualAsins, variants[it.id].orEmpty()) }
+            shown.forEach { trackedRow(it, manualAsins, variants[it.id].orEmpty(), origin == TrackedOrigin.PINNED) }
         }
     }
 }
@@ -996,11 +1013,51 @@ internal fun trackedShown(
             null -> true
             TrackedOrigin.MANUAL -> it.asin != null && it.asin in manualAsins
             TrackedOrigin.SEARCH -> it.asin == null || it.asin !in manualAsins
+            TrackedOrigin.PINNED -> isPinnedOrAdded(it, manualAsins)
         }
     }
     .sortedWith(comparatorFor(sort))
 
-private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, variants: List<Deal>) {
+/**
+ * The ☆ pin / ★ pinned toggle. Swaps itself for the new state, or, when [removesRow] (unpinning on
+ * the Pinned list), swaps the whole row for an empty body so the row leaves the list it no longer
+ * belongs to. [variants] are the siblings folded into this row, pinned with it.
+ */
+internal fun kotlinx.html.FlowContent.pinButton(
+    id: Long,
+    pinned: Boolean,
+    variants: List<Long>,
+    onPinnedView: Boolean,
+    removesRow: Boolean,
+) {
+    button(classes = if (pinned) "fav-btn on" else "fav-btn") {
+        val query = buildList {
+            if (onPinnedView) add("view=pinned")
+            if (variants.isNotEmpty()) add("also=" + variants.joinToString(","))
+        }.let { if (it.isEmpty()) "" else "?" + it.joinToString("&") }
+        attributes["hx-post"] = "/tracked/$id/${if (pinned) "unpin" else "pin"}$query"
+        attributes["hx-target"] = if (removesRow) "#tracked-$id" else "this"
+        attributes["hx-swap"] = "outerHTML"
+        attributes["aria-pressed"] = pinned.toString()
+        if (pinned && removesRow) attributes["hx-confirm"] = tr("Remove this item from Pinned?", "¿Quitar este producto de Fijados?")
+        title = if (pinned) {
+            tr("Unpin this item", "Quitar este producto de fijados")
+        } else {
+            tr("Pin this item, listed under Pinned", "Fijar este producto, aparece en Fijados")
+        }
+        +if (pinned) tr("★ pinned", "★ fijado") else tr("☆ pin", "☆ fijar")
+    }
+}
+
+internal fun pinButtonFragment(id: Long, pinned: Boolean, variants: List<Long>, onPinnedView: Boolean, removesRow: Boolean): String =
+    kotlinx.html.stream.createHTML(prettyPrint = false).div { pinButton(id, pinned, variants, onPinnedView, removesRow) }
+        .removePrefix("<div>").removeSuffix("</div>")
+
+/** On the Pinned list: pinned by hand, or added by URL. */
+internal fun isPinnedOrAdded(deal: Deal, manualAsins: Set<String>): Boolean =
+    deal.pinnedAt != null || (deal.asin != null && deal.asin in manualAsins)
+
+private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, variants: List<Deal>, onPinnedView: Boolean) {
     tr {
         // htmx targets this to remove the row on hide.
         id = "tracked-${deal.id}"
@@ -1160,6 +1217,9 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         td(classes = "col-act") {
             div("actions") {
                 a(href = "/deal/${deal.id}") { +tr("history", "historial") }
+                val added = deal.asin != null && deal.asin in manualAsins
+                // An added item stays on Pinned whatever its pin, so unpinning it there must not remove the row.
+                pinButton(deal.id, deal.pinnedAt != null, variants.map { it.id }, onPinnedView, removesRow = onPinnedView && !added)
                 // Soft delete via the existing DISMISSED state, not a row delete: a deleted row is
                 // re-inserted by the next poll (upsert is keyed on source + source_deal_id) and
                 // would take its price history with it. See POST /tracked/{id}/hide.
