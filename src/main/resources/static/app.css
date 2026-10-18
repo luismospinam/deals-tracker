@@ -1855,11 +1855,12 @@ details.digest[open] > summary { border-bottom: 1px solid var(--line-soft); }
 .digest-note { color: var(--text-faint); }
 .digest-more { display: block; padding: 0 12px 8px; color: var(--text-faint); }
 
-/* Grocery row actions: wrapped into two rows so the cart button (which spends money) and the pin (which
- * forgets a staple) are never neighbours. Cart leads on a full-width row; history and pin share the row
- * below, at opposite ends. */
+/* Grocery row actions: one full-width button per line, in the order cart, history, pin, so the cart button
+ * (which spends money) and the pin (which forgets a staple) are never neighbours. They used to share a row,
+ * history and pin at opposite ends, but the column narrows as the table gains columns and the two then
+ * wrapped unevenly onto lines of their own. Stacked, they stay aligned at any width. */
 .col-act .actions.grocery-actions { flex-wrap: wrap; white-space: normal; gap: 6px; }
-.grocery-actions .fav-btn { margin-left: auto; }
+.grocery-actions a, .grocery-actions .fav-btn { flex: 1 1 100%; margin-left: 0; text-align: center; }
 
 /* The Exito cart button: solid, since it is the one action here that changes a real cart outside this
  * app, and the filled orange is what tells it apart from the outlined history and pin buttons. */

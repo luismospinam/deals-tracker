@@ -31,6 +31,7 @@ class GroceryViewsTest {
         source: String = "carulla-grocery",
         product: String = "$id",
         card: com.luis.dealstracker.model.CardOffer? = null,
+        minEver: String? = null,
     ) = GroceryRow(
         deal = Deal(
             id = id, source = source, sourceDealId = product, title = title,
@@ -42,12 +43,31 @@ class GroceryViewsTest {
             communityScore = null, postedAt = null, categoryGroup = "Groceries",
             coShippingSource = null, coShippingEvidence = null, coShippingImportFree = null,
             coShippingCost = null, price = BigDecimal(price), listPrice = listPrice?.let(::BigDecimal),
-            minPriceEver = null, maxPriceEver = null, observationCount = days + 1,
+            minPriceEver = minEver?.let(::BigDecimal), maxPriceEver = null, observationCount = days + 1,
         ),
         size = size, group = "Pantry", pinnedAt = if (pinned) Instant.EPOCH else null,
         usual = usual?.let(::BigDecimal), low = usual?.let(::BigDecimal), days = days, onShelf = onShelf,
         card = card,
     )
+
+    @Test
+    fun `the row shows the lowest ever beside the 30 day low, each under its own label`() {
+        val html = groceryRowFragment(row(minEver = "15000"), GroceryView.DEALS)
+        assertTrue("""data-label="Lowest ever"""" in html, html)
+        assertTrue("""data-label="30d low"""" in html, html)
+        // Both are money cells; the all-time one reads the deal's minimum, not the window's.
+        val ever = html.substringAfter("""data-label="Lowest ever">""").substringBefore("</td>")
+        assertTrue("15,000" in ever, ever)
+        val window = html.substringAfter("""data-label="30d low">""").substringBefore("</td>")
+        assertTrue("20,000" in window, window)
+    }
+
+    @Test
+    fun `a row with no recorded minimum shows a dash rather than zero`() {
+        val html = groceryRowFragment(row(minEver = null), GroceryView.DEALS)
+        val ever = html.substringAfter("""data-label="Lowest ever">""").substringBefore("</td>")
+        assertTrue("—" in ever, ever)
+    }
 
     @Test
     fun `a deal is ten percent under the usual price, with enough history`() {
@@ -444,5 +464,60 @@ class GroceryViewsTest {
                 chainCounts = listOf(Triple("carulla", "Carulla", 4800)))
         }
         assertFalse("typetags-label\">Store<" in html)
+    }
+
+    private fun allView(vararg extra: Pair<String, List<String>>) =
+        GroceryControls.from(parametersOf("view" to listOf("all"), *extra))
+
+    private fun bulk(n: Int) = (1..n).map { row(id = it.toLong(), title = "Item %04d".format(it)) }
+
+    @Test
+    fun `a page holds 500 rows and the last holds the rest`() {
+        val rows = groceryShown(bulk(1203), allView())
+        assertEquals(3, groceryPageCount(rows.size))
+        assertEquals(500, groceryPageRows(rows, 1).size)
+        assertEquals(500, groceryPageRows(rows, 2).size)
+        assertEquals(203, groceryPageRows(rows, 3).size)
+        assertEquals(rows[500].deal.id, groceryPageRows(rows, 2).first().deal.id)
+    }
+
+    @Test
+    fun `an out of range page is clamped, and no rows is still one page`() {
+        val rows = groceryShown(bulk(600), allView())
+        assertEquals(rows.takeLast(100).map { it.deal.id }, groceryPageRows(rows, 99).map { it.deal.id })
+        assertEquals(rows.take(500).map { it.deal.id }, groceryPageRows(rows, 0).map { it.deal.id })
+        assertEquals(1, groceryPageCount(0))
+        assertEquals(1, groceryPageCount(500))
+        assertEquals(2, groceryPageCount(501))
+    }
+
+    @Test
+    fun `page parameter is parsed leniently and round-trips through the url`() {
+        assertEquals(1, allView().page)
+        assertEquals(1, allView("page" to listOf("junk")).page)
+        assertEquals(1, allView("page" to listOf("-4")).page)
+        val c = allView("page" to listOf("3"), "store" to listOf("exito"))
+        assertEquals(3, c.page)
+        assertEquals("/groceries?view=all&store=exito&page=3", c.url(page = c.page))
+        // Changing anything else starts again at page 1.
+        assertEquals("/groceries?view=all&store=carulla", c.url(chains = setOf("carulla")))
+        assertEquals("/groceries?view=all&store=exito&sort=price", c.url(sort = GrocerySort.PRICE))
+    }
+
+    @Test
+    fun `pager shows above and below with working links, and is absent for one page`() {
+        val many = createHTML().main {
+            groceryPage(bulk(1203), listOf("Pantry" to 1203), allView("page" to listOf("2")), listOf("carulla-grocery"))
+        }
+        assertEquals(2, Regex("""class="pager"""").findAll(many).count())
+        assertTrue("page 2 of 3" in many)
+        assertTrue("href=\"/groceries?view=all&amp;page=3\"" in many, many)
+        assertTrue("href=\"/groceries?view=all\"" in many, many)
+        assertTrue("Item 0501" in many && "Item 0500" !in many && "Item 1001" !in many)
+
+        val one = createHTML().main {
+            groceryPage(bulk(10), listOf("Pantry" to 10), allView(), listOf("carulla-grocery"))
+        }
+        assertFalse("class=\"pager\"" in one)
     }
 }

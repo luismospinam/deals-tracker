@@ -23,6 +23,7 @@ import kotlinx.html.form
 import kotlinx.html.id
 import kotlinx.html.img
 import kotlinx.html.input
+import kotlinx.html.label
 import kotlinx.html.p
 import kotlinx.html.span
 import kotlinx.html.table
@@ -172,6 +173,13 @@ internal data class GroceryControls(
      * Exitos, and the row keeps the other Exito's price beneath it.
      */
     val chains: Set<String> = emptySet(),
+    /**
+     * Pinned only: keep just the items the Exito cart button can add (an Exito Laureles copy on the
+     * shelf, see [cartCopy]) -- the shopping list for one cart run. Ignored on the other views.
+     */
+    val cartable: Boolean = false,
+    /** 1-based page of the table. Clamped on use, so a stale bookmark lands on the last page. */
+    val page: Int = 1,
 ) {
     fun url(
         view: GroceryView = this.view,
@@ -179,6 +187,9 @@ internal data class GroceryControls(
         sort: GrocerySort? = this.sort,
         search: String? = this.search,
         chains: Set<String> = this.chains,
+        cartable: Boolean = this.cartable,
+        // Not carried over: changing the view, filter, search or sort starts again at page 1.
+        page: Int = 1,
     ): String {
         val params = buildList {
             if (view != GroceryView.DEALS) add("view=${view.key}")
@@ -189,6 +200,8 @@ internal data class GroceryControls(
             // Pinned has no box, so carrying a search onto it would filter a view with nothing to clear it.
             if (view != GroceryView.PINNED) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
             if (sort != null && sort != GrocerySort.of(null, view)) add("sort=${sort.key}")
+            if (cartable && view == GroceryView.PINNED) add("cart=1")
+            if (page > 1) add("page=$page")
         }
         return if (params.isEmpty()) "/groceries" else "/groceries?" + params.joinToString("&")
     }
@@ -202,6 +215,8 @@ internal data class GroceryControls(
                 search = params["q"]?.trim()?.takeIf { it.isNotEmpty() && view != GroceryView.PINNED },
                 sort = GrocerySort.of(params["sort"], view),
                 chains = params["store"]?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
+                cartable = params["cart"] == "1" && view == GroceryView.PINNED,
+                page = params["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
             )
         }
     }
@@ -220,7 +235,7 @@ internal fun groceryShown(rows: List<GroceryRow>, controls: GroceryControls): Li
     val inView = when (controls.view) {
         GroceryView.DEALS -> rows.filter { it.onShelf && it.isDeal }
         GroceryView.ALL -> rows.filter { it.onShelf }
-        GroceryView.PINNED -> rows.filter { it.pinnedAt != null }
+        GroceryView.PINNED -> rows.filter { it.pinnedAt != null && (!controls.cartable || cartCopy(it) != null) }
     }
     return inView.sortedWith(groceryComparator(controls.sort))
 }
@@ -352,12 +367,16 @@ private fun MAIN.groceryBody(
 
     // Shopping happens from the shopping list: the cart buttons and the link to the cart they fill live on
     // Pinned only, not on Deals or All items, where an item is being browsed rather than bought.
-    if (controls.view == GroceryView.PINNED) openCartSlot()
+    if (controls.view == GroceryView.PINNED) {
+        openCartSlot()
+        cartableToggle(rows.count { it.pinnedAt != null && cartCopy(it) != null }, controls)
+    }
 
     if (controls.view != GroceryView.PINNED) {
         searchBox(
             action = "/groceries",
             value = controls.search,
+            clearHref = controls.url(search = null),
             carry = buildMap {
                 put("view", controls.view.key)
                 if (controls.groups.isNotEmpty()) put("group", controls.groups.sorted().joinToString(","))
@@ -376,7 +395,6 @@ private fun MAIN.groceryBody(
     div("tracked-count") {
         +tr("${shown.size} item(s)", "${shown.size} producto(s)")
         if (controls.view == GroceryView.DEALS && young > 0) {
-            clearHref = controls.url(search = null),
             // On the first days almost every row is young, and an empty Deals view otherwise reads as
             // "nothing is on offer" rather than "not enough history to judge".
             span("tracked-note") {
@@ -402,7 +420,12 @@ private fun MAIN.groceryBody(
                     a(href = controls.url(view = GroceryView.ALL, sort = null, search = null)) { +tr("Browse all items", "Explora todos los productos") }
                     +tr(" to pin staples in the meantime.", " para fijar tus básicos mientras tanto.")
                 }
-                GroceryView.PINNED -> {
+                GroceryView.PINNED -> if (controls.cartable) {
+                    +tr(
+                        "None of your pinned items can be added to the Exito cart right now.",
+                        "Ninguno de tus productos fijados se puede agregar al carrito de Exito en este momento.",
+                    )
+                } else {
                     +tr("Nothing pinned yet. Use ☆ pin on ", "Aún no hay nada fijado. Usa ☆ fijar en ")
                     a(href = controls.url(view = GroceryView.ALL, sort = null, search = null)) { +GroceryView.ALL.display() }
                     +tr(" to keep staples here.", " para tener tus básicos aquí.")
@@ -413,15 +436,43 @@ private fun MAIN.groceryBody(
         return
     }
 
-    // Capped for the browser's sake. All items can be ~15,000 rows; the count above is the real total.
-    val cap = 1000
-    groceryTable(shown.take(cap), controls)
-    if (shown.size > cap) {
-        p("tracked-note") {
-            +tr(
-                "Showing the first $cap of ${shown.size}. Narrow with a subcategory or a search.",
-                "Mostrando los primeros $cap de ${shown.size}. Acota con una subcategoría o una búsqueda.",
-            )
+    // Paged for the browser's sake. All items can be ~15,000 rows; the count above is the real total.
+    val pages = groceryPageCount(shown.size)
+    val current = controls.page.coerceIn(1, pages)
+    pager(controls, current, pages)
+    groceryTable(groceryPageRows(shown, current), controls)
+    pager(controls, current, pages)
+}
+
+/** Rows per page of the grocery table. */
+internal const val GROCERY_PAGE_SIZE = 500
+
+internal fun groceryPageCount(total: Int): Int = ((total + GROCERY_PAGE_SIZE - 1) / GROCERY_PAGE_SIZE).coerceAtLeast(1)
+
+/** The rows of 1-based [page], clamped into range the way the page itself is. */
+internal fun groceryPageRows(shown: List<GroceryRow>, page: Int): List<GroceryRow> {
+    val current = page.coerceIn(1, groceryPageCount(shown.size))
+    return shown.drop((current - 1) * GROCERY_PAGE_SIZE).take(GROCERY_PAGE_SIZE)
+}
+
+/** Above and below the table: 500 rows is a long scroll back up. Nothing for a single page. */
+private fun FlowContent.pager(controls: GroceryControls, page: Int, pages: Int) {
+    if (pages <= 1) return
+    div("pager") {
+        if (page > 1) {
+            a(href = controls.url(page = 1)) { +tr("« first", "« primera") }
+            a(href = controls.url(page = page - 1)) { +tr("‹ prev", "‹ anterior") }
+        } else {
+            span("off") { +tr("« first", "« primera") }
+            span("off") { +tr("‹ prev", "‹ anterior") }
+        }
+        span("at") { +tr("page $page of $pages", "página $page de $pages") }
+        if (page < pages) {
+            a(href = controls.url(page = page + 1)) { +tr("next ›", "siguiente ›") }
+            a(href = controls.url(page = pages)) { +tr("last »", "última »") }
+        } else {
+            span("off") { +tr("next ›", "siguiente ›") }
+            span("off") { +tr("last »", "última »") }
         }
     }
 }
@@ -536,6 +587,15 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                 th(classes = "col-price") {
                     title = tr("Cheapest daily price in the last 30 days, today excluded", "El precio diario más bajo de los últimos 30 días, sin contar hoy")
                     +tr("30d low", "Mín. 30d")
+                }
+                th(classes = "col-price") {
+                    title = tr(
+                        "Cheapest price ever recorded for this item at this store, today included. Old repeated readings are " +
+                            "thinned, but every distinct price is kept, so this is exact.",
+                        "El precio más bajo registrado alguna vez para este producto en esta tienda, incluido hoy. Las lecturas " +
+                            "repetidas antiguas se reducen, pero cada precio distinto se conserva, así que es exacto.",
+                    )
+                    +tr("Lowest ever", "Mín. histórico")
                 }
                 th(classes = "col-chg") {
                     title = tr("Earlier days of history the usual price rests on", "Días anteriores de historial en los que se basa el precio habitual")
@@ -668,6 +728,10 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
             cardLabel(tr("30d low", "Mín. 30d"))
             row.low?.takeIf { row.days >= 1 }?.let { +formatMoney(it, deal.currency) } ?: span("muted") { +"—" }
         }
+        td(classes = "col-price") {
+            cardLabel(tr("Lowest ever", "Mín. histórico"))
+            deal.minPriceEver?.let { +formatMoney(it, deal.currency) } ?: span("muted") { +"—" }
+        }
         td(classes = "col-chg") {
             cardLabel(tr("Days", "Días"))
             +row.days.toString()
@@ -695,6 +759,24 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                     +if (pinned) tr("★ pinned", "★ fijado") else tr("☆ pin", "☆ fijar")
                 }
             }
+        }
+    }
+}
+
+/**
+ * "Only items I can add to the cart" on Pinned. The count is of rows that would remain, so ticking it
+ * changes the table by exactly the number it promised.
+ */
+private fun FlowContent.cartableToggle(count: Int, controls: GroceryControls) {
+    div("noship-toggle") {
+        label {
+            input(type = InputType.checkBox) {
+                checked = controls.cartable
+                attributes["onchange"] =
+                    "location.href=this.checked?'${controls.url(cartable = true)}':'${controls.url(cartable = false)}'"
+            }
+            +tr(" only items I can add to the Exito cart", " solo productos que puedo agregar al carrito de Exito")
+            span("typetag-n") { +count.toString() }
         }
     }
 }
