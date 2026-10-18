@@ -1602,6 +1602,7 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 
 .grocery-search { gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
 .grocery-search input[type="search"] { min-width: 22rem; }
+.grocery-search .typetag { align-self: center; }
 
 /* A pinned staple Laureles no longer stocks: kept, but visibly not buyable. */
 .grocery tr.paused td { opacity: 0.55; }

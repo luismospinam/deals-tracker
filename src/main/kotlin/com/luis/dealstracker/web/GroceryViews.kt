@@ -376,6 +376,7 @@ private fun MAIN.groceryBody(
     div("tracked-count") {
         +tr("${shown.size} item(s)", "${shown.size} producto(s)")
         if (controls.view == GroceryView.DEALS && young > 0) {
+            clearHref = controls.url(search = null),
             // On the first days almost every row is young, and an empty Deals view otherwise reads as
             // "nothing is on offer" rather than "not enough history to judge".
             span("tracked-note") {

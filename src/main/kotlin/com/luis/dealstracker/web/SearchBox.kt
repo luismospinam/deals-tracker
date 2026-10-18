@@ -2,6 +2,7 @@ package com.luis.dealstracker.web
 
 import com.luis.dealstracker.i18n.tr
 import kotlinx.html.FlowContent
+import kotlinx.html.a
 import kotlinx.html.InputType
 import kotlinx.html.button
 import kotlinx.html.form
@@ -19,6 +20,8 @@ internal fun FlowContent.searchBox(
     carry: Map<String, String>,
     placeholder: String = "leche | huevos | !aceite",
     formClass: String = "grocery-search",
+    /** Where "clear" goes: the same screen with the search dropped. Shown only while a search is applied. */
+    clearHref: String? = null,
 ) {
     form(classes = formClass) {
         attributes["method"] = "get"
@@ -35,5 +38,9 @@ internal fun FlowContent.searchBox(
             )
         }
         button { +tr("Search", "Buscar") }
+        // Styled like the dashed "clear" tag of the filters below, and only there when there is something to clear.
+        if (clearHref != null && !value.isNullOrBlank()) {
+            a(href = clearHref, classes = "typetag clear") { +tr("clear", "quitar") }
+        }
     }
 }
