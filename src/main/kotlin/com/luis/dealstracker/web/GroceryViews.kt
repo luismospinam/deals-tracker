@@ -785,6 +785,33 @@ private fun FlowContent.cartableToggle(count: Int, controls: GroceryControls) {
 internal fun storeName(source: String): String =
     source.removeSuffix("-grocery").replaceFirstChar { it.uppercase() }
 
+/** Marks a pin toggle posted from a deal's own page: it answers with the button, not a table row. */
+internal const val DETAIL_VIEW = "detail"
+
+/**
+ * The ☆ pin / ★ pinned toggle on a grocery item's detail page. Same endpoint as the Groceries tab, which
+ * pins the product at every store, but it swaps itself rather than a table row.
+ */
+internal fun kotlinx.html.FlowContent.groceryDetailPinButton(id: Long, pinned: Boolean) {
+    button(classes = if (pinned) "fav-btn on" else "fav-btn") {
+        attributes["hx-post"] = "/groceries/$id/${if (pinned) "unpin" else "pin"}?view=$DETAIL_VIEW"
+        attributes["hx-target"] = "this"
+        attributes["hx-swap"] = "outerHTML"
+        attributes["aria-pressed"] = pinned.toString()
+        if (pinned) attributes["hx-confirm"] = tr("Remove this item from Pinned?", "¿Quitar este producto de Fijados?")
+        title = if (pinned) {
+            tr("Unpin this staple", "Quitar este básico de fijados")
+        } else {
+            tr("Pin as a staple, listed under Pinned", "Fijar como básico, aparece en Fijados")
+        }
+        +if (pinned) tr("★ pinned", "★ fijado") else tr("☆ pin", "☆ fijar")
+    }
+}
+
+internal fun groceryDetailPinFragment(id: Long, pinned: Boolean): String =
+    createHTML(prettyPrint = false).div { groceryDetailPinButton(id, pinned) }
+        .removePrefix("<div>").removeSuffix("</div>")
+
 /** One row as a bare `<tr>`, for the htmx swap after a pin toggle. */
 internal fun groceryRowFragment(row: GroceryRow, view: GroceryView): String =
     createHTML(prettyPrint = false).table { tbody { groceryRow(row, view) } }

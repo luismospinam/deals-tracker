@@ -1013,6 +1013,14 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   font-weight: 700;
 }
 
+/* A shipping reading past its re-check window: dashed amber outline, no fill, so it reads as "may be out of
+ * date" without competing with the chips that carry a real fee. */
+.prov.stale-prov {
+  background: transparent;
+  border: 1px dashed rgba(217, 162, 39, 0.55);
+  color: var(--d-mid);
+}
+
 /* Normalized category bucket in the row meta: the value the Category filter matches on. */
 .cat {
   padding: 1px 5px;
@@ -1466,6 +1474,17 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
  * Green because it marks verified-good, the same meaning the at-lowest badge and the CO-shipping
  * verdict use — these rows' price and size are the item's own rather than a size filter's guess.
  * Quieter than those two: it is provenance, not news. */
+.brand-tag {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+
 .manual-badge {
   font-family: var(--mono);
   font-size: var(--fs-xs);

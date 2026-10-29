@@ -470,6 +470,7 @@ fun Application.routes(
                 "unpin" -> false
                 else -> return@post call.respondText("unknown action", status = HttpStatusCode.NotFound)
             }
+            val fromDetail = call.request.queryParameters["view"] == DETAIL_VIEW
             val view = GroceryView.of(call.request.queryParameters["view"])
             val sources = grocerySources(app)
             val row = withContext(Dispatchers.IO) {
@@ -477,7 +478,13 @@ fun Application.routes(
                 // Re-merged, so the swapped row still shows the cheaper store and the other one's price.
                 else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), groceryStores(app)).firstOrNull()
             } ?: return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
-            call.respondFragment { if (view == GroceryView.PINNED && !pinned) "" else groceryRowFragment(row, view) }
+            call.respondFragment {
+                when {
+                    fromDetail -> groceryDetailPinFragment(id, pinned)
+                    view == GroceryView.PINNED && !pinned -> ""
+                    else -> groceryRowFragment(row, view)
+                }
+            }
         }
 
         // Puts the Exito Laureles copy of a product in the signed-in Exito cart. Answers with a toast
@@ -560,7 +567,7 @@ fun Application.routes(
                 ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
             val deal = repo.findById(id)
                 ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
-            call.respondPage { page(deal.title) { dealDetail(deal, repo.priceHistory(id), pinnable = deal.source in trackingSources(app)) } }
+            call.respondPage { page(deal.title) { dealDetail(deal, repo.priceHistory(id), pinnable = deal.source in trackingSources(app), groceryPinnable = deal.source in grocerySources(app)) } }
         }
 
         post("/deal/{id}/state") {

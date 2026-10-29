@@ -261,6 +261,8 @@ data class Deal(
      * never writes, so a pin survives every poll. Groceries pioneered it; the tracked tab reuses it.
      */
     val pinnedAt: Instant? = null,
+    /** When the Colombia shipping verdict was last read from the page; null if never. */
+    val coShippingCheckedAt: Instant? = null,
 ) {
     val discountPercent: BigDecimal?
         get() {

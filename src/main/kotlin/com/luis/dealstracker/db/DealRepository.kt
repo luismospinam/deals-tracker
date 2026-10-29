@@ -1468,4 +1468,5 @@ internal fun ResultSet.toDeal() = Deal(
     observationCount = getInt("n"),
     relevance = getDouble("relevance"),
     pinnedAt = getTimestamp("pinned_at")?.toInstant(),
+    coShippingCheckedAt = getTimestamp("co_shipping_checked_at")?.toInstant(),
 )

@@ -24,7 +24,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "59"
+private const val CSS_VERSION = "61"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -1053,6 +1053,39 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
  * does not determine that automatically. Unverified is the only actionable state, so it
  * carries the warm colour and the inline buttons; resolved states stay quiet.
  */
+/** Days after which a YES verdict's fee is read again; past this the quoted fee may no longer be Amazon's. */
+internal const val SHIPPING_STALE_DAYS = 7L
+
+/** How old a shipping reading is: the wording for the chip, and whether it is past the re-check window. */
+internal data class ShippingAge(val days: Long, val stale: Boolean)
+
+internal fun shippingAge(checkedAt: Instant?, now: Instant = Instant.now()): ShippingAge? {
+    if (checkedAt == null) return null
+    val days = Duration.between(checkedAt, now).toDays().coerceAtLeast(0)
+    return ShippingAge(days, stale = days >= SHIPPING_STALE_DAYS)
+}
+
+/**
+ * "checked 8d ago" beside a shipping verdict. The fee is a reading from one day and Amazon moves it with
+ * the price, so a verdict that has outlived its re-check window looks different from a fresh one rather
+ * than reading as current. Nothing for a verdict somebody set by hand, or one never read from the page.
+ */
+internal fun kotlinx.html.FlowContent.shippingCheckedChip(deal: Deal) {
+    if (deal.coShippingSource != "AUTO") return
+    val age = shippingAge(deal.coShippingCheckedAt) ?: return
+    span(if (age.stale) "prov stale-prov" else "prov") {
+        title = if (age.stale) {
+            tr(
+                "Last read from Amazon ${age.days} days ago. The shipping fee changes with the price, so it may be out of date; a re-check is queued.",
+                "Leído de Amazon hace ${age.days} días. El costo de envío cambia con el precio, así que puede estar desactualizado; hay una revisión pendiente.",
+            )
+        } else {
+            tr("Last read from Amazon ${age.days} days ago.", "Leído de Amazon hace ${age.days} días.")
+        }
+        +if (age.days == 0L) tr("checked today", "revisado hoy") else tr("checked ${age.days}d ago", "revisado hace ${age.days}d")
+    }
+}
+
 private fun TD.coShippingCell(deal: Deal, note: String? = null) {
     div("co") {
         // Evidence as a tooltip, and an "auto" marker, so an automated verdict can be told
@@ -1064,6 +1097,7 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
                 provenance?.let { title = it }
                 +tr("✓ ships", "✓ envía")
                 if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
+                shippingCheckedChip(deal)
                 // The shipping fee often decides whether a "deal" is still a deal: the same
                 // YES verdict covers "FREE Shipping" and "$60.66 Shipping".
                 deal.coShippingCost?.let { cost ->
@@ -1242,7 +1276,7 @@ fun rowFragment(deal: Deal, note: String? = null, screen: FeedScreen = FeedScree
     return consumer.finalize()
 }
 
-fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boolean = false) {
+fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boolean = false, groceryPinnable: Boolean = false) {
     h1("detail-head") { a(href = deal.url, target = "_blank") { +deal.title } }
     div("meta") {
         span("src") {
@@ -1260,6 +1294,8 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
 
     // Tracked-tab rows only: the pin puts the item on Tracked's Pinned list, which means nothing for a feed deal.
     if (pinnable) div("actions") { pinButton(deal.id, deal.pinnedAt != null, emptyList(), onPinnedView = false, removesRow = false) }
+    // Groceries have their own Pinned list (the shopping list), pinned chain-wide by the Groceries endpoint.
+    else if (groceryPinnable) div("actions") { groceryDetailPinButton(deal.id, deal.pinnedAt != null) }
 
     // The feed's thumbnail is sized for recognition while scanning; this page is where the
     // decision happens, so it shows the image at something like the size the sources

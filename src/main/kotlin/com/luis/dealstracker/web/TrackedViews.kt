@@ -1081,6 +1081,7 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
                 +itemName(deal.title)
             }
             div("meta") {
+                brandChip(deal)
                 span { +deal.source }
                 // Marks the rows whose price and size are exact rather than filter-derived. See
                 // TrackedOrigin for why that distinction is worth surfacing.
@@ -1315,6 +1316,8 @@ private fun kotlinx.html.TD.extraCosts(deal: Deal) {
 
         if (importFees) span("prov warn-prov") { +tr("import fees", "impuestos de importación") }
 
+        shippingCheckedChip(deal)
+
         // The landed total: price plus freight. Import charges are NOT added, because Amazon
         // quotes their presence without always quoting an amount -- so the chip above says they
         // apply, and this total stays a number that can be stood behind.
@@ -1433,3 +1436,18 @@ private const val SIZE_SEPARATOR = " — "
  * 40-character tail is prose, which means the em dash belonged to the product name.
  */
 private const val MAX_SIZE_LABEL = 40
+
+/**
+ * The brand the store publishes for this row ("adidas", "New Balance"), as a label ahead of the source.
+ *
+ * It is the stored `deals.brand` -- the search tile's brand element, or the product page's "Visit the
+ * X Store" byline for a URL-added item -- never a guess from the title. A row whose source named no
+ * brand shows no chip rather than a placeholder: unknown is a real state (see V12).
+ */
+internal fun kotlinx.html.FlowContent.brandChip(deal: Deal) {
+    val brand = deal.brand?.trim()?.takeIf { it.isNotEmpty() } ?: return
+    span("brand-tag") {
+        title = tr("Brand, as the store lists it", "Marca, según la tienda")
+        +brand
+    }
+}

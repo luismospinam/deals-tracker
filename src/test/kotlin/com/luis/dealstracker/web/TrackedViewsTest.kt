@@ -3,6 +3,7 @@ package com.luis.dealstracker.web
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
+import kotlinx.html.div
 import kotlinx.html.main
 import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
@@ -265,6 +266,76 @@ class TrackedViewsTest {
     @Test
     fun `the detail page has no pin button for a feed deal`() {
         assertFalse("fav-btn" in detailHtml(trackedDeal(price = "10"), pinnable = false))
+    }
+
+    private fun groceryDetailHtml(deal: Deal, groceryPinnable: Boolean) =
+        kotlinx.html.stream.createHTML(prettyPrint = false).main { dealDetail(deal, emptyList(), pinnable = false, groceryPinnable = groceryPinnable) }
+
+    @Test
+    fun `the detail page pins a grocery item through the groceries endpoint, in its current state`() {
+        val off = groceryDetailHtml(trackedDeal(price = "10"), groceryPinnable = true)
+        assertTrue("/groceries/1/pin?view=detail" in off, off)
+        assertTrue("☆ pin" in off, off)
+        assertTrue("hx-target=\"this\"" in off, off)
+        val on = groceryDetailHtml(trackedDeal(price = "10", pinned = true), groceryPinnable = true)
+        assertTrue("/groceries/1/unpin?view=detail" in on, on)
+        assertTrue("hx-confirm" in on, on)
+        assertFalse("/tracked/" in on, on)
+    }
+
+    @Test
+    fun `the grocery pin fragment is the bare button, not a table row`() {
+        val html = groceryDetailPinFragment(7, pinned = false)
+        assertTrue(html.startsWith("<button"), html)
+        assertFalse("<tr" in html, html)
+    }
+
+    @Test
+    fun `a deal that is neither tracked nor a grocery gets no pin on its page`() {
+        assertFalse("fav-btn" in groceryDetailHtml(trackedDeal(price = "10"), groceryPinnable = false))
+    }
+
+    // --- how old a shipping reading is ---
+
+    private fun chipHtml(deal: Deal) =
+        kotlinx.html.stream.createHTML(prettyPrint = false).div { shippingCheckedChip(deal) }
+
+    private val now = Instant.parse("2026-10-28T12:00:00Z")
+
+    @Test
+    fun `a reading is stale from the seventh day, the same day the re-check falls due`() {
+        assertEquals(ShippingAge(0, stale = false), shippingAge(now.minusSeconds(3_600), now))
+        assertEquals(ShippingAge(6, stale = false), shippingAge(now.minusSeconds(6 * 86_400L + 100), now))
+        assertEquals(ShippingAge(7, stale = true), shippingAge(now.minusSeconds(7 * 86_400L), now))
+        assertEquals(ShippingAge(8, stale = true), shippingAge(now.minusSeconds(8 * 86_400L + 100), now))
+    }
+
+    @Test
+    fun `a reading never taken has no age`() {
+        assertNull(shippingAge(null, now))
+    }
+
+    @Test
+    fun `a stale automatic verdict says how old it is and is marked stale`() {
+        val deal = trackedDeal(price = "12.23", shippingCost = "0").copy(coShippingCheckedAt = Instant.now().minusSeconds(8 * 86_400L + 100))
+        val html = chipHtml(deal)
+        assertTrue("stale-prov" in html, html)
+        assertTrue("checked 8d ago" in html, html)
+    }
+
+    @Test
+    fun `a fresh automatic verdict says so without the stale marker`() {
+        val deal = trackedDeal(price = "12.23", shippingCost = "0").copy(coShippingCheckedAt = Instant.now().minusSeconds(60))
+        val html = chipHtml(deal)
+        assertTrue("checked today" in html, html)
+        assertFalse("stale-prov" in html, html)
+    }
+
+    @Test
+    fun `a verdict set by hand, or never read, shows no age`() {
+        val old = Instant.now().minusSeconds(30 * 86_400L)
+        assertEquals("<div></div>", chipHtml(trackedDeal(price = "10").copy(coShippingSource = "MANUAL", coShippingCheckedAt = old)))
+        assertEquals("<div></div>", chipHtml(trackedDeal(price = "10").copy(coShippingCheckedAt = null)))
     }
 
     // --- extra charges (shipping / import) ---
@@ -581,5 +652,25 @@ class TrackedViewsTest {
         assertEquals(1, Regex("""id="tracked-\d+"""").findAll(html).count())
         assertTrue(html.contains("+2 variants"), html)
         assertTrue(html.contains("/tracked/3/hide?also=2,1"), html)
+    }
+
+    private fun brandHtml(brand: String?) =
+        kotlinx.html.stream.createHTML(prettyPrint = false).div { brandChip(trackedDeal("50").copy(brand = brand)) }
+
+    @Test
+    fun `a brand label shows the stored brand`() {
+        val html = brandHtml("New Balance")
+        assertTrue("brand-tag" in html && ">New Balance<" in html, html)
+    }
+
+    @Test
+    fun `a row with no brand gets no label rather than a placeholder`() {
+        assertFalse("brand-tag" in brandHtml(null))
+        assertFalse("brand-tag" in brandHtml("   "))
+    }
+
+    @Test
+    fun `the brand is escaped`() {
+        assertFalse("<b>" in brandHtml("<b>x</b>"))
     }
 }
