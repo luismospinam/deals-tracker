@@ -195,6 +195,31 @@ internal fun lineIndex(body: String?, skuId: String): Int? = try {
     null
 }
 
+/**
+ * The body of Exito's own add-to-cart call. `location` is what Exito's site sends once Compra y Recoge is
+ * chosen in the header (`shippingType` PE, the store's dependency code, the city's postal code); the dependency
+ * code is the digits of the store seller id (`exitocol037` -> `037`).
+ */
+internal fun siteAddPayload(sku: CartSku, quantity: Int, seller: String, postalCode: String = "05001"): String =
+    buildJsonObject {
+        put("orderItems", buildJsonArray {
+            add(buildJsonObject { put("quantity", quantity); put("seller", sku.seller); put("id", sku.skuId) })
+        })
+        put("location", buildJsonObject {
+            put("shippingType", "PE")
+            put("postalCode", postalCode)
+            put("dependencyCode", seller.filter { it.isDigit() })
+        })
+    }.toString()
+
+/** The delivery channels the lines of an order form have selected, for the log: never the address. */
+internal fun deliveryChannels(body: String?): List<String> = try {
+    ((cartJson.parseToJsonElement(body ?: "").jsonObject["shippingData"] as? JsonObject)?.get("logisticsInfo") as? JsonArray)
+        ?.mapNotNull { it.jsonObject["selectedDeliveryChannel"]?.jsonPrimitive?.contentOrNull }?.distinct().orEmpty()
+} catch (_: Exception) {
+    emptyList()
+}
+
 /** Whether an order form is the signed-in customer's rather than an anonymous basket. */
 internal fun isLoggedIn(orderForm: JsonElement): Boolean {
     val obj = orderForm as? JsonObject ?: return false
@@ -267,11 +292,16 @@ class ExitoCart(
                 ?: return CartResult.Failed("no cart id in Exito's answer")
             cartToAdopt(saved, cartId)?.let { settings.set(mapOf(SettingsRepository.EXITO_CART_ID to it)) }
 
-            val added = http.postJson(
-                "$baseUrl/api/checkout/pub/orderForm/$cartId/items",
-                addItemPayload(sku, quantity),
-                mapOf("Cookie" to "$login; checkout.vtex.com=__ofid=$cartId", "Accept" to "application/json"),
-            )
+            val headers = mapOf("Cookie" to "$login; checkout.vtex.com=__ofid=$cartId", "Accept" to "application/json")
+            // Exito's own site adds through /api/orderForm/items and names the pickup store in `location`; that is
+            // how a cart comes to be Compra y Recoge. The plain VTEX add (below) leaves it on home delivery, and
+            // the call that would switch it afterwards is refused (HTTP 403, CHK003, seen 2026-10-20).
+            val viaSite = runCatching { http.postJson("$baseUrl/api/orderForm/items", siteAddPayload(sku, quantity, seller), headers) }.getOrNull()
+            val added = if (viaSite != null && viaSite.status in 200..299 && viaSite.body != null) viaSite else {
+                println("[exito-cart] site add answered ${viaSite?.status}; adding through the VTEX API instead (cart stays on home delivery)")
+                http.postJson("$baseUrl/api/checkout/pub/orderForm/$cartId/items", addItemPayload(sku, quantity), headers)
+            }
+            println("[exito-cart] add HTTP ${added.status}, delivery channels now ${deliveryChannels(added.body)}")
             val result = interpretAdd(added.status, added.body, sku)
             if (result is CartResult.Refused) {
                 // A refused line may still sit in the cart; take it out so the cart holds only what can be bought.

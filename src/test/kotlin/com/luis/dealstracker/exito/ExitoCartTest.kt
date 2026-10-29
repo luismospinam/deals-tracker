@@ -159,4 +159,23 @@ class ExitoCartTest {
         assertTrue(isLoggedIn(form("""{"clientProfileData":{"email":"a@b.c"}}""")))
         assertFalse(isLoggedIn(form("""{"orderFormId":"f"}""")))
     }
+
+    @Test
+    fun `the site add names the pickup store the way Exito's own site does`() {
+        val body = cartJson.parseToJsonElement(siteAddPayload(CartSku("501548", "1", "x"), 2, "exitocol037")) as kotlinx.serialization.json.JsonObject
+        val location = body["location"] as kotlinx.serialization.json.JsonObject
+        assertEquals("\"PE\"", location["shippingType"].toString())
+        assertEquals("\"037\"", location["dependencyCode"].toString())
+        assertEquals("\"05001\"", location["postalCode"].toString())
+        val item = (body["orderItems"] as kotlinx.serialization.json.JsonArray)[0] as kotlinx.serialization.json.JsonObject
+        assertEquals(listOf("501548", "1", "2"), listOf(item["id"], item["seller"], item["quantity"]).map { it.toString().trim('"') })
+    }
+
+    @Test
+    fun `delivery channels are read from the lines, and an unreadable body has none`() {
+        val body = """{"shippingData":{"logisticsInfo":[{"selectedDeliveryChannel":"delivery"},{"selectedDeliveryChannel":"delivery"},{"selectedDeliveryChannel":"pickup-in-point"}]}}"""
+        assertEquals(listOf("delivery", "pickup-in-point"), deliveryChannels(body))
+        assertEquals(emptyList(), deliveryChannels("not json"))
+        assertEquals(emptyList(), deliveryChannels(null))
+    }
 }
