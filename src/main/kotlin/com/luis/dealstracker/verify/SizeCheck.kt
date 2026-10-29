@@ -11,9 +11,8 @@ package com.luis.dealstracker.verify
  *
  * A rejection removes the row for good, so anything short of a definite mismatch is [Unknown]:
  *
- *  - **Only numeric wanted sizes are judged.** The filter rail says `M`, the product page says
- *    `Medium`. No alias table is invented (see `SizeRefinement`), so a garment size cannot be
- *    compared and is left alone rather than guessed at.
+ *  - **Numeric sizes and plain letter sizes are judged.** Letter sizes go through a small, closed
+ *    table (`M` = `Medium`, `XS` = `X-Small`); a page label outside it is left alone, not guessed at.
  *  - **A page with no readable size** is [Unknown], never a mismatch.
  *  - **Same number plus unrecognised text** (`8 US`) is [Unknown]. Only text that names a
  *    different shoe — a width or a women's/kids' scale — is a mismatch.
@@ -51,8 +50,32 @@ internal object SizeCheck {
     fun claimedSize(title: String): String? =
         title.substringAfterLast(" — ", missingDelimiterValue = "").trim().takeIf { it.isNotEmpty() }
 
+    /**
+     * Garment letter sizes in the two spellings Amazon uses -- the filter rail says `S`, the product
+     * page says `Small` or `X-Small` -- folded to one canonical form. Anything else (`Small Tall`,
+     * `Medium/31" Inseam`, `Standard`, a waist number) is NOT in the table and stays unjudged: a
+     * mismatch retires the row, so only a pair that is certainly two different sizes may do it.
+     */
+    private val LETTER_SIZES: Map<String, String> = mapOf(
+        "xxs" to "xxs", "xx-small" to "xxs", "xx small" to "xxs", "2x-small" to "xxs",
+        "xs" to "xs", "x-small" to "xs", "x small" to "xs", "extra small" to "xs",
+        "s" to "s", "small" to "s",
+        "m" to "m", "medium" to "m",
+        "l" to "l", "large" to "l",
+        "xl" to "xl", "x-large" to "xl", "x large" to "xl", "extra large" to "xl",
+        "xxl" to "xxl", "2xl" to "xxl", "xx-large" to "xxl", "2x-large" to "xxl", "xx large" to "xxl",
+        "xxxl" to "3xl", "3xl" to "3xl", "3x-large" to "3xl", "xxx-large" to "3xl",
+    )
+
+    private fun letterSize(label: String): String? = LETTER_SIZES[normalize(label)]
+
     fun judge(title: String, pageSize: String?): Verdict {
-        val wanted = claimedSize(title)?.let(::normalize)?.takeIf { NUMERIC.matches(it) }
+        val claimed = claimedSize(title)
+        letterSize(claimed ?: "")?.let { wantedLetter ->
+            val pageLetter = pageSize?.let(::letterSize) ?: return Verdict.Unknown
+            return if (pageLetter == wantedLetter) Verdict.Match else Verdict.Mismatch(pageSize)
+        }
+        val wanted = claimed?.let(::normalize)?.takeIf { NUMERIC.matches(it) }
             ?: return Verdict.Unknown
         val page = pageSize?.let(::normalize)?.takeIf { it.isNotEmpty() }
             // Some listings carry no variation data at all and state the size in the name instead

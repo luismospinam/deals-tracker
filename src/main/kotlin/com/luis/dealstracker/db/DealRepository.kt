@@ -14,7 +14,22 @@ import java.time.Instant
 import javax.sql.DataSource
 
 /** [rejected]: a product page refuted this row's size; it stays inactive and takes no observations. */
-data class UpsertResult(val dealId: Long, val isNew: Boolean, val rejected: Boolean = false)
+/**
+ * A row within a day of its age-based retirement that no page read has vouched for in the last day. Takes
+ * two `?`: the provider's retirement age in hours, twice (0 turns the clause off). See `deactivateStale`.
+ */
+private const val NEARING_RETIREMENT =
+    "? > 0 AND d.last_seen_at < now() - make_interval(hours => GREATEST(? - 24, 0)) " +
+        "AND (d.page_valid_at IS NULL OR d.page_valid_at < now() - interval '24 hours')"
+
+data class UpsertResult(
+    val dealId: Long,
+    val isNew: Boolean,
+    val rejected: Boolean = false,
+    /** What the row's own page last showed (V29), or null when it was never read or the source has none. */
+    val pagePrice: BigDecimal? = null,
+    val pagePriceCurrency: String? = null,
+)
 
 data class FeedFilter(
     val sources: List<String> = emptyList(),
@@ -239,7 +254,7 @@ class DealRepository(
                 -- the same ASIN, and without this it would be reactivated every poll.
                 is_active  = NOT deals.size_rejected,
                 last_seen_at = now()
-            RETURNING id, (first_seen_at = last_seen_at) AS is_new, size_rejected
+            RETURNING id, (first_seen_at = last_seen_at) AS is_new, size_rejected, page_price, page_price_currency
         """.trimIndent()
 
         conn.prepareStatement(sql).use { st ->
@@ -271,7 +286,10 @@ class DealRepository(
             st.setString(21, raw.groceryGroup)
             st.executeQuery().use { rs ->
                 rs.next()
-                return UpsertResult(rs.getLong("id"), rs.getBoolean("is_new"), rs.getBoolean("size_rejected"))
+                return UpsertResult(
+                    rs.getLong("id"), rs.getBoolean("is_new"), rs.getBoolean("size_rejected"),
+                    rs.getBigDecimal("page_price"), rs.getString("page_price_currency"),
+                )
             }
         }
     }
@@ -446,13 +464,29 @@ class DealRepository(
      * Deals that reappear are reactivated by the upsert, and history is never deleted —
      * only visibility changes.
      */
-    fun deactivateStale(conn: Connection, source: String, staleAfterHours: Int): Int =
+    fun deactivateStale(
+        conn: Connection,
+        source: String,
+        staleAfterHours: Int,
+        spareConfirmed: Boolean = false,
+        maxUnseenDays: Int = 14,
+    ): Int =
         conn.prepareStatement(
-            "UPDATE deals SET is_active = FALSE " +
-                "WHERE source = ? AND is_active AND last_seen_at < now() - make_interval(hours => ?)",
+            """
+            UPDATE deals SET is_active = FALSE
+             WHERE source = ? AND is_active AND last_seen_at < now() - make_interval(hours => ?)
+               -- A row its own page vouched for within the window is not gone, only unlisted; one whose page
+               -- could not be read yet (a failed attempt waiting to retry) is not decided either. The hard cap
+               -- keeps either from holding a row forever.
+               AND NOT (? AND last_seen_at >= now() - make_interval(days => ?)
+                        AND (page_valid_at >= now() - make_interval(hours => ?) OR page_attempts > 0))
+            """.trimIndent(),
         ).use { st ->
             st.setString(1, source)
             st.setInt(2, staleAfterHours)
+            st.setBoolean(3, spareConfirmed)
+            st.setInt(4, maxUnseenDays)
+            st.setInt(5, staleAfterHours)
             st.executeUpdate()
         }
 
@@ -1013,6 +1047,7 @@ class DealRepository(
         recheckDays: Int = 0,
         baseBackoffHours: Int = 6,
         maxBackoffHours: Int = 168,
+        retireAfterHours: Int = 0,
     ): List<Triple<Long, String, String>> =
         if (sources.isEmpty()) emptyList() else ds.connection.use { conn ->
             conn.prepareStatement(
@@ -1023,14 +1058,17 @@ class DealRepository(
                    AND d.asin IS NOT NULL
                    AND d.source = ANY(?)
                    AND (d.page_checked_at IS NULL
-                        OR (? > 0 AND d.page_checked_at < now() - make_interval(days => ?)))
+                        OR (? > 0 AND d.page_checked_at < now() - make_interval(days => ?))
+                        -- Within a day of retirement and not vouched for by its page lately: ask the page.
+                        OR ($NEARING_RETIREMENT))
                    AND NOT EXISTS (SELECT 1 FROM manual_items m WHERE m.asin = d.asin)
                    AND (
                         d.page_attempted_at IS NULL
                      OR d.page_attempted_at < now() - make_interval(
                             hours => LEAST(? * POWER(2, d.page_attempts)::int, ?))
                    )
-                 ORDER BY (d.page_checked_at IS NULL) DESC, d.page_checked_at ASC NULLS FIRST,
+                 ORDER BY ($NEARING_RETIREMENT) DESC,
+                          (d.page_checked_at IS NULL) DESC, d.page_checked_at ASC NULLS FIRST,
                           d.first_seen_at DESC, d.id DESC
                  LIMIT ?
                 """.trimIndent(),
@@ -1038,9 +1076,13 @@ class DealRepository(
                 st.setArray(1, conn.createArrayOf("text", sources.toTypedArray()))
                 st.setInt(2, recheckDays)
                 st.setInt(3, recheckDays)
-                st.setInt(4, baseBackoffHours)
-                st.setInt(5, maxBackoffHours)
-                st.setInt(6, limit)
+                st.setInt(4, retireAfterHours)
+                st.setInt(5, retireAfterHours)
+                st.setInt(6, baseBackoffHours)
+                st.setInt(7, maxBackoffHours)
+                st.setInt(8, retireAfterHours)
+                st.setInt(9, retireAfterHours)
+                st.setInt(10, limit)
                 st.executeQuery().use { rs ->
                     buildList { while (rs.next()) add(Triple(rs.getLong("id"), rs.getString("asin"), rs.getString("title"))) }
                 }
@@ -1146,6 +1188,7 @@ class DealRepository(
         rejectReason: String?,
         pagePrice: java.math.BigDecimal?,
         pageCurrency: String?,
+        valid: Boolean = false,
     ): Boolean =
         ds.connection.use { conn ->
             conn.autoCommit = false
@@ -1155,7 +1198,10 @@ class DealRepository(
                     UPDATE deals
                        SET page_checked_at = now(), page_size = ?, page_attempts = 0, page_attempted_at = now(),
                            size_rejected = ?, size_reject_reason = ?,
-                           is_active = is_active AND NOT ?
+                           is_active = is_active AND NOT ?,
+                           page_price = CASE WHEN ? THEN page_price ELSE ? END,
+                           page_price_currency = CASE WHEN ? THEN page_price_currency ELSE ? END,
+                           page_valid_at = CASE WHEN ? THEN now() ELSE page_valid_at END
                      WHERE id = ?
                     """.trimIndent(),
                 ).use { st ->
@@ -1163,7 +1209,14 @@ class DealRepository(
                     st.setBoolean(2, rejectReason != null)
                     st.setString(3, rejectReason?.take(300))
                     st.setBoolean(4, rejectReason != null)
-                    st.setLong(5, id)
+                    // Kept as it was when this read produced no usable price, so a bad load cannot erase it.
+                    val noPrice = rejectReason != null || pagePrice == null || pageCurrency == null
+                    st.setBoolean(5, noPrice)
+                    st.setBigDecimal(6, pagePrice)
+                    st.setBoolean(7, noPrice)
+                    st.setString(8, pageCurrency)
+                    st.setBoolean(9, valid && rejectReason == null)
+                    st.setLong(10, id)
                     st.executeUpdate()
                 }
                 var appended = false

@@ -208,4 +208,25 @@ class AgeLimitTest {
         assertEquals(1, service.applyAgeLimit(provider, listOf(deal("fourteen", 14))).size)
         assertEquals(0, service.applyAgeLimit(provider, listOf(deal("fifteen", 15))).size)
     }
+
+    /** Mirrors the amazon provider's pattern in config/sources.yaml. */
+    private val amazon = ProviderConfig(
+        id = "amazon",
+        type = "amazon",
+        listOptions = mapOf("excludeTitlePatterns" to listOf("\\bkid(s|'s)?\\b")),
+    )
+
+    @Test
+    fun `amazon drops kids items but keeps adult ones`() {
+        val titles = listOf(
+            "Kids' Cloud Foam - Pure Running Shoes — 8",
+            "adidas Kids Cloud Foam Pure Running Shoes",
+            "Kid's Fleece Hoodie — M",
+            "Kids Fresh Foam Arishi V4 Running Shoe (Little Kid) — 8",
+            "Men's Vomero 18 Road Running Shoe — 8",
+            "Men's Skidmore Hoodie — M",
+        )
+        val kept = service.applyExclusions(amazon, titles.map { deal(it, null) }).map { it.title }
+        assertEquals(listOf("Men's Vomero 18 Road Running Shoe — 8", "Men's Skidmore Hoodie — M"), kept)
+    }
 }

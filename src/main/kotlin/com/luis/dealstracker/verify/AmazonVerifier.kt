@@ -26,6 +26,8 @@ data class CoShippingConfig(
     val batchSize: Int = 10,
     /** Politeness floor between page loads. */
     val delayMillis: Long = 15_000,
+    /** Plus or minus this much random spread on each pause, so the requests do not land on a fixed beat. */
+    val delayJitterMillis: Long = 0,
     /** Hard ceiling per run, regardless of batchSize. */
     val maxPerRun: Int = 100,
     /**
@@ -99,7 +101,7 @@ data class CoShippingConfig(
      * Re-read a row's own page once it was last confirmed longer ago than this many days, so every
      * Tracked row keeps a page-true price. 0 turns the refresh off; never-visited rows are unaffected.
      */
-    val pageRecheckDays: Int = 7,
+    val pageRecheckDays: Int = 4,
     /**
      * Re-check a `YES` verdict's shipping fee once it is older than this many days: the fee is quoted at the
      * item's price and Amazon changes it. 0 turns it off.
@@ -160,7 +162,7 @@ class AmazonVerifier(
             listOfNotNull(repo.coShippingCandidate(only)).also { shipIds = it.map { c -> c.first }.toSet() }
         } else {
             val take = (limit ?: config.batchSize).coerceAtMost(config.maxPerRun)
-            val pages = repo.pageCheckCandidates(take, config.prioritySources, recheckDays = config.pageRecheckDays)
+            val pages = repo.pageCheckCandidates(take, config.prioritySources, recheckDays = config.pageRecheckDays, retireAfterHours = retireAfterHours(config.amazonOptions))
             val recover = repo.siblingRecoveryCandidates(take, config.prioritySources)
             val ship = repo.coShippingCandidates(take, prioritySources = config.prioritySources, recheckYesDays = config.shippingRecheckDays)
             needsPage = pages.map { it.first }.toSet()
@@ -182,7 +184,7 @@ class AmazonVerifier(
             println("[verify] nothing to check (all decided, MANUAL, or still in backoff)")
             return VerifyOutcome()
         }
-        println("[verify] checking ${candidates.size} deal(s), ${config.delayMillis / 1000}s apart, country=${config.country}")
+        println("[verify] checking ${candidates.size} deal(s), ~${config.delayMillis / 1000}s apart (±${config.delayJitterMillis / 1000}s), country=${config.country}")
 
         var outcome = VerifyOutcome()
         trimProfileCache(config.profileDir, config.maxProfileCacheMb)
@@ -214,8 +216,9 @@ class AmazonVerifier(
                     // Only pause when the previous iteration actually hit Amazon; deals
                     // resolved from the title cost no request and need no cooling off.
                     if (i > 0 && lastHitAmazon) {
-                        showStatus(page, i, candidates.size, "pausing ${config.delayMillis / 1000}s to stay polite")
-                        page.waitForTimeout(config.delayMillis.toDouble())
+                        val pause = pauseMillis(config.delayMillis, config.delayJitterMillis)
+                        showStatus(page, i, candidates.size, "pausing ${pause / 1000}s to stay polite")
+                        page.waitForTimeout(pause.toDouble())
                     }
                     lastHitAmazon = false
 
@@ -254,6 +257,8 @@ class AmazonVerifier(
                             evidence = "page did not load within ${config.navigationTimeoutMillis / 1000}s",
                             importFree = null, shippingCost = null,
                         )
+                        // A read that failed is not "gone": count it so retirement waits (see deactivateStale).
+                        if (dealId in needsPage) repo.recordPageAttempt(dealId)
                         println("[verify] $asin → UNCLEAR  page did not load within ${config.navigationTimeoutMillis / 1000}s — skipped, will retry after backoff")
                         outcome = outcome.copy(checked = outcome.checked + 1, unclear = outcome.unclear + 1)
                         continue
@@ -268,6 +273,7 @@ class AmazonVerifier(
                             evidence = "blocked by Amazon human check", importFree = null,
                             shippingCost = null,
                         )
+                        if (dealId in needsPage) repo.recordPageAttempt(dealId)
                         println("[verify] blocked at $asin — stopping the run (attempt recorded, will back off)")
                         outcome = outcome.copy(blocked = true, unclear = outcome.unclear + 1)
                         break
@@ -557,7 +563,7 @@ class AmazonVerifier(
      */
     private fun trackSibling(page: Page, sibling: AmazonParser.Sibling, replacesDealId: Long, replacedAsin: String, title: String): Boolean {
         val wanted = SizeCheck.claimedSize(title) ?: return false
-        page.waitForTimeout(config.delayMillis.toDouble())
+        page.waitForTimeout(pauseMillis(config.delayMillis, config.delayJitterMillis).toDouble())
         val signals = try {
             readSignals(page, sibling.asin)
         } catch (e: TimeoutError) {
@@ -616,7 +622,8 @@ class AmazonVerifier(
                 PageResult.REJECTED
             }
             else -> {
-                val corrected = repo.recordPageCheck(dealId, signals.ownSize, null, signals.pagePrice, signals.pageCurrency)
+                val valid = pageStillSells(signals.pagePrice, extractor.extract(signals).value)
+                val corrected = repo.recordPageCheck(dealId, signals.ownSize, null, signals.pagePrice, signals.pageCurrency, valid)
                 if (corrected) {
                     println("[verify] $asin → price corrected to ${signals.pageCurrency} ${signals.pagePrice} (page differs from the search tile)")
                 }
@@ -680,4 +687,25 @@ internal fun trimProfileCache(profileDir: String, maxMb: Long) {
         runCatching { dir.deleteRecursively() }
             .onFailure { println("[verify] could not clear ${dir.name}: ${it.message}") }
     }
+}
+
+/**
+ * Whether a readable product page shows an item that can still be bought and shipped to Colombia: a buy-box
+ * price, and no refusal. A price that merely differs from the last reading does not count against it.
+ */
+internal fun pageStillSells(pagePrice: java.math.BigDecimal?, shipping: CoShipping): Boolean =
+    pagePrice != null && shipping != CoShipping.NO
+
+/** Hours the `amazon` provider waits before retiring a row it no longer lists; its `staleAfterHours`, default 48. */
+internal fun retireAfterHours(options: Map<String, String>): Int =
+    options["staleAfterHours"]?.toIntOrNull()?.takeIf { it > 0 } ?: 48
+
+/**
+ * One pause between page loads: [base] plus or minus up to [jitter], never below a second.
+ * A fixed beat is the most machine-like pattern a session can show; the spread breaks it up at no cost
+ * to the average.
+ */
+internal fun pauseMillis(base: Long, jitter: Long, random: kotlin.random.Random = kotlin.random.Random.Default): Long {
+    if (jitter <= 0) return base
+    return (base + random.nextLong(-jitter, jitter + 1)).coerceAtLeast(1_000)
 }

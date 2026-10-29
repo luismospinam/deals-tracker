@@ -63,6 +63,8 @@ data class Defaults(
     val coShippingBatchSize: Int = 10,
     /** Politeness floor between product pages, in milliseconds. */
     val coShippingDelayMillis: Long = 30_000,
+    /** Random spread around [coShippingDelayMillis], plus or minus, so the pause is not a fixed beat. 0 turns it off. */
+    val coShippingDelayJitterMillis: Long = 0,
     /** Hard ceiling per run regardless of batch size or --limit. */
     val coShippingMaxPerRun: Int = 40,
 
@@ -141,7 +143,7 @@ data class Defaults(
      * at stock. A size never changes, so this is about price, not size. The cleanup loop therefore never
      * goes fully idle: roughly one row in [pageRecheckDays] comes due each day. 0 turns it off.
      */
-    val pageRecheckDays: Int = 7,
+    val pageRecheckDays: Int = 4,
     /** Days after which a `YES` shipping verdict's fee is read again from the page. 0 turns it off. */
     val shippingRecheckDays: Int = 7,
     /** Minutes between cleanup runs while there is a backlog. A block backs off for an hour instead. */

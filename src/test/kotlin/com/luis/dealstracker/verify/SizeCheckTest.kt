@@ -34,9 +34,28 @@ class SizeCheckTest {
         assertEquals(Verdict.Unknown, SizeCheck.judge(shoe, "  "))
     }
 
-    @Test fun `garment sizes are not compared because the rail and the page use different words`() {
-        assertEquals(Verdict.Unknown, SizeCheck.judge("Hoodie — M", "Medium"))
-        assertEquals(Verdict.Unknown, SizeCheck.judge("Hoodie — M", "X-Large"))
+    @Test fun `a letter size matches the page's spelled-out name for it`() {
+        assertEquals(Verdict.Match, SizeCheck.judge("Hoodie — M", "Medium"))
+        assertEquals(Verdict.Match, SizeCheck.judge("Pants — S", "Small"))
+        assertEquals(Verdict.Match, SizeCheck.judge("Pants — XS", "X-Small"))
+        assertEquals(Verdict.Match, SizeCheck.judge("Pants — XL", "X-Large"))
+        assertEquals(Verdict.Match, SizeCheck.judge("Pants — XXL", "XX-Large"))
+        assertEquals(Verdict.Match, SizeCheck.judge("Pants — S", "S"))
+    }
+
+    @Test fun `a different letter size is a mismatch -- the 658242 case, tracking S but the page is X-Small`() {
+        assertEquals(Verdict.Mismatch("X-Small"), SizeCheck.judge("Mens Tigres Uanl DNA Pants — S", "X-Small"))
+        assertEquals(Verdict.Mismatch("Small"), SizeCheck.judge("Hoodie — M", "Small"))
+        assertEquals(Verdict.Mismatch("X-Large"), SizeCheck.judge("Hoodie — M", "X-Large"))
+        assertEquals(Verdict.Mismatch("Large"), SizeCheck.judge("Hoodie — XL", "Large"))
+    }
+
+    @Test fun `a letter size against a label outside the table is not judged`() {
+        assertEquals(Verdict.Unknown, SizeCheck.judge("Pants — S", "Small Tall"))
+        assertEquals(Verdict.Unknown, SizeCheck.judge("Pants — M", "Medium/31\" Inseam"))
+        assertEquals(Verdict.Unknown, SizeCheck.judge("Pants — S", "Standard"))
+        assertEquals(Verdict.Unknown, SizeCheck.judge("Pants — S", "29"))
+        assertEquals(Verdict.Unknown, SizeCheck.judge("Pants — S", null))
     }
 
     @Test fun `a title with no size suffix is not judged`() =

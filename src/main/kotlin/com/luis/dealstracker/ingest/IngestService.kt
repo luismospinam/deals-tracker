@@ -341,6 +341,8 @@ class IngestService(
                 // Refuted by its own product page (V23): no observation, or its wrong-size price
                 // would sit in the history of a row nobody can see.
                 if (upsert.rejected) return@forEach
+                // The row's own page outranks a search tile that disagrees with it (V29).
+                if (tileContradictsPage(raw.price, raw.currency, upsert.pagePrice, upsert.pagePriceCurrency)) return@forEach
                 if (upsert.isNew) newCount++
                 if (raw.watchIds.isNotEmpty()) watchLinks[upsert.dealId] = raw.watchIds
 
@@ -364,7 +366,13 @@ class IngestService(
             // Age-based, not "absent from this fetch": a single poll is not an
             // authoritative snapshot of the source (see deactivateStale).
             val staleAfterHours = provider.int("staleAfterHours", 48)
-            val deactivated = repo.deactivateStale(conn, provider.id, staleAfterHours)
+            // The tracker's Amazon rows are spared while their own page vouches for them: absence from a search
+            // of ~45 tiles is not evidence the item is gone. Hard cap in days, 14 unless the provider says.
+            val deactivated = repo.deactivateStale(
+                conn, provider.id, staleAfterHours,
+                spareConfirmed = provider.type == "amazon",
+                maxUnseenDays = provider.int("maxUnseenDays", 14),
+            )
             if (deactivated > 0) {
                 println("[${provider.id}] $deactivated deal(s) retired (unseen for ${staleAfterHours}h)")
             }
@@ -439,4 +447,21 @@ internal fun nextSlot(hours: List<Int>, now: Instant, zone: java.time.ZoneId): I
         val day = local.toLocalDate().plusDays(ahead)
         hours.map { day.atTime(it, 0).atZone(zone).toInstant() }
     }.filter { it.isAfter(now) }.minOrNull()
+}
+
+/** How far a tile price may sit from the page's before it is treated as a different, wrong figure. */
+internal const val PAGE_PRICE_TOLERANCE = 0.02
+
+/**
+ * True when a search tile's price should be dropped because the row's own page showed another price.
+ * A tile in another currency, or a row never read from its page, is not contradicted: nothing to compare.
+ */
+internal fun tileContradictsPage(
+    tile: java.math.BigDecimal,
+    tileCurrency: String,
+    page: java.math.BigDecimal?,
+    pageCurrency: String?,
+): Boolean {
+    if (page == null || pageCurrency == null || page.signum() <= 0 || tileCurrency != pageCurrency) return false
+    return (tile - page).abs().toDouble() / page.toDouble() > PAGE_PRICE_TOLERANCE
 }

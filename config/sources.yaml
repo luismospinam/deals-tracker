@@ -48,7 +48,13 @@ defaults:
   # pacing here rather than in code -- what Amazon tolerates is found empirically.
   coShippingCountry: "Colombia"
   coShippingBatchSize: 10
-  coShippingDelayMillis: 15000
+  # 8s with +/-2s of spread (2026-10-27), down from a fixed 15s. Measured over 10 hours, an item took
+  # a median 17.9s, of which 15s was this pause and ~3s the real work, so the pause is almost the
+  # whole per-item cost. 6-10s per pause is roughly 2x the items an hour. Amazon's tolerance is not
+  # known (walls appeared after ~40-55 loads at 15s); if the log shows "[STOPPED EARLY: Amazon was
+  # blocking]" or a run reports a wall, step back to 12000.
+  coShippingDelayMillis: 8000
+  coShippingDelayJitterMillis: 2000
   coShippingMaxPerRun: 100
 
   # Automatic verification: a small headed run after every Nth poll. Set to 0 to turn it
@@ -104,6 +110,16 @@ defaults:
   # Shorter than a manual run's 180s -- nobody is necessarily watching an automatic one,
   # so it should give up and let the next cycle retry rather than hold a window open.
   coShippingPollWallWaitMillis: 45000
+
+  # Days after which a tracked Amazon row's own page is read again for a page-true price. 3, down
+  # from the code default of 4 (2026-10-26): ~384 page loads a day across ~1,150 rows instead of ~288,
+  # well inside what the cleanup loop (40 every 20 minutes) already handles.
+  pageRecheckDays: 3
+
+  # Days after which a free-shipping verdict (YES) is checked again. 5, down from the code default of 7
+  # (2026-10-28): ~260 rechecks a day across ~1,300 YES rows instead of ~186. If the log starts showing
+  # refusals or "STOPPED EARLY", step back to 7.
+  shippingRecheckDays: 5
 
 providers:
   - id: slickdeals
@@ -840,6 +856,10 @@ providers:
     # verifier picks these rows up automatically because they carry an ASIN.
     coShippingDefault: UNKNOWN
     options:
+      # A row the search stops returning is retired after this long, and its last price stays on the
+      # Tracked tab until then. 72, raised from the default 48 (2026-10-18): the page re-read is every 4
+      # days, so a shorter wait often retired a row before its page was read again.
+      staleAfterHours: "72"
       # SIZES, IN AMAZON'S OWN WORDING. Not abbreviations.
       #
       # Amazon spells letter sizes out -- the adidas pullover checked on 2026-09-17 offers
@@ -870,7 +890,12 @@ providers:
       # alone filled it, so page 2 was never fetched and every poll kept ~280-350 items across 17
       # terms. Deeper results are where Amazon's size filter is loosest, so watch for more
       # wrong-size siblings (same title and image, different ASIN) as this goes up.
-      maxItemsPerSearch: "40"
+      #
+      # 60, raised from 40 (2026-10-27). More of each term's results kept per poll; the cost is more
+      # result pages per cycle (pages stop once the cap is met, so a term now often needs page 2 and
+      # sometimes 3) and more rows for the page and shipping checks to keep up with. If the log shows
+      # "[STOPPED EARLY: Amazon was blocking]" or searches coming back short, step back to 40.
+      maxItemsPerSearch: "60"
 
       # Result pages to walk per search term.
       #
@@ -902,6 +927,11 @@ providers:
       #   resultPriceSelector, resultImageSelector, productTitleSelector,
       #   productPriceSelector, productAvailabilitySelector
     listOptions:
+      # Kids' sizes are never wanted here (added 2026-10-28): a men's search still returns the
+      # odd "Kids' Cloud Foam" row, and a youth size 8 is not an adult 8. Same mechanism as the
+      # slickdeals grocery list, so `--purge-excluded --source amazon` clears existing rows.
+      excludeTitlePatterns:
+        - "\\bkid(s|'s)?\\b"
       # NOTE the key is `trackSearches`, not `searches`, and that is deliberate.
       #
       # IngestService merges every enabled watch's terms into every provider's `searches`.

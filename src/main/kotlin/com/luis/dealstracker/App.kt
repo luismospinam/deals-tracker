@@ -63,6 +63,8 @@ private const val SCHEDULE_TICK_MILLIS = 5 * 60_000L
 
 fun main(args: Array<String>) {
     val projectDir = File(System.getProperty("user.dir"))
+    // Before anything can create a Playwright: see pinPlaywrightDriverDir for why not the system temp.
+    com.luis.dealstracker.verify.pinPlaywrightDriverDir(projectDir)
     val app = AppConfig.load(projectDir)
 
     // Lazy because the registry below needs it before the database is connected: the watches'
@@ -603,6 +605,7 @@ internal fun verifyConfig(
     country = app.defaults.coShippingCountry,
     batchSize = batchSize,
     delayMillis = app.defaults.coShippingDelayMillis,
+    delayJitterMillis = app.defaults.coShippingDelayJitterMillis,
     maxPerRun = app.defaults.coShippingMaxPerRun,
     // The Tracked tab's own providers, so the tab and the queue's priority cannot drift apart.
     prioritySources = trackingSources(app),
@@ -672,7 +675,12 @@ private suspend fun pageCleanupOnce(repo: DealRepository, app: AppConfig): Boole
     withContext(Dispatchers.IO) {
         runCatching {
             val sources = trackingSources(app)
-            if (repo.pageCheckCandidates(1, sources, recheckDays = app.defaults.pageRecheckDays).isEmpty() &&
+            if (repo.pageCheckCandidates(
+                    1, sources, recheckDays = app.defaults.pageRecheckDays,
+                    retireAfterHours = com.luis.dealstracker.verify.retireAfterHours(
+                        app.providers.firstOrNull { it.type == "amazon" }?.options.orEmpty(),
+                    ),
+                ).isEmpty() &&
                 repo.siblingRecoveryCandidates(1, sources).isEmpty()
             ) {
                 return@runCatching false
