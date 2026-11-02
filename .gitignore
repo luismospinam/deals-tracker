@@ -5,13 +5,15 @@ local.properties
 .env
 *.local
 
-# Gradle / build
-.gradle/
-build/
+# Gradle / build. No trailing slash: ./dt makes each a symlink to a *.nosync folder, which iCloud
+# does not sync, and "build/" would match only a real directory, not the link.
+/.gradle
+/build
+/*.nosync/
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 # Kotlin compiler daemon's session state (Kotlin 2.x), written next to the build.
-.kotlin/
+/.kotlin
 
 # Persistent Chrome profile used by the assisted Amazon check. Holds real Amazon
 # cookies -- and a logged-in session if the operator signs in. Never commit.

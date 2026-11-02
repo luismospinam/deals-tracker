@@ -50,4 +50,25 @@ if [[ -z "${NODE_EXTRA_CA_CERTS:-}" ]]; then
     fi
 fi
 
+# The project lives in ~/Documents, which iCloud syncs, and iCloud "resolves" files it sees change
+# under it by keeping copies named "Foo 2.class", "Foo 3.class" -- duplicate classes that broke the
+# test task more than once. A folder named *.nosync is never synced, so each build-output folder is
+# kept as one and the usual name is a symlink to it: build/, .gradle/ and .kotlin/ still work as
+# paths, for Gradle and for the app's own files under build/. Runs once per folder; a fresh clone
+# gets the links on its first ./dt.
+for dir in build .gradle .kotlin; do
+    if [[ ! -L "$dir" ]]; then
+        if [[ -d "$dir" ]]; then
+            rm -rf "$dir.nosync"
+            mv "$dir" "$dir.nosync"
+            # The copies iCloud already made, e.g. "AppKt 2.class".
+            # Anchored to the end of the name: Kotlin test names have spaces, and so do their class files.
+            find -E "$dir.nosync" -regex '.* [0-9]+(\.[^/. ]+)?$' -exec rm -rf {} + 2>/dev/null || true
+        else
+            mkdir -p "$dir.nosync"
+        fi
+        ln -s "$dir.nosync" "$dir"
+    fi
+done
+
 exec ./gradlew "$@"

@@ -84,7 +84,7 @@ there is nothing to clone from yet. Two options:
 **Copy the directory** — simplest, and brings the git history with it:
 
 ```bash
-rsync -a --exclude build/ --exclude .gradle/ --exclude .kotlin/ \
+rsync -a --exclude build --exclude .gradle --exclude .kotlin --exclude '*.nosync' \
       --exclude .amazon-profile/ --exclude logs/ \
       ~/Documents/projects/luis/deals-tracker/ new-machine:~/deals-tracker/
 ```
@@ -101,7 +101,9 @@ Either way, **three things do not come across** and must be recreated:
 | `local.properties` | gitignored — MercadoLibre credentials | step 3 |
 | `.amazon-profile/` | gitignored Chrome profile, and it holds a logged-in Amazon session | re-created on first `--verify-co-shipping`; you set the delivery country again |
 
-`build/`, `.gradle/`, `.kotlin/` and `logs/` are all regenerated — skip them.
+`build/`, `.gradle/`, `.kotlin/` and `logs/` are all regenerated — skip them. The first three are
+symlinks to `build.nosync/` and so on, which `./dt` creates: iCloud does not sync a `*.nosync` folder,
+and when it synced `build/` it left duplicate `Foo 2.class` files that broke the test task.
 
 **The database does not travel either.** It lives in a Docker named volume (`pgdata`), not in
 the project directory, so a new machine starts with an empty feed and no price history. That
