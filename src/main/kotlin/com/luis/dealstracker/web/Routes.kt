@@ -427,7 +427,12 @@ fun Application.routes(
                 } else {
                     GroceryFilter(sources, controls.groups.toList(), controls.search)
                 }
-                Triple(mergeStores(groceries.rows(filter), stores), groceries.groups(sources), groceries.pinnedCount(sources))
+                // Rivals come from every grocery store, not just the filtered ones: "Exito only" still
+                // wants to know what Carulla charges.
+                val merged = withPageRivals(mergeStores(groceries.rows(filter), stores), controls, stores) { keys ->
+                    groceries.shelfPrices(keys, allSources)
+                }
+                Triple(merged, groceries.groups(sources), groceries.pinnedCount(sources))
             }
             val (sync, storage) = withContext(Dispatchers.IO) {
                 grocerySyncLines(app, groceries.syncStatus(allSources)) to runCatching { groceries.storage() }.getOrNull()
@@ -483,7 +488,12 @@ fun Application.routes(
             val row = withContext(Dispatchers.IO) {
                 if (groceries.setPinned(id, pinned, sources).isEmpty()) null
                 // Re-merged, so the swapped row still shows the cheaper store and the other one's price.
-                else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), groceryStores(app)).firstOrNull()
+                else {
+                    val stores = groceryStores(app)
+                    mergeStores(groceries.rows(GroceryFilter(sources, id = id)), stores).firstOrNull()?.let { row ->
+                        withRivals(listOf(row), groceries.shelfPrices(listOfNotNull(row.deal.matchKey), sources), stores).first()
+                    }
+                }
             } ?: return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
             call.respondFragment {
                 when {

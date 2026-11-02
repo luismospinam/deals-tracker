@@ -1623,6 +1623,20 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   white-space: nowrap;
 }
 
+/* The same barcode at another chain. Quiet when it is dearer; amber when it is cheaper, since that is
+ * the one that changes where to shop -- and the sign says so too, not just the colour. */
+.store-rival {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.store-rival:hover { text-decoration: underline; }
+.store-rival.cheaper { color: var(--d-mid); font-weight: 600; }
+
 .grocery-search { gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
 .grocery-search input[type="search"] { min-width: 22rem; }
 .grocery-search .typetag { align-self: center; }

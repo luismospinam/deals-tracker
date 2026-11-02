@@ -530,6 +530,11 @@ itself**. Merging the histories would read Colombia's normal shelf price as a 39
 Laureles'. Pinning a product pins it at both stores, so the pin survives when the cheaper store
 changes. If one store's copy is out of stock, the other store's copy is shown, whatever the price.
 
+**Across chains**, the Store column also shows the same barcode at the other chain — e.g.
+"Carulla $10,080 +5.0%" under an Exito row — linked to that copy's history and in amber when the
+other chain is cheaper. Only on-shelf copies in the same currency count, and only the page on screen
+is looked up. Exito and Carulla share ~4,400 barcodes; PriceSmart lists none, so it has no rival.
+
 The first full crawl of both stores, on 2026-09-24:
 
 | | items |

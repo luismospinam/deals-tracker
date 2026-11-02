@@ -43,8 +43,21 @@ data class GroceryRow(
      * the item getting cheaper -- nobody without that card could pay it.
      */
     val card: CardOffer? = null,
+    /** The same barcode at another chain, at its cheapest store there. See `withRivals` in GroceryViews. */
+    val rival: ChainRival? = null,
 ) {
     val unitPrice: BigDecimal? get() = unitPrice(deal.price, size)
+
+    /**
+     * How much more the [rival] charges, in percent of this row's price: negative when the other chain is
+     * cheaper. Null without a rival or a price to compare against.
+     */
+    val rivalGap: BigDecimal?
+        get() {
+            val r = rival?.takeIf { deal.price.signum() > 0 } ?: return null
+            return r.price.subtract(deal.price).multiply(BigDecimal(100))
+                .divide(deal.price, 1, RoundingMode.HALF_UP)
+        }
 
     /** Percent below [usual], positive for cheaper; null until there is enough history to say. */
     val belowUsual: BigDecimal?
@@ -68,6 +81,12 @@ data class GroceryRow(
         val DEAL_PERCENT = BigDecimal(10)
     }
 }
+
+/** A product at another chain, for the Store column: "Carulla $10,080". */
+data class ChainRival(val store: String, val price: BigDecimal, val currency: String, val dealId: Long)
+
+/** One store's on-shelf price for a barcode, as [GroceryRepository.shelfPrices] reads it. */
+data class ShelfPrice(val dealId: Long, val source: String, val matchKey: String, val price: BigDecimal, val currency: String)
 
 data class StorageLine(val databaseBytes: Long, val observations: Long, val promotions: Long, val banners: Long)
 
@@ -164,11 +183,7 @@ class GroceryRepository(private val ds: DataSource) {
         params.addAll(searchParams)
 
         val sql = """
-            WITH shelf AS (
-                SELECT source, max(started_at) AS since FROM fetch_runs
-                WHERE finished_at IS NOT NULL AND error IS NULL AND item_count > 0
-                GROUP BY source
-            )
+            $SHELF_CTE
             SELECT d.*, po.price, po.list_price, po.card_price, po.card_percent, po.card_scope,
                    agg.min_price, agg.max_price, agg.n,
                    0.0 AS relevance,
@@ -223,6 +238,45 @@ class GroceryRepository(private val ds: DataSource) {
                                                 .getOrDefault(CardScope.OTHER),
                                         )
                                     },
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Today's price at every store in [sources] that has one of [matchKeys] on the shelf, for comparing a
+     * product across chains. Same shelf rule as [rows]: a copy missing from its store's latest crawl is
+     * not a price anyone can pay there today.
+     */
+    fun shelfPrices(matchKeys: Collection<String>, sources: List<String>): List<ShelfPrice> {
+        if (matchKeys.isEmpty() || sources.isEmpty()) return emptyList()
+        val sql = """
+            $SHELF_CTE
+            SELECT d.id, d.source, d.match_key, d.currency, po.price
+            FROM deals d
+            LEFT JOIN shelf s ON s.source = d.source
+            JOIN LATERAL (
+                SELECT price FROM price_observations WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
+            ) po ON TRUE
+            WHERE d.match_key = ANY (?) AND d.source = ANY (?) AND d.is_active
+              AND (s.since IS NULL OR d.last_seen_at >= s.since)
+        """.trimIndent()
+        return ds.connection.use { conn ->
+            conn.prepareStatement(sql).use { st ->
+                st.setArray(1, conn.createArrayOf("text", matchKeys.distinct().toTypedArray()))
+                st.setArray(2, conn.createArrayOf("text", sources.toTypedArray()))
+                st.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                ShelfPrice(
+                                    dealId = rs.getLong("id"), source = rs.getString("source"),
+                                    matchKey = rs.getString("match_key"), price = rs.getBigDecimal("price"),
+                                    currency = rs.getString("currency"),
                                 ),
                             )
                         }
@@ -446,5 +500,14 @@ class GroceryRepository(private val ds: DataSource) {
     companion object {
         /** Days of history the usual price is taken over. */
         const val WINDOW_DAYS = 30
+
+        /** When each source's latest successful crawl began: a row last seen before it is off the shelf. */
+        private val SHELF_CTE = """
+            WITH shelf AS (
+                SELECT source, max(started_at) AS since FROM fetch_runs
+                WHERE finished_at IS NOT NULL AND error IS NULL AND item_count > 0
+                GROUP BY source
+            )
+        """.trimIndent()
     }
 }

@@ -5,7 +5,9 @@ import com.luis.dealstracker.i18n.I18n
 import com.luis.dealstracker.i18n.Lang
 import com.luis.dealstracker.i18n.aisleLabel
 import com.luis.dealstracker.i18n.tr
+import com.luis.dealstracker.db.ChainRival
 import com.luis.dealstracker.db.GroceryRow
+import com.luis.dealstracker.db.ShelfPrice
 import com.luis.dealstracker.db.SyncStatus
 import com.luis.dealstracker.ingest.unitPriceLabel
 import com.luis.dealstracker.model.formatMoney
@@ -117,6 +119,46 @@ internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStor
                 pinnedAt = copies.mapNotNull { it.pinnedAt }.minOrNull(),
             )
         }
+}
+
+/**
+ * Each row's cheapest on-shelf copy at ANOTHER chain, by barcode, as [GroceryRow.rival].
+ *
+ * [mergeStores] already compares a chain's own stores; this answers the other question -- would this be
+ * cheaper at Carulla than at Exito? Matched on the barcode key only, so the two are the same product
+ * in the same pack, and in the same currency only. PriceSmart lists no barcodes, so it neither gets
+ * nor gives a rival. Ties go to the store listed first in config.
+ */
+internal fun withRivals(rows: List<GroceryRow>, prices: List<ShelfPrice>, stores: Map<String, GroceryStore>): List<GroceryRow> {
+    val order = stores.keys.withIndex().associate { (i, id) -> id to i }
+    val chainOf = { source: String -> stores[source]?.chain ?: source }
+    val byKey = prices.groupBy { it.matchKey }
+    return rows.map { row ->
+        val key = row.deal.matchKey ?: return@map row
+        val chain = chainOf(row.deal.source)
+        val best = byKey[key].orEmpty()
+            .filter { chainOf(it.source) != chain && it.currency == row.deal.currency }
+            .minWithOrNull(compareBy<ShelfPrice> { it.price }.thenBy { order[it.source] ?: Int.MAX_VALUE })
+            ?: return@map row
+        row.copy(rival = ChainRival(stores[best.source]?.label ?: storeName(best.source), best.price, best.currency, best.dealId))
+    }
+}
+
+/**
+ * [rows] with a rival on each row of the page [controls] shows, and only those: All items can hold
+ * ~15,000 rows, and a barcode lookup for rows nobody is looking at would be wasted.
+ */
+internal fun withPageRivals(
+    rows: List<GroceryRow>,
+    controls: GroceryControls,
+    stores: Map<String, GroceryStore>,
+    lookup: (keys: Collection<String>) -> List<ShelfPrice>,
+): List<GroceryRow> {
+    val page = groceryPageRows(groceryShown(rows, controls), controls.page)
+    val keys = page.mapNotNull { it.deal.matchKey }
+    if (keys.isEmpty()) return rows
+    val withRival = withRivals(page, lookup(keys), stores).filter { it.rival != null }.associateBy { it.deal.id }
+    return rows.map { withRival[it.deal.id] ?: it }
 }
 
 /**
@@ -323,8 +365,8 @@ private fun MAIN.groceryBody(
             )
         }
         +tr(
-            ". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its ",
-            ". Un producto que se vende en dos tiendas de la misma cadena aparece una sola vez, en la más barata, marcado con cuál es. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus ",
+            ". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which; where another chain sells the same barcode, its price sits beneath. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its ",
+            ". Un producto que se vende en dos tiendas de la misma cadena aparece una sola vez, en la más barata, marcado con cuál es; si otra cadena vende el mismo código de barras, su precio aparece debajo. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus ",
         )
         +tr(
             // No clock times here: each store keeps its own schedule in sources.yaml, and the Last
@@ -695,6 +737,7 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                     if (other.onShelf) +formatMoney(other.deal.price, other.deal.currency) else +tr("out", "agotado")
                 }
             }
+            row.rival?.let { rivalLine(it, row.rivalGap) }
         }
         // The shelf price stays the main number -- what anyone pays. The card price sits under it as
         // a chip, because it is conditional: only a Mastercard (or only the store's own card) gets it.
@@ -770,6 +813,30 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 }
             }
         }
+    }
+}
+
+/**
+ * The other chain's price under the store tag, linked to its history. Highlighted only when the other
+ * chain is cheaper: that is the case that changes where you shop; dearer is just reassurance.
+ */
+private fun FlowContent.rivalLine(rival: ChainRival, gap: BigDecimal?) {
+    val cheaper = gap != null && gap.signum() < 0
+    a(href = "/deal/${rival.dealId}", classes = if (cheaper) "store-rival cheaper" else "store-rival") {
+        title = when {
+            gap == null -> tr("Same barcode at ${rival.store}", "El mismo código de barras en ${rival.store}")
+            cheaper -> tr(
+                "Same barcode, ${gap.negate().toPlainString()}% cheaper at ${rival.store} today",
+                "El mismo código de barras, ${gap.negate().toPlainString()}% más barato hoy en ${rival.store}",
+            )
+            gap.signum() == 0 -> tr("Same barcode, same price at ${rival.store}", "El mismo código de barras, el mismo precio en ${rival.store}")
+            else -> tr(
+                "Same barcode, ${gap.toPlainString()}% dearer at ${rival.store} today",
+                "El mismo código de barras, ${gap.toPlainString()}% más caro hoy en ${rival.store}",
+            )
+        }
+        +"${rival.store.substringBefore(' ')} ${formatMoney(rival.price, rival.currency)}"
+        gap?.takeIf { it.signum() != 0 }?.let { span("gap") { +(if (cheaper) " −${it.negate().toPlainString()}%" else " +${it.toPlainString()}%") } }
     }
 }
 
