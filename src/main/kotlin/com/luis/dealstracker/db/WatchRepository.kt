@@ -50,6 +50,9 @@ data class PendingNotification(
     val title: String,
     val source: String,
     val currency: String,
+    val watchId: Long = 0,
+    /** The retailer's page, for the digest's Discord post. Not read by the per-cycle banner. */
+    val url: String? = null,
 )
 
 class WatchRepository(private val ds: DataSource) {
@@ -135,6 +138,15 @@ class WatchRepository(private val ds: DataSource) {
         }
     }
 
+    /** Replaces only the exclusions, for the "exclude word" control on a watch's matching rows. */
+    fun setExcludeTerms(id: Long, excludeTerms: String?): Boolean = ds.connection.use { conn ->
+        conn.prepareStatement("UPDATE watches SET exclude_terms = ? WHERE id = ?").use { st ->
+            st.setString(1, excludeTerms)
+            st.setLong(2, id)
+            st.executeUpdate() > 0
+        }
+    }
+
     /** Matches cascade, per the FK in V7 — a match is meaningless without its watch. */
     fun delete(id: Long): Boolean = ds.connection.use { conn ->
         conn.prepareStatement("DELETE FROM watches WHERE id = ?").use { st ->
@@ -164,6 +176,9 @@ class WatchRepository(private val ds: DataSource) {
         // Dismissed deals are excluded: dismissing something is exactly the instruction not
         // to be told about it again.
         where += "d.state <> 'DISMISSED'"
+        // Hidden from this watch with the row's "hide" button (V32) -- the same instruction, scoped.
+        where += "NOT EXISTS (SELECT 1 FROM watch_hidden_deals h WHERE h.watch_id = ? AND h.deal_id = d.id)"
+        params += watch.id
 
         val terms = parseSearchTerms(watch.terms)
         require(terms.isNotEmpty()) { "watch ${watch.id} has no usable terms" }
@@ -182,7 +197,7 @@ class WatchRepository(private val ds: DataSource) {
         } + " OR d.id IN (SELECT deal_id FROM watch_sourced_deals WHERE watch_id = ?))"
         params += watch.id
 
-        parseSearchTerms(watch.excludeTerms).takeIf { it.isNotEmpty() }?.let { excludes ->
+        parseSearchTerms(watch.excludeTerms, MAX_EXCLUDE_TERMS).takeIf { it.isNotEmpty() }?.let { excludes ->
             // Substring-only, no trigram: an exclusion should be predictable. Fuzzy matching
             // here would silently drop legitimate results. Accent-folded for the same reason
             // as the include terms -- "portatil" must also exclude "portátil".
@@ -377,11 +392,12 @@ class WatchRepository(private val ds: DataSource) {
         if (alerts.isEmpty()) return emptyList()
 
         val sql = """
-            INSERT INTO watch_matches (watch_id, deal_id, reason, price_at_match, evidence)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO watch_matches (watch_id, deal_id, reason, price_at_match, evidence, gap_percent)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (watch_id, deal_id, reason) DO UPDATE SET
                 price_at_match = EXCLUDED.price_at_match,
                 evidence       = EXCLUDED.evidence,
+                gap_percent    = EXCLUDED.gap_percent,
                 matched_at     = now()
             RETURNING id, notified_at, notified_price
         """.trimIndent()
@@ -397,6 +413,7 @@ class WatchRepository(private val ds: DataSource) {
                         st.setString(3, alert.reason.name)
                         st.setBigDecimal(4, alert.price)
                         st.setString(5, alert.evidence)
+                        st.setBigDecimal(6, alert.gapPercent)
                         st.executeQuery().use { rs ->
                             rs.next()
                             val matchId = rs.getLong("id")
@@ -441,7 +458,7 @@ class WatchRepository(private val ds: DataSource) {
         }
         return pending.mapNotNull { (matchId, alert) ->
             val (title, source, currency) = byDeal[alert.dealId] ?: return@mapNotNull null
-            PendingNotification(matchId, watch.name, alert, title, source, currency)
+            PendingNotification(matchId, watch.name, alert, title, source, currency, watch.id)
         }
     }
 
@@ -466,6 +483,54 @@ class WatchRepository(private val ds: DataSource) {
         }
     }
 
+    /**
+     * The watch digest's rows: every alert the next digest would announce -- never announced, or
+     * announced at a higher price than now, the same "is it news" test [recordAlerts] applies -- plus,
+     * with [sentSince], those announced since then, so the page a digest links to still lists them.
+     * Enabled watches and active listings only: a paused watch or an ended offer is not news.
+     */
+    fun digestRows(sentSince: Instant? = null): List<DigestRow> = ds.connection.use { conn ->
+        val sql = """
+            SELECT m.id, m.watch_id, w.name AS watch_name, m.deal_id, m.reason, m.price_at_match, m.evidence,
+                   m.gap_percent, m.notified_at, d.title, d.source, d.currency, d.url,
+                   (m.notified_at IS NULL OR (m.notified_price IS NOT NULL AND m.price_at_match < m.notified_price)) AS waiting
+            FROM watch_matches m
+            JOIN watches w ON w.id = m.watch_id
+            JOIN deals d ON d.id = m.deal_id
+            WHERE w.enabled AND d.is_active
+              AND (m.notified_at IS NULL OR (m.notified_price IS NOT NULL AND m.price_at_match < m.notified_price)
+                   OR (CAST(? AS timestamptz) IS NOT NULL AND m.notified_at >= ?))
+        """.trimIndent()
+        conn.prepareStatement(sql).use { st ->
+            val since = sentSince?.let { java.sql.Timestamp.from(it) }
+            st.setTimestamp(1, since)
+            st.setTimestamp(2, since)
+            st.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        val pending = PendingNotification(
+                                matchId = rs.getLong("id"),
+                                watchName = rs.getString("watch_name"),
+                                alert = WatchAlert(
+                                    dealId = rs.getLong("deal_id"),
+                                    reason = MatchReason.valueOf(rs.getString("reason")),
+                                    price = rs.getBigDecimal("price_at_match"),
+                                    evidence = rs.getString("evidence").orEmpty(),
+                                    gapPercent = rs.getBigDecimal("gap_percent"),
+                                ),
+                                title = rs.getString("title"),
+                                source = rs.getString("source"),
+                                currency = rs.getString("currency"),
+                                watchId = rs.getLong("watch_id"),
+                                url = rs.getString("url"),
+                            )
+                        add(DigestRow(pending, rs.getTimestamp("notified_at")?.toInstant(), rs.getBoolean("waiting")))
+                    }
+                }
+            }
+        }
+    }
+
     /** Ledger rows for a watch, newest first — the watch detail page. */
     fun matches(watchId: Long, limit: Int = 200): List<WatchMatch> = ds.connection.use { conn ->
         val sql = """
@@ -479,23 +544,64 @@ class WatchRepository(private val ds: DataSource) {
         }
     }
 
-    /** Per-watch counters for the list page. */
-    fun matchCounts(): Map<Long, Pair<Int, Int>> = ds.connection.use { conn ->
+    /** Hides one listing from one watch (V32), or shows it again. */
+    fun setHidden(watchId: Long, dealId: Long, hidden: Boolean) = ds.connection.use { conn ->
+        val sql = if (hidden) {
+            "INSERT INTO watch_hidden_deals (watch_id, deal_id) VALUES (?, ?) ON CONFLICT DO NOTHING"
+        } else {
+            "DELETE FROM watch_hidden_deals WHERE watch_id = ? AND deal_id = ?"
+        }
+        conn.prepareStatement(sql).use { st ->
+            st.setLong(1, watchId)
+            st.setLong(2, dealId)
+            st.executeUpdate()
+        }
+    }
+
+    /** The listings hidden from a watch, newest first, with their titles: the "Hidden" list on its page. */
+    fun hidden(watchId: Long): List<Pair<Long, String>> = ds.connection.use { conn ->
         val sql = """
-            SELECT watch_id, COUNT(*) AS total, COUNT(*) FILTER (WHERE notified_at IS NULL) AS unseen
+            SELECT d.id, d.title FROM watch_hidden_deals h JOIN deals d ON d.id = h.deal_id
+            WHERE h.watch_id = ? ORDER BY h.hidden_at DESC
+        """.trimIndent()
+        conn.prepareStatement(sql).use { st ->
+            st.setLong(1, watchId)
+            st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getLong(1) to rs.getString(2)) } }
+        }
+    }
+
+    /** Per-watch alert counters for the list page. */
+    fun alertCounts(): Map<Long, AlertCounts> = ds.connection.use { conn ->
+        val sql = """
+            SELECT watch_id, COUNT(*) AS total, COUNT(*) FILTER (WHERE notified_at IS NULL) AS unseen,
+                   COUNT(*) FILTER (WHERE matched_at > now() - interval '7 days') AS week,
+                   MAX(COALESCE(notified_at, matched_at)) AS last_at
             FROM watch_matches GROUP BY watch_id
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
             st.executeQuery().use { rs ->
                 buildMap {
                     while (rs.next()) {
-                        put(rs.getLong("watch_id"), rs.getInt("total") to rs.getInt("unseen"))
+                        put(
+                            rs.getLong("watch_id"),
+                            AlertCounts(rs.getInt("total"), rs.getInt("unseen"), rs.getInt("week"), rs.getTimestamp("last_at")?.toInstant()),
+                        )
                     }
                 }
             }
         }
     }
 }
+
+/** One alert in the watch digest. [waiting] is true until a digest has announced it at this price. */
+data class DigestRow(val pending: PendingNotification, val notifiedAt: Instant?, val waiting: Boolean)
+
+/**
+ * A watch's alerts, for the list page. These are rows in `watch_matches` -- listings that fired a
+ * rule -- not the listings matching the watch now, which the watch's own page counts (881 against
+ * 131 alerts for Nevera on 2026-11-02, when the list called both "matches").
+ */
+data class AlertCounts(val total: Int, val unseen: Int, val lastWeek: Int, val lastAt: java.time.Instant?)
 
 private fun PreparedStatement.bindDraft(conn: Connection, d: WatchDraft) {
     setString(1, d.name)

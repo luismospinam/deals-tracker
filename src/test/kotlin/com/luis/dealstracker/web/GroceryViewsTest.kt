@@ -102,6 +102,17 @@ class GroceryViewsTest {
         assertEquals(listOf(2L, 3L, 1L), shown.map { it.deal.id })
     }
 
+    /** The intro said "Read at 07:00 and 15:00" long after Exito moved to three windows; times live in Last sync. */
+    @Test
+    fun `the intro states no clock times`() {
+        val html = createHTML().main {
+            groceryPage(listOf(row()), listOf("Pantry" to 1), GroceryControls.from(parametersOf()), listOf("carulla-grocery"))
+        }
+        val intro = html.substringAfter("tracked-intro").substringBefore("</p>")
+        assertFalse(Regex("""\b\d{2}:\d{2}\b""").containsMatchIn(intro), intro)
+        assertTrue(intro.contains("Last sync"))
+    }
+
     @Test
     fun `search is carried on deals and all items but not pinned`() {
         val all = GroceryControls.from(parametersOf("view" to listOf("all"), "q" to listOf("café")))

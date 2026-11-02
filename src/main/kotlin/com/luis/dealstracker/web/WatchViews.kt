@@ -1,5 +1,8 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.db.AlertCounts
+import com.luis.dealstracker.db.DigestRow
+import com.luis.dealstracker.notify.rankDigest
 import com.luis.dealstracker.i18n.categoryLabel
 import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.ingest.WatchEvaluator
@@ -335,19 +338,32 @@ private fun MAIN.pager(
  */
 fun MAIN.watchesPage(
     watches: List<Watch>,
-    counts: Map<Long, Pair<Int, Int>>,
+    counts: Map<Long, AlertCounts>,
     sources: List<String>,
     categories: List<String>,
+    digest: List<DigestRow>? = null,
+    digestTimes: List<String> = emptyList(),
+    digestAll: Boolean = false,
 ) {
     h2 { +tr("Watches", "Búsquedas") }
     p("hint") {
         +tr(
             "Things you are trying to buy. Each one hunts on every source that can search, and " +
-                "filters everything else that arrives. Alerts land as a desktop notification.",
+                "filters everything else that arrives. ",
             "Cosas que intentas comprar. Cada una busca en todas las fuentes que permiten buscar, y " +
-                "filtra todo lo demás que llega. Las alertas llegan como notificación de escritorio.",
+                "filtra todo lo demás que llega. ",
         )
+        +if (digestTimes.isEmpty()) {
+            tr("Alerts land as a desktop notification.", "Las alertas llegan como notificación de escritorio.")
+        } else {
+            val at = digestTimes.joinToString(", ")
+            tr(
+                "Alerts are gathered into one desktop notification at $at, biggest price gap first.",
+                "Las alertas se juntan en una notificación de escritorio a las $at, primero la mayor diferencia de precio.",
+            )
+        }
     }
+    digest?.let { digestSection(it, digestTimes, digestAll) }
 
     if (watches.isEmpty()) {
         div("empty") {
@@ -370,7 +386,13 @@ fun MAIN.watchesPage(
                     th(scope = ThScope.col, classes = "col-deal") { +tr("Watch", "Búsqueda") }
                     th(scope = ThScope.col, classes = "col-price") { +tr("Price band", "Rango de precio") }
                     th(scope = ThScope.col, classes = "col-disc") { +tr("Window", "Ventana") }
-                    th(scope = ThScope.col, classes = "col-sig") { +tr("Matches", "Coincidencias") }
+                    th(scope = ThScope.col, classes = "col-sig") {
+                        title = tr(
+                            "Times a listing fired one of the watch's rules. The listings matching it now are on the watch's own page.",
+                            "Veces que un producto disparó una regla de la búsqueda. Los productos que coinciden ahora están en la página de la búsqueda.",
+                        )
+                        +tr("Alerts", "Alertas")
+                    }
                     th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
                 }
             }
@@ -382,7 +404,7 @@ fun MAIN.watchesPage(
 }
 
 /** Split from [watchRow] so the HTMX fragment and the table body cannot drift apart. */
-private fun TBODY.watchRow(watch: Watch, counts: Pair<Int, Int>?) {
+private fun TBODY.watchRow(watch: Watch, counts: AlertCounts?) {
     tr(classes = watchRowClass(watch)) {
         attributes["id"] = "watch-${watch.id}"
         watchRowBody(watch, counts)
@@ -397,7 +419,7 @@ private fun TBODY.watchRow(watch: Watch, counts: Pair<Int, Int>?) {
  */
 private fun watchRowClass(watch: Watch): String? = if (watch.enabled) null else "paused"
 
-private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
+private fun TR.watchRowBody(watch: Watch, counts: AlertCounts?) {
     td(classes = "col-deal") {
         div("title") { a(href = "/watches/${watch.id}") { +watch.name } }
         div("meta") {
@@ -415,15 +437,7 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
     }
     td(classes = "col-price") {
         cardLabel(tr("Price band", "Rango de precio"))
-        val min = watch.minPrice?.let { formatMoney(it, watch.currency) }
-        val max = watch.maxPrice?.let { formatMoney(it, watch.currency) }
-        when {
-            min != null && max != null -> +"$min – $max"
-            max != null -> +tr("up to $max", "hasta $max")
-            min != null -> +tr("from $min", "desde $min")
-            // A watch with no floor is the noisy case, so it is called out rather than left blank.
-            else -> span("dim") { +tr("any (no floor)", "cualquiera (sin mínimo)") }
-        }
+        priceBand(watch)
     }
     td(classes = "col-disc") {
         cardLabel(tr("Window", "Ventana"))
@@ -432,13 +446,19 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
         span("dim") { +"−${watch.crossSiteMinSpread.stripTrailingZeros().toPlainString()}% ${tr("x-site", "entre sitios")}" }
     }
     td(classes = "col-sig") {
-        cardLabel(tr("Matches", "Coincidencias"))
-        val (total, unseen) = counts ?: (0 to 0)
-        if (total == 0) {
+        cardLabel(tr("Alerts", "Alertas"))
+        if (counts == null || counts.total == 0) {
             span("dim") { +"—" }
         } else {
-            +"$total"
-            if (unseen > 0) span("act-count") { +tr("$unseen new", "$unseen nuevas") }
+            +"${counts.total}"
+            if (counts.unseen > 0) span("act-count") { +tr("${counts.unseen} new", "${counts.unseen} nuevas") }
+            // The week's count is what says whether a watch has turned noisy; the total only grows.
+            br()
+            span("dim") { +tr("${counts.lastWeek} this week", "${counts.lastWeek} esta semana") }
+            counts.lastAt?.let {
+                br()
+                span("dim") { +tr("last ${relativeAgo(it)}", "última ${relativeAgo(it)}") }
+            }
         }
     }
     td(classes = "col-act") {
@@ -462,8 +482,138 @@ private fun TR.watchRowBody(watch: Watch, counts: Pair<Int, Int>?) {
     }
 }
 
+/**
+ * The digest, as a table: what is waiting for the next banner and what the last day's banners
+ * announced, every watch together, biggest gap first. Where the banner's click lands, since a banner
+ * has room for the top alert only.
+ */
+private fun MAIN.digestSection(rows: List<DigestRow>, times: List<String>, showAll: Boolean) {
+    div("digest") {
+        attributes["id"] = "digest"
+        h3 { +tr("Latest digest", "Último resumen") }
+        if (rows.isEmpty()) {
+            p("hint") { +tr("No alerts in the last day.", "Ninguna alerta en el último día.") }
+            return@div
+        }
+        val byMatch = rows.associateBy { it.pending.matchId }
+        table("deals digest") {
+            caption("sr-only") { +tr("Latest digest", "Último resumen") }
+            thead {
+                tr {
+                    th(scope = ThScope.col, classes = "col-disc") {
+                        title = tr(
+                            "How far below the rival's price (cross-site) or the watch's earlier floor (new low)",
+                            "Cuánto por debajo del precio del rival (entre sitios) o del mínimo anterior de la búsqueda (nuevo mínimo)",
+                        )
+                        +tr("Gap", "Diferencia")
+                    }
+                    th(scope = ThScope.col, classes = "col-deal") { +tr("Item", "Producto") }
+                    th(scope = ThScope.col, classes = "col-price") { +tr("Price", "Precio") }
+                    th(scope = ThScope.col, classes = "col-seen") { +tr("Status", "Estado") }
+                }
+            }
+            val ranked = rankDigest(rows.map { it.pending })
+            tbody {
+                // The top few above the watch list; the rest one click away, so a busy day does not
+                // push the watches themselves off the screen.
+                (if (showAll) ranked else ranked.take(WATCH_DIGEST_SHOWN)).forEach { p ->
+                    val row = byMatch.getValue(p.matchId)
+                    tr {
+                        td("col-disc") { +(p.alert.gapPercent?.let { "−${it.stripTrailingZeros().toPlainString()}%" } ?: "—") }
+                        td("col-deal") {
+                            div("title") { a(href = "/deal/${p.alert.dealId}") { +p.title } }
+                            div("meta") {
+                                span { a(href = "/watches/${p.watchId}") { +p.watchName } }
+                                span { +p.source }
+                                span("dim") { +p.alert.evidence }
+                            }
+                        }
+                        td("col-price") { +formatMoney(p.alert.price, p.currency) }
+                        td("col-seen") {
+                            if (row.waiting) {
+                                span("chip") { +tr("waiting · ${times.joinToString(", ")}", "en espera · ${times.joinToString(", ")}") }
+                            } else {
+                                row.notifiedAt?.let { +tr("sent ${relativeAgo(it)}", "enviada ${relativeAgo(it)}") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (!showAll && rows.size > WATCH_DIGEST_SHOWN) {
+            p("hint") {
+                a(href = "/watches?digest=all#digest") {
+                    +tr("show all ${rows.size}", "ver las ${rows.size}")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tuning a watch from the row that is wrong, instead of from its edit form.
+ *
+ * "hide" is one click and exact: this listing, for this watch, and nothing else (V32). "exclude word"
+ * adds a term to the watch's exclusions, for a whole class of junk, and is typed rather than guessed:
+ * the only word unique to Nevera's drinks cooler was its brand, which is not what to exclude.
+ */
+private fun kotlinx.html.TD.matchActions(watchId: Long, dealId: Long) {
+    div("actions") {
+        button {
+            attributes["hx-post"] = "/watches/$watchId/hide/$dealId"
+            attributes["hx-target"] = "closest tr"
+            attributes["hx-swap"] = "outerHTML"
+            title = tr("Hide this listing from this watch only", "Ocultar este producto solo de esta búsqueda")
+            +tr("hide", "ocultar")
+        }
+    }
+    details("exclude-word") {
+        summary { +tr("exclude word…", "excluir palabra…") }
+        form(action = "/watches/$watchId/exclude", method = FormMethod.post) {
+            input(type = InputType.text, name = "term") {
+                attributes["aria-label"] = tr("Word to exclude", "Palabra a excluir")
+                placeholder = tr("e.g. bebidas", "p. ej. bebidas")
+                required = true
+                attributes["size"] = "12"
+            }
+            button(type = ButtonType.submit) { +tr("exclude", "excluir") }
+        }
+    }
+}
+
+/** The listings hidden from a watch, each with a way back. Nothing when there are none. */
+private fun MAIN.hiddenList(watchId: Long, hidden: List<Pair<Long, String>>) {
+    if (hidden.isEmpty()) return
+    details("hidden-list") {
+        attributes["id"] = "hidden"
+        summary { +tr("Hidden from this watch (${hidden.size})", "Ocultos de esta búsqueda (${hidden.size})") }
+        hidden.forEach { (dealId, title) ->
+            form(action = "/watches/$watchId/unhide/$dealId", method = FormMethod.post, classes = "hidden-row") {
+                a(href = "/deal/$dealId") { +title }
+                button(type = ButtonType.submit) { +tr("show again", "mostrar de nuevo") }
+            }
+        }
+    }
+}
+
+/** Digest rows shown before "show all". */
+internal const val WATCH_DIGEST_SHOWN = 10
+
+/** A watch's price band, worded the same on the list and on the watch's own page. */
+private fun kotlinx.html.FlowOrPhrasingContent.priceBand(watch: Watch) {
+    val min = watch.minPrice?.let { formatMoney(it, watch.currency) }
+    val max = watch.maxPrice?.let { formatMoney(it, watch.currency) }
+    when {
+        min != null && max != null -> +"$min – $max"
+        max != null -> +tr("up to $max", "hasta $max")
+        min != null -> +tr("from $min", "desde $min")
+        // A watch with no floor is the noisy case, so it is called out rather than left blank.
+        else -> span("dim") { +tr("any (no floor)", "cualquiera (sin mínimo)") }
+    }
+}
+
 /** Bare `<tr>` for an HTMX swap — never a full document, which would nest a table. */
-fun watchRowFragment(watch: Watch, counts: Pair<Int, Int>?): String =
+fun watchRowFragment(watch: Watch, counts: AlertCounts?): String =
     createHTML(prettyPrint = false).tr(classes = watchRowClass(watch)) {
         attributes["id"] = "watch-${watch.id}"
         watchRowBody(watch, counts)
@@ -642,12 +792,25 @@ fun MAIN.watchDetail(
     matchingPage: Int = 1,
     fx: FxRate? = null,
     matchingSource: String? = null,
+    hidden: List<Pair<Long, String>> = emptyList(),
 ) {
     val basePath = "/watches/${watch.id}"
     h2 { +watch.name }
     p("meta") {
         span { code { +watch.terms } }
         watch.amazonTerms?.takeIf { it.isNotBlank() }?.let { span { +"amazon: "; code { +it } } }
+        // The settings that decide which rows are below were missing here: the floor and the
+        // exclusions explain why a listing is, or is not, in "Matching now".
+        span {
+            title = tr(
+                "The minimum is tested against the highest price a listing has reached, so a markdown below it still counts; the maximum against today's price.",
+                "El mínimo se compara con el precio más alto que ha tenido el producto, así que una rebaja por debajo sigue contando; el máximo con el precio de hoy.",
+            )
+            priceBand(watch)
+        }
+        watch.categoryGroup?.let { span { +categoryLabel(it) } }
+        span { +if (watch.sources.isEmpty()) tr("all sources", "todas las fuentes") else watch.sources.joinToString(", ") }
+        span { +"−${watch.crossSiteMinSpread.stripTrailingZeros().toPlainString()}% ${tr("x-site", "entre sitios")}" }
         span { +tr("${watch.lookbackDays}-day window", "ventana de ${watch.lookbackDays} días") }
         if (watch.requireCoShipping) {
             span {
@@ -658,10 +821,14 @@ fun MAIN.watchDetail(
         span { +tr("${candidates.size} matching now", "${candidates.size} coincidencias actuales") }
         if (!watch.enabled) span("chip") { +tr("paused", "pausada") }
     }
+    watch.excludeTerms?.takeIf { it.isNotBlank() }?.let {
+        p("meta watch-excludes") { span("dim") { +tr("not: ", "excepto: "); code { +it } } }
+    }
 
     // Compared, sorted and highlighted in the watch's currency, the same conversion the rules use.
     val comparable = fx?.let { WatchEvaluator.comparable(watch, candidates, it) } ?: candidates
     matchingTable(watch, comparable, matchingSort, alertsSort, matchingPage, basePath, fx, matchingSource)
+    hiddenList(watch.id, hidden)
 
     h3 { +tr("Alerts", "Alertas") }
     if (matches.isEmpty()) {
@@ -889,6 +1056,7 @@ private fun MAIN.matchingTable(
                 th(tr("Window low", "Mín. de la ventana"), "floor", "col-price", false)
                 // Plain text now: narrowing by source is the dropdown above the table.
                 th(scope = ThScope.col, classes = "col-sig") { +tr("Source", "Fuente") }
+                th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
             }
         }
         tbody {
@@ -943,6 +1111,7 @@ private fun MAIN.matchingTable(
                         cardLabel(tr("Source", "Fuente"))
                         +candidate.source
                     }
+                    td(classes = "col-act") { matchActions(watch.id, candidate.dealId) }
                 }
             }
         }

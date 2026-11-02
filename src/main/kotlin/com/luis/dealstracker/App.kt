@@ -136,7 +136,14 @@ fun main(args: Array<String>) {
     // to remember to put it back. Resolved here rather than at the server, because a
     // notification needs the same value to link back to a watch.
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
-    val watchService = WatchService(watches, baseUrl = "http://localhost:$port", fx = rates::current)
+    val watchService = WatchService(
+        watches, baseUrl = "http://localhost:$port", fx = rates::current,
+        digest = app.defaults.watchDigestTimes.isNotEmpty(),
+    )
+    val watchDigest = com.luis.dealstracker.notify.WatchDigest(
+        watches, SettingsRepository(Db.dataSource), app.defaults.watchDigestTimes, baseUrl = "http://localhost:$port",
+        discord = app.discordWatchesWebhook?.let { com.luis.dealstracker.notify.DiscordWebhook(it) },
+    )
     // Items tracked by pasted URL. Refreshed every poll alongside the searches: an un-refreshed row
     // is retired by deactivateStale after 48h and silently vanishes from the tab, which reads as
     // "the item stopped existing" rather than "the app stopped looking".
@@ -193,6 +200,13 @@ fun main(args: Array<String>) {
         val reports = watchService.runAll(dryRun = args.contains("--dry-run"))
         if (reports.isEmpty()) println("no enabled watches. Add one at http://localhost:$port/watches")
         reports.forEach { println(it.summary()) }
+        http.close()
+        return
+    }
+
+    // Sends the watch digest now, ignoring its daily slots. `--dry-run` prints the banner and the ranking.
+    if (args.contains("--watch-digest")) {
+        println(watchDigest.runNow(dryRun = args.contains("--dry-run")))
         http.close()
         return
     }
@@ -387,6 +401,17 @@ fun main(args: Array<String>) {
             // Rebuilds the stored usual prices when the date has turned (V28); a no-op the rest of the day.
             runCatching { groceries.refreshUsualPrices().takeIf { it > 0 }?.let { println("[groceries] usual prices refreshed for $it rows") } }
                 .onFailure { println("[groceries] usual-price refresh failed: ${it.message}") }
+            delay(SCHEDULE_TICK_MILLIS)
+        }
+    }
+
+    // The watch digest: one banner for every watch's alerts at defaults.watchDigestTimes. Due-ness is
+    // remembered in app_settings like the pinned posts', so a restart neither repeats nor skips one.
+    if (pollerEnabled && app.defaults.watchDigestTimes.isNotEmpty()) scope.launch {
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching { watchDigest.runDue()?.let(::println) }.onFailure { println("[watch-digest] failed: ${it.message}") }
+            }
             delay(SCHEDULE_TICK_MILLIS)
         }
     }

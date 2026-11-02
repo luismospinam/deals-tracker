@@ -44,6 +44,9 @@ class SettingsRepository(private val ds: DataSource) {
         const val PINNED_ALERT_GROCERIES_SLOT = "pinned_alert_groceries_slot"
         const val PINNED_ALERT_TRACKED_SLOT = "pinned_alert_tracked_slot"
 
+        /** The last watch-digest slot sent, so a restart neither repeats nor skips one. */
+        const val WATCH_DIGEST_SLOT = "watch_digest_slot"
+
         /** The pasted exito.com `VtexIdclientAutCookie_exitocol` cookie the cart button acts as. Blank when cleared. */
         const val EXITO_COOKIE = "exito_cookie"
 

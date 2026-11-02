@@ -64,4 +64,12 @@ class SearchTermsTest {
         assertEquals("a\\\\b", escapeLike("a\\b"))
         assertTrue(escapeLike("airpods") == "airpods", "ordinary text is untouched")
     }
+
+    /** Soporte TV has 55 exclusions; under the search box's cap of 20 the watch ignored 35 of them. */
+    @Test
+    fun `exclusions are not cut at the search box's twenty`() {
+        val many = (1..55).joinToString(" | ") { "t$it" }
+        assertEquals(20, parseSearchTerms(many).size)
+        assertEquals(55, parseSearchTerms(many, MAX_EXCLUDE_TERMS).size)
+    }
 }

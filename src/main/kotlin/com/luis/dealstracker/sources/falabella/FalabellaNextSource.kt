@@ -67,7 +67,6 @@ class FalabellaNextSource : DealSource {
                     println("[${cfg.id}] ${query.label} page $page failed: ${e.message}")
                     break
                 }
-                if (result.notModified) break
                 val body = result.body
                 if (body == null || !result.ok) {
                     println("[${cfg.id}] ${query.label} page $page -> HTTP ${result.status}")

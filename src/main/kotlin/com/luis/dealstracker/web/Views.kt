@@ -1,5 +1,6 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.db.SyncStatus
 import com.luis.dealstracker.model.CardOffer
 import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.CoShipping
@@ -13,6 +14,7 @@ import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import com.luis.dealstracker.i18n.categoryLabel
 import com.luis.dealstracker.i18n.tr
@@ -24,7 +26,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "66"
+private const val CSS_VERSION = "69"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -1087,7 +1089,7 @@ internal fun kotlinx.html.FlowContent.shippingCheckedChip(deal: Deal) {
     }
 }
 
-private fun TD.coShippingCell(deal: Deal, note: String? = null) {
+private fun FlowContent.coShippingCell(deal: Deal, note: String? = null, onDetail: Boolean = false) {
     div("co") {
         // Evidence as a tooltip, and an "auto" marker, so an automated verdict can be told
         // apart from one Luis made by hand -- and audited without re-fetching the page.
@@ -1148,16 +1150,12 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
                 span("co-unk") { +tr("? unverified", "? sin verificar") }
                 div("actions") {
                     button {
-                        attributes["hx-post"] = "/deal/${deal.id}/co-shipping?value=YES"
-                        attributes["hx-target"] = "#deal-${deal.id}"
-                        attributes["hx-swap"] = "outerHTML"
+                        dealAction("/deal/${deal.id}/co-shipping?value=YES", deal.id, onDetail)
                         title = tr("Mark as shippable to Colombia", "Marcar como enviable a Colombia")
                         +tr("ships", "envía")
                     }
                     button {
-                        attributes["hx-post"] = "/deal/${deal.id}/co-shipping?value=NO"
-                        attributes["hx-target"] = "#deal-${deal.id}"
-                        attributes["hx-swap"] = "outerHTML"
+                        dealAction("/deal/${deal.id}/co-shipping?value=NO", deal.id, onDetail)
                         title = tr("Mark as not shippable", "Marcar como no enviable")
                         +"no"
                     }
@@ -1167,9 +1165,7 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
                     // button without one would promise a check that cannot be performed.
                     if (!deal.asin.isNullOrBlank()) {
                         button(classes = "verify-btn") {
-                            attributes["hx-post"] = "/deal/${deal.id}/verify"
-                            attributes["hx-target"] = "#deal-${deal.id}"
-                            attributes["hx-swap"] = "outerHTML"
+                            dealAction("/deal/${deal.id}/verify", deal.id, onDetail)
                             // A real browser has to cold-start and Amazon's widgets are
                             // AJAX-filled, so this is tens of seconds, not milliseconds.
                             // Disable the whole row's buttons while it runs rather than
@@ -1197,12 +1193,26 @@ private fun TD.coShippingCell(deal: Deal, note: String? = null) {
     }
 }
 
-private fun DIV.stateButton(dealId: Long, state: DealState, label: String) {
+private fun DIV.stateButton(dealId: Long, state: DealState, label: String, onDetail: Boolean = false) {
     button {
-        attributes["hx-post"] = "/deal/$dealId/state?value=${state.name}"
+        dealAction("/deal/$dealId/state?value=${state.name}", dealId, onDetail)
+        +label
+    }
+}
+
+/**
+ * Points a deal action at its endpoint. In a feed row the endpoint's answer -- a rendered feed row -- is
+ * swapped over the row. The deal page has no row to swap, so there the answer is ignored and the page
+ * reloads once the action succeeded: the same endpoints and rules, no second copy of either.
+ */
+internal fun kotlinx.html.HTMLTag.dealAction(post: String, dealId: Long, onDetail: Boolean) {
+    attributes["hx-post"] = post
+    if (onDetail) {
+        attributes["hx-swap"] = "none"
+        attributes["hx-on::after-request"] = "if (event.detail.successful) location.reload()"
+    } else {
         attributes["hx-target"] = "#deal-$dealId"
         attributes["hx-swap"] = "outerHTML"
-        +label
     }
 }
 
@@ -1224,7 +1234,7 @@ private fun DIV.stateButton(dealId: Long, state: DealState, label: String) {
  * delete it. Swapping in a still-rendered row there would leave it claiming to be a favorite on a
  * page that lists favorites — the same trap `POST /tracked/{id}/hide` exists to avoid.
  */
-private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen) {
+private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen, onDetail: Boolean = false) {
     val on = deal.state == DealState.FAVORITE
     val post = when {
         !on -> "/deal/${deal.id}/state?value=${DealState.FAVORITE.name}"
@@ -1233,9 +1243,7 @@ private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen) {
     }
 
     button(classes = if (on) "fav-btn on" else "fav-btn") {
-        attributes["hx-post"] = post
-        attributes["hx-target"] = "#deal-${deal.id}"
-        attributes["hx-swap"] = "outerHTML"
+        dealAction(post, deal.id, onDetail)
         // So a screen reader hears a toggle rather than two unrelated buttons, matching the
         // filter chips' convention.
         attributes["aria-pressed"] = on.toString()
@@ -1277,7 +1285,14 @@ fun rowFragment(deal: Deal, note: String? = null, screen: FeedScreen = FeedScree
     return consumer.finalize()
 }
 
-fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boolean = false, groceryPinnable: Boolean = false) {
+fun MAIN.dealDetail(
+    deal: Deal,
+    history: List<PriceObservation>,
+    pinnable: Boolean = false,
+    groceryPinnable: Boolean = false,
+    elsewhere: List<Deal> = emptyList(),
+    feedRow: Boolean = false,
+) {
     h1("detail-head") { a(href = deal.url, target = "_blank") { +deal.title } }
     div("meta") {
         span("src") {
@@ -1293,10 +1308,41 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
         span { +tr("first seen $firstSeen", "vista por primera vez $firstSeen") }
     }
 
+    // Where to buy it. A Slickdeals row's own link is the forum thread, so an ASIN also gets a direct
+    // Amazon link -- the page the shipping check reads, and the one you would buy from.
+    div("detail-links") {
+        // Named after where the link goes, not the merchant: a Slickdeals row's merchant is Amazon,
+        // and its link is the forum thread.
+        val site = linkHost(deal.url) ?: deal.source
+        a(href = deal.url, target = "_blank") { +tr("open at $site ↗", "abrir en $site ↗") }
+        amazonUrl(deal)?.let { url -> a(href = url, target = "_blank") { +tr("open on Amazon ↗", "abrir en Amazon ↗") } }
+    }
+
     // Tracked-tab rows only: the pin puts the item on Tracked's Pinned list, which means nothing for a feed deal.
     if (pinnable) div("actions") { pinButton(deal.id, deal.pinnedAt != null, emptyList(), onPinnedView = false, removesRow = false) }
     // Groceries have their own Pinned list (the shopping list), pinned chain-wide by the Groceries endpoint.
     else if (groceryPinnable) div("actions") { groceryDetailPinButton(deal.id, deal.pinnedAt != null) }
+    // A feed row gets the feed's own controls, which posted from here reload the page.
+    else if (feedRow) div("actions detail-actions") {
+        favoriteToggle(deal, FeedScreen.FEED, onDetail = true)
+        if (deal.state != DealState.FAVORITE) {
+            if (deal.state == DealState.DISMISSED) {
+                stateButton(deal.id, DealState.SEEN, tr("Unhide", "Mostrar"), onDetail = true)
+            } else {
+                stateButton(deal.id, DealState.DISMISSED, tr("Hide", "Ocultar"), onDetail = true)
+            }
+        }
+    }
+
+    // Whether it reaches Colombia, and at what cost: the feed's Colombia column, with its buttons.
+    // Only for an import (an ASIN, or a verdict the Amazon check read) or a verdict other than yes --
+    // a Colombian retailer's YES, by default or set by hand, says nothing.
+    if (deal.coShipping != CoShipping.YES || deal.asin != null || deal.coShippingSource == "AUTO") {
+        div("detail-co") {
+            span("detail-label") { +tr("Colombia", "Colombia") }
+            coShippingCell(deal, onDetail = true)
+        }
+    }
 
     // The feed's thumbnail is sized for recognition while scanning; this page is where the
     // decision happens, so it shows the image at something like the size the sources
@@ -1337,6 +1383,8 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
     // anyone pays, this is what the right card pays.
     history.maxByOrNull { it.observedAt }?.card?.let { cardChip(it, deal.currency) }
 
+    elsewhereTable(deal, elsewhere)
+
     if (history.size < 2) {
         p("sub") {
             val note = tr(
@@ -1368,6 +1416,73 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
     }
 }
 
+/** "slickdeals.net" for a Slickdeals thread: the host a link goes to, without "www.". */
+internal fun linkHost(url: String): String? =
+    runCatching { java.net.URI(url).host }.getOrNull()?.removePrefix("www.")?.takeIf { it.isNotBlank() }
+
+/** The product's Amazon page, for a row that names an ASIN but links somewhere else (a Slickdeals thread). */
+internal fun amazonUrl(deal: Deal): String? =
+    deal.asin?.takeIf { it.isNotBlank() && !deal.url.contains("amazon.") }?.let { "https://www.amazon.com/dp/$it" }
+
+/**
+ * How [other] compares with [deal], in percent of [deal]'s price: negative is cheaper elsewhere.
+ * Null across currencies, which are never compared raw (a US$ row against a COP one is not 99% cheaper).
+ */
+internal fun priceDifference(deal: Deal, other: Deal): BigDecimal? {
+    if (other.currency != deal.currency || deal.price.signum() <= 0) return null
+    return other.price.subtract(deal.price).divide(deal.price, 4, java.math.RoundingMode.HALF_UP)
+        .multiply(BigDecimal(100)).setScale(1, java.math.RoundingMode.HALF_UP)
+}
+
+/**
+ * The same product at other retailers, from [DealRepository.sameProductElsewhere]. The strongest evidence
+ * a price is good is another retailer charging more for the same item; the watches alert on exactly that,
+ * and until now this page, where the decision is made, never showed it.
+ */
+private fun MAIN.elsewhereTable(deal: Deal, elsewhere: List<Deal>) {
+    if (deal.matchKey == null && deal.modelKey == null) return
+    h3 { +tr("Same product elsewhere", "El mismo producto en otras tiendas") }
+    if (elsewhere.isEmpty()) {
+        p("sub") {
+            +tr(
+                "No other tracked retailer lists it right now — matched by barcode or brand and model, never by title.",
+                "Ninguna otra tienda que seguimos lo tiene ahora — se compara por código de barras o marca y modelo, nunca por título.",
+            )
+        }
+        return
+    }
+    table("history elsewhere") {
+        caption("sr-only") { +tr("Same product elsewhere", "El mismo producto en otras tiendas") }
+        thead {
+            tr {
+                th(scope = ThScope.col) { +tr("Retailer", "Tienda") }
+                th(scope = ThScope.col) { +tr("Price", "Precio") }
+                th(scope = ThScope.col) {
+                    title = tr("Against this listing's price", "Frente al precio de este producto")
+                    +tr("vs this", "vs este")
+                }
+            }
+        }
+        tbody {
+            elsewhere.forEach { other ->
+                tr {
+                    td { a(href = "/deal/${other.id}") { +other.source }; other.merchant?.takeIf { it != other.source }?.let { span("sub") { +" $it" } } }
+                    td { +formatMoney(other.price, other.currency) }
+                    td {
+                        val diff = priceDifference(deal, other)
+                        when {
+                            diff == null -> span("sub") { +tr("other currency", "otra moneda") }
+                            diff.signum() < 0 -> span("co-no") { +tr("${diff.abs()}% cheaper", "${diff.abs()}% más barato") }
+                            diff.signum() > 0 -> span("co-yes") { +tr("$diff% dearer", "$diff% más caro") }
+                            else -> +tr("same price", "mismo precio")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
  * The history table's rows, newest first. Today's observations are all kept, since the hourly poll's
  * repeats are the evidence the price held; on each earlier day a price (with its list price) appears
@@ -1388,73 +1503,134 @@ internal fun historyRows(
 }
 
 /**
- * Inline SVG sparkline — no chart library needed for a single series.
+ * Where each reading sits on the chart: x by its TIME across the first-to-last span, y by price between
+ * the low and the high, inset by [pad]. Time rather than index, because readings are not evenly spaced
+ * -- hourly for a while, then one a day after pruning -- and spacing them evenly drew a fall over one
+ * hour as wide as a month of standing still.
+ */
+internal fun sparkCoords(history: List<PriceObservation>, w: Double, h: Double, pad: Double): List<Pair<Double, Double>> {
+    val min = history.minOf { it.price }
+    val range = (history.maxOf { it.price } - min).takeIf { it.signum() > 0 }
+    val t0 = history.first().observedAt.toEpochMilli()
+    val span = (history.last().observedAt.toEpochMilli() - t0).takeIf { it > 0 }
+    return history.mapIndexed { i, obs ->
+        val x = if (span == null) {
+            if (history.size > 1) i * w / (history.size - 1) else w / 2
+        } else {
+            (obs.observedAt.toEpochMilli() - t0).toDouble() / span * w
+        }
+        val y = if (range == null) h / 2 else h - pad - ((obs.price - min).toDouble() / range.toDouble()) * (h - 2 * pad)
+        x to y
+    }
+}
+
+/**
+ * Inline SVG price chart — no chart library needed for a single series.
  *
- * Three things beyond the bare line, each earning its ink: an area fill, because a 3%
- * decline over 120px is close to invisible as a stroke alone; a jade marker on the
- * cheapest observation, since "was it ever cheaper than this?" is the question the detail
- * page exists to answer; and inset padding so a flat series does not graze the frame.
+ * Drawn as steps, since a price holds until the next reading changes it; a diagonal between two
+ * readings would invent prices nobody charged. The axes are HTML around the SVG: the high and low on
+ * the left, the first and last reading's dates below, so the chart can be read without the table. An
+ * area fill, because a 3% decline over 120px is close to invisible as a stroke alone, and a jade marker
+ * on the cheapest reading, since "was it ever cheaper than this?" is the question this page answers.
  */
 private fun MAIN.sparkline(history: List<PriceObservation>) {
-    val prices = history.map { it.price }
-    val min = prices.min()
-    val max = prices.max()
-    val range = (max - min).takeIf { it.signum() > 0 }
+    val sorted = history.sortedBy { it.observedAt }
     val w = 640.0
     val h = 120.0
     val pad = 10.0
-    val stepX = if (history.size > 1) w / (history.size - 1) else w
 
     // Locale.ROOT, not the default locale: "%.1f" under a comma-decimal locale such as
     // es-CO emits "12,5", which silently corrupts an SVG points list into extra
     // coordinates. The chart would render as garbage only on some machines.
     fun n(v: Double) = "%.1f".format(Locale.ROOT, v)
 
-    val coords = history.mapIndexed { i, obs ->
-        val y = if (range == null) h / 2 else {
-            h - pad - ((obs.price - min).toDouble() / range.toDouble()) * (h - 2 * pad)
+    val coords = sparkCoords(sorted, w, h, pad)
+    // Steps: along at the old price, then down (or up) to the new one.
+    val steps = buildList {
+        coords.forEachIndexed { i, (x, y) ->
+            if (i > 0) add(x to coords[i - 1].second)
+            add(x to y)
         }
-        (i * stepX) to y
     }
-    val points = coords.joinToString(" ") { (x, y) -> "${n(x)},${n(y)}" }
+    val points = steps.joinToString(" ") { (x, y) -> "${n(x)},${n(y)}" }
     // Closed back along the baseline so the region under the line can be filled.
-    val area = "${n(0.0)},${n(h)} $points ${n(w)},${n(h)}"
+    val area = "${n(steps.first().first)},${n(h)} $points ${n(steps.last().first)},${n(h)}"
 
-    val lowIdx = coords.indices.minBy { history[it].price }
+    val lowIdx = coords.indices.minBy { sorted[it].price }
     val (lowX, lowY) = coords[lowIdx]
 
-    val currency = history.first().currency
-    val lo = formatMoney(min, currency)
-    val hi = formatMoney(max, currency)
+    val currency = sorted.first().currency
+    val lo = formatMoney(sorted.minOf { it.price }, currency)
+    val hi = formatMoney(sorted.maxOf { it.price }, currency)
     val label = tr(
-        "price history, ${history.size} observations, low $lo, high $hi",
-        "historial de precios, ${history.size} observaciones, mínimo $lo, máximo $hi",
+        "price history, ${sorted.size} observations, low $lo, high $hi",
+        "historial de precios, ${sorted.size} observaciones, mínimo $lo, máximo $hi",
     )
+    val dates = java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag(tr("en", "es")))
+        .withZone(java.time.ZoneId.systemDefault())
 
-    div {
-        unsafe {
-            // No preserveAspectRatio="none" and no height attribute: the previous version
-            // stretched the viewBox to a fixed height, which would squash the low marker
-            // into an ellipse and thin the stroke unevenly. Letting the aspect ratio hold
-            // and capping width in CSS scales the whole chart uniformly instead.
-            +"""<svg class="spark" viewBox="0 0 ${n(w)} ${n(h)}" width="100%" role="img" aria-label="$label">
-                 <defs>
-                   <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="0%" stop-color="#f2761b" stop-opacity="0.30"/>
-                     <stop offset="100%" stop-color="#f2761b" stop-opacity="0"/>
-                   </linearGradient>
-                 </defs>
-                 <polygon fill="url(#sparkFill)" points="$area"/>
-                 <polyline fill="none" stroke="#f2761b" stroke-width="2"
-                           stroke-linecap="round" stroke-linejoin="round" points="$points"/>
-                 <circle cx="${n(lowX)}" cy="${n(lowY)}" r="3.5" fill="#4fbf8b"
-                         stroke="#0d0c0a" stroke-width="1.5"/>
-               </svg>"""
+    div("spark-chart") {
+        div("spark-y") {
+            attributes["aria-hidden"] = "true"
+            span { +hi }
+            span { +lo }
+        }
+        div("spark-plot") {
+            unsafe {
+                // No preserveAspectRatio="none" and no height attribute: the previous version
+                // stretched the viewBox to a fixed height, which would squash the low marker
+                // into an ellipse and thin the stroke unevenly. Letting the aspect ratio hold
+                // and capping width in CSS scales the whole chart uniformly instead.
+                +"""<svg class="spark" viewBox="0 0 ${n(w)} ${n(h)}" width="100%" role="img" aria-label="$label">
+                     <defs>
+                       <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+                         <stop offset="0%" stop-color="#f2761b" stop-opacity="0.30"/>
+                         <stop offset="100%" stop-color="#f2761b" stop-opacity="0"/>
+                       </linearGradient>
+                     </defs>
+                     <polygon fill="url(#sparkFill)" points="$area"/>
+                     <polyline fill="none" stroke="#f2761b" stroke-width="2"
+                               stroke-linecap="round" stroke-linejoin="round" points="$points"/>
+                     <circle cx="${n(lowX)}" cy="${n(lowY)}" r="3.5" fill="#4fbf8b"
+                             stroke="#0d0c0a" stroke-width="1.5"/>
+                   </svg>"""
+            }
+            div("spark-x") {
+                attributes["aria-hidden"] = "true"
+                span { +dates.format(sorted.first().observedAt) }
+                span { +dates.format(sorted.last().observedAt) }
+            }
         }
     }
     p("sub") {
         +tr("range $lo – $hi", "rango $lo – $hi")
     }
+}
+
+internal enum class RunStatus { RUNNING, INTERRUPTED, OK, EMPTY, ERROR }
+
+/**
+ * A finished run that brought back nothing is not "ok". Every source here lists hundreds of items, so
+ * zero means something stopped it -- yet such runs read `ok`, and that hid Fullhogar returning nothing
+ * on 114 runs in a week (a 304 read as an empty page) and Amazon's walls. Same call the Groceries
+ * Last sync table makes, where a zero-item run counts as failed.
+ *
+ * Likewise an unfinished run is only "running" for [SyncStatus.STALL_MINUTES]: a restart mid-run
+ * writes no finish time, and unbounded that row would say "running…" forever.
+ */
+internal fun runStatus(
+    error: String?,
+    finished: Boolean,
+    itemCount: Int,
+    startedAt: Instant? = null,
+    now: Instant = Instant.now(),
+): RunStatus = when {
+    error != null -> RunStatus.ERROR
+    !finished && startedAt != null && startedAt.isBefore(now.minus(SyncStatus.STALL_MINUTES, ChronoUnit.MINUTES)) ->
+        RunStatus.INTERRUPTED
+    !finished -> RunStatus.RUNNING
+    itemCount == 0 -> RunStatus.EMPTY
+    else -> RunStatus.OK
 }
 
 fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
@@ -1478,10 +1654,21 @@ fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
                         td { +"${run["newCount"]}" }
                         val error = run["error"] as? String
                         td {
-                            when {
-                                error != null -> span("err") { +error.take(110) }
-                                run["finishedAt"] == null -> +tr("running…", "en curso…")
-                                else -> +"ok"
+                            when (runStatus(error, run["finishedAt"] != null, (run["itemCount"] as? Number)?.toInt() ?: 0, run["startedAt"] as? Instant)) {
+                                RunStatus.ERROR -> span("err") { +error.orEmpty().take(110) }
+                                RunStatus.RUNNING -> +tr("running…", "en curso…")
+                                RunStatus.INTERRUPTED -> span("err") {
+                                    title = tr("Never finished: the app was stopped while this ran.", "Nunca terminó: la app se detuvo mientras corría.")
+                                    +tr("interrupted", "interrumpida")
+                                }
+                                RunStatus.EMPTY -> span("warn") {
+                                    title = tr(
+                                        "Finished without an error but brought back nothing: usually blocked, rate-limited, or the site changed.",
+                                        "Terminó sin error pero no trajo nada: casi siempre bloqueo, límite de consultas o un cambio en el sitio.",
+                                    )
+                                    +tr("⚠ no items", "⚠ sin productos")
+                                }
+                                RunStatus.OK -> +"ok"
                             }
                         }
                     }

@@ -180,6 +180,11 @@ data class WatchAlert(
      * exchange rate moved.
      */
     val comparablePrice: BigDecimal? = null,
+    /**
+     * How far [price] is below what it was compared with, in percent: the rival for a cross-site
+     * alert, the watch's prior floor for a new low. What the daily digest ranks by.
+     */
+    val gapPercent: BigDecimal? = null,
 )
 
 /** A ledger row, used to decide whether an alert is actually news. */
@@ -194,3 +199,18 @@ data class WatchMatch(
     val notifiedPrice: BigDecimal?,
     val evidence: String?,
 )
+
+/**
+ * [existing] exclusions with [term] appended, or unchanged when it is already there. Compared without
+ * case or accents, as the exclusion itself matches (`unaccent ILIKE`), so "Cojín" after "cojin" is a
+ * duplicate. A `|` inside [term] would split it into several, so it is refused with null, as is blank.
+ */
+fun withExcludedTerm(existing: String?, term: String): String? {
+    val t = term.trim()
+    if (t.isEmpty() || '|' in t) return null
+    fun key(s: String) = java.text.Normalizer.normalize(s.trim(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}+"), "").lowercase()
+    val current = existing.orEmpty().split('|').map { it.trim() }.filter { it.isNotEmpty() }
+    if (current.any { key(it) == key(t) }) return current.joinToString(" | ")
+    return (current + t).joinToString(" | ")
+}

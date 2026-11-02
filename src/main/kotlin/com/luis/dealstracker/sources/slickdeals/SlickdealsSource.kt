@@ -57,7 +57,6 @@ class SlickdealsSource : DealSource {
                 println("[${cfg.id}] $url failed: ${e.message}")
                 continue
             }
-            if (result.notModified) continue
             val body = result.body
             if (body == null || !result.ok) {
                 println("[${cfg.id}] $url -> HTTP ${result.status}")

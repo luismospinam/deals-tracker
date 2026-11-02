@@ -136,7 +136,6 @@ class VtexSource : DealSource {
                         println("[${cfg.id}] ${target.label} page $page failed: ${e.message}")
                         break
                     }
-                    if (result.notModified) break
                     // VTEX answers 206 Partial Content for _from/_to ranges, so a plain
                     // `status == 200` check here would reject every successful page.
                     val body = result.body

@@ -17,6 +17,7 @@ import com.luis.dealstracker.ingest.ManualItemService
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
+import com.luis.dealstracker.model.withExcludedTerm
 import com.luis.dealstracker.verify.AmazonVerifier
 import com.luis.dealstracker.verify.VerifyOutcome
 import com.luis.dealstracker.verify.VerifySlot
@@ -80,7 +81,7 @@ fun Application.routes(
             val filter = feedScreenFilter(params, app)
 
             val page = repo.feedPage(filter)
-            val sources = sourceNames(repo, app)
+            val sources = feedSourceOptions(app, FeedScreen.FEED, q["source"])
             // For the scope row's badge. Unscoped by the current filters on purpose: it answers "how
             // many favorites do I have", not "how many match what I am currently searching for" -- a
             // count that fell to 0 because of an unrelated search would read as having lost them.
@@ -174,7 +175,7 @@ fun Application.routes(
             val filter = favoritesFilter(params)
 
             val page = repo.feedPage(filter)
-            val sources = sourceNames(repo, app)
+            val sources = feedSourceOptions(app, FeedScreen.FAVORITES, q["source"])
 
             call.respondPage {
                 page(tr("Favorites — Deals Tracker", "Favoritos — Deals Tracker")) {
@@ -328,7 +329,13 @@ fun Application.routes(
                         ),
                     )
                     digestBanner(digest, digestRange)
-                    trackedPage(visible, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip, searchToggles = searchToggles, searchesOpen = call.request.queryParameters["searches"] == "open", freeShip = call.request.queryParameters["freeship"] == "1")
+                    trackedPage(
+                        visible, sources, selected, sort, brand, notice, manualAsins, origin, showNoShip,
+                        searchToggles = searchToggles, searchesOpen = call.request.queryParameters["searches"] == "open",
+                        freeShip = call.request.queryParameters["freeship"] == "1",
+                        // A missing or garbled page is page 1; one past the end is clamped to the last.
+                        page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1,
+                    )
                 }
             }
         }
@@ -567,7 +574,19 @@ fun Application.routes(
                 ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
             val deal = repo.findById(id)
                 ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
-            call.respondPage { page(deal.title) { dealDetail(deal, repo.priceHistory(id), pinnable = deal.source in trackingSources(app), groceryPinnable = deal.source in grocerySources(app)) } }
+            val history = withContext(Dispatchers.IO) { repo.priceHistory(id) }
+            val elsewhere = withContext(Dispatchers.IO) { repo.sameProductElsewhere(deal) }
+            val pinnable = deal.source in trackingSources(app)
+            val groceryPinnable = deal.source in grocerySources(app)
+            call.respondPage {
+                page(deal.title) {
+                    dealDetail(
+                        deal, history, pinnable = pinnable, groceryPinnable = groceryPinnable, elsewhere = elsewhere,
+                        // The feed's favorite and hide only mean something for a row the feed can show.
+                        feedRow = !pinnable && !groceryPinnable && deal.source !in feedHiddenSources(app),
+                    )
+                }
+            }
         }
 
         post("/deal/{id}/state") {
@@ -671,10 +690,16 @@ fun Application.routes(
 
         get("/watches") {
             val all = watches.all()
-            val counts = watches.matchCounts()
+            val counts = watches.alertCounts()
+            // What the digest banner links to: everything waiting, plus the last day's sent alerts.
+            val digest = if (app.defaults.watchDigestTimes.isEmpty()) null
+            else watches.digestRows(sentSince = java.time.Instant.now().minus(java.time.Duration.ofHours(24)))
             call.respondPage {
                 page(tr("Watches", "Búsquedas")) {
-                    watchesPage(all, counts, sourceNames(repo, app), categorizer.categoryNames)
+                    watchesPage(
+                        all, counts, sourceNames(repo, app), categorizer.categoryNames, digest, app.defaults.watchDigestTimes,
+                        digestAll = call.request.queryParameters["digest"] == "all",
+                    )
                 }
             }
         }
@@ -721,6 +746,8 @@ fun Application.routes(
                 lines.values.toList()
             }
 
+            val hidden = withContext(Dispatchers.IO) { watches.hidden(watch.id) }
+
             call.respondPage {
                 page(watch.name) {
                     askPanel(
@@ -736,6 +763,7 @@ fun Application.routes(
                         watch, candidates, matches, dealsById,
                         sourceNames(repo, app), categorizer.categoryNames,
                         matchingSort, alertsSort, matchingPage, fx, matchingSource,
+                        hidden = hidden,
                     )
                 }
             }
@@ -768,7 +796,36 @@ fun Application.routes(
             watches.setEnabled(id, value)
             val updated = watches.findById(id)
                 ?: return@post call.respondText("", status = HttpStatusCode.OK)
-            call.respondFragment { watchRowFragment(updated, watches.matchCounts()[id]) }
+            call.respondFragment { watchRowFragment(updated, watches.alertCounts()[id]) }
+        }
+
+        // Hides one listing from one watch. Answers an empty body, so the row's outerHTML swap removes it.
+        post("/watches/{id}/hide/{dealId}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+            val dealId = call.parameters["dealId"]?.toLongOrNull()
+            if (id == null || dealId == null) return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            watches.setHidden(id, dealId, hidden = true)
+            call.respondText("", ContentType.Text.Html)
+        }
+
+        post("/watches/{id}/unhide/{dealId}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+            val dealId = call.parameters["dealId"]?.toLongOrNull()
+            if (id == null || dealId == null) return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            watches.setHidden(id, dealId, hidden = false)
+            call.respondRedirect("/watches/$id#hidden")
+        }
+
+        // Adds one word to a watch's exclusions, from the "exclude word" field on a matching row.
+        post("/watches/{id}/exclude") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            val watch = watches.findById(id) ?: return@post call.respondText("not found", status = HttpStatusCode.NotFound)
+            val term = call.receiveParameters()["term"].orEmpty()
+            val updated = withExcludedTerm(watch.excludeTerms, term)
+                ?: return@post call.respondText("an exclusion is one word or phrase, without |", status = HttpStatusCode.BadRequest)
+            watches.setExcludeTerms(id, updated)
+            call.respondRedirect("/watches/$id")
         }
 
         post("/watches/{id}/delete") {
@@ -815,6 +872,21 @@ private suspend fun io.ktor.util.pipeline.PipelineContext<Unit, io.ktor.server.a
  */
 private fun sourceNames(repo: DealRepository, app: AppConfig): List<String> =
     (app.providers.map { it.id } + repo.knownSources()).distinct().sorted()
+
+/**
+ * The Source dropdown on the feed and on favorites: enabled providers only, and on the feed none of
+ * [feedHiddenSources]. It used to list every provider and every source ever stored -- 24 on
+ * 2026-11-02, among them the grocery stores, both Amazon providers, two disabled ones and a feed
+ * last fetched in August -- and choosing any of those gave an empty page with no reason given.
+ *
+ * Favorites keeps the hidden types, since a favorite stays wherever it came from. The source the
+ * URL asks for is always kept, so a link to a since-disabled provider still shows what it selects.
+ */
+internal fun feedSourceOptions(app: AppConfig, screen: FeedScreen, current: String?): List<String> {
+    val hidden = if (screen == FeedScreen.FEED) feedHiddenSources(app).toSet() else emptySet()
+    val offered = app.enabledProviders.map { it.id }.filterNot { it in hidden }
+    return (offered + listOfNotNull(current?.takeIf { it.isNotBlank() })).distinct().sorted()
+}
 
 /**
  * Providers whose rows belong on the tracked tab.

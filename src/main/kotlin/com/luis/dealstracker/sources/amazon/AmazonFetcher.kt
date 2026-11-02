@@ -136,10 +136,6 @@ internal class AmazonFetcher(
             return null
         }
 
-        // ETag caching is per-URL and these URLs are stable, so an unchanged page is a real
-        // outcome. Treated as "nothing new to parse" rather than an error.
-        if (result.notModified) return null
-
         val body = result.body
         if (body == null || !result.ok) {
             println("[$logPrefix] $url -> HTTP ${result.status}")

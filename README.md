@@ -178,6 +178,20 @@ Design decisions worth not undoing:
 - **Slickdeals' `category` is a forum name** ("Hot Deals" on nearly every row), so
   generic values are suppressed via `GENERIC_CATEGORIES`.
 
+## The deal page
+
+`/deal/{id}` is where a decision gets made, so it carries what the feed row does and more:
+
+- **Links to the shop and to Amazon.** A Slickdeals row's link is the forum thread, so an ASIN also
+  gets `amazon.com/dp/<ASIN>`. Each link is named after where it goes.
+- **The feed's buttons** (favorite, hide, ships / doesn't, verify). They post to the same endpoints as
+  the feed and reload the page, rather than swapping in a feed-shaped row.
+- **Colombia shipping**, for imports and anything not a plain yes.
+- **Same product elsewhere**: active listings at other retailers sharing a GTIN or brand + model key,
+  the watches' cross-site rule, cheapest first, with the difference in percent. Never across currencies.
+- **A chart with axes.** Readings sit at their real time, not evenly spaced, and the line steps, since a
+  price holds until the next reading. High and low on the left, first and last date below.
+
 ## Favorites
 
 `☆ favorite` on any feed row marks it; `/favorites` shows those and nothing else. Marking
@@ -322,7 +336,26 @@ Two rules fire alerts, and both are deliberately hard to satisfy:
 ./dt run --args="--check-watches --dry-run"    # print what would fire, write nothing
 ```
 
-Alerts arrive as a macOS notification, one per watch per cycle rather than one per deal.
+Alerts arrive as **one macOS notification a day**, at `defaults.watchDigestTimes` (19:00), covering
+every watch, biggest price gap first; clicking it opens the **Latest digest** table on `/watches`.
+The hourly check still records each alert as it fires, and the watch page shows it at once; only the
+banner waits. Sent per watch per cycle instead, Televisor and Nevera fired 98 between them in the week
+to 2026-11-02. Set `watchDigestTimes: []` to go back to that.
+
+```bash
+./dt run --args="--watch-digest --dry-run"     # the banner and ranking the next digest would send
+```
+
+With `DISCORD_WATCHES_WEBHOOK_URL` set in `.env`, the digest is also posted to Discord: every alert, one
+line each, linked to the retailer. An alert counts as sent if either the banner or the post went out.
+
+The gap is stored per alert (`gap_percent`, V31): under the rival for a cross-site alert, under the
+watch's earlier floor for a new low.
+
+Tune a watch from the row that is wrong. Each Matching-now row has **hide**, which removes that one
+listing from that watch (V32; the "Hidden from this watch" list brings it back), and **exclude word…**,
+which adds a term to the watch's exclusions for a whole class of junk. The word is typed rather than
+guessed: the only word unique to Nevera's 1.3 cu ft drinks cooler was its brand.
 
 ### Searching Amazon for a watch
 
@@ -678,9 +711,12 @@ Bogotá, 6107 Chía, 6109 Bucaramanga.
   The pre-saving price becomes the row's list price, which shows as **Store %**.
 - **A product without a club price is not sold at that club.** The national `price_CO` is a different
   number and is never used as a stand-in. That's the same mistake the Exito and Carulla adapters avoid.
-- **Meat trays are sold by weight.** `price_CO_<club>` is the tray's price, `sign_price` the per-kg
-  price, and `weight` the tray's kg. Price = sign price × weight held on all 35 trays checked. The tray
-  weight is its pack size.
+- **Meat trays are sold by weight, and stored per kg.** `price_CO_<club>` is the tray's price,
+  `sign_price` the per-kg price, and `weight` the tray's kg. Price = sign price × weight held on all 35
+  trays checked. The tray on offer changes weight between crawls, so a tray price moves with the weight:
+  a Ribeye went from 860,827 to 401,821 on 2026-11-02 and read as 52% under usual. These rows store the
+  per-kg price, sized as 1 kg, and their titles end `(por kg)`. They carry the id `<pid>:kg`, because
+  the history before 2026-11-02 holds tray prices whose weights were never stored.
 - **Titles give the metric size first** (`508 g / 1.12 lb`), so the part before ` / ` is read first.
   Titles use a **non-breaking space** before the unit (`680 g`); size parsing now treats that as a
   space for every source.
@@ -1233,6 +1269,11 @@ Things learned by probing the live APIs that are easy to get wrong:
   absent from the public feed, so identity falls to brand + model. Roughly two thirds of a
   collection comes back out of stock, and unbuyable rows are dropped — otherwise they would
   plant a phantom cheaper rival in the cross-site comparison.
+- **A 304 is the page you already have, not an empty one.** `PoliteHttp` revalidates with the ETag a
+  server sent, and every adapter used to stop at `304 Not Modified` as if no products came back.
+  Shopify sends ETags, so Fullhogar logged 114 zero-item `ok` runs in the week to 2026-11-02 and its
+  rows went unseen whenever the catalogue was unchanged. The body is now cached with its validator
+  (up to 64 MB, least recently used out first) and returned with the 304.
 - **PrestaShop is read from the theme, not an API — the one adapter here that is.** Its
   *product* pages carry lovely JSON-LD with `gtin13` and `offers.price`, but a *category* page
   emits only an `ItemList` of names and URLs with **no prices**, so that route would cost one

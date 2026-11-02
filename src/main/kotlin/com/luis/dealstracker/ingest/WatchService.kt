@@ -41,6 +41,11 @@ class WatchService(
     private val notifier: NotifyFn = Notifier::notify,
     /** The day's USD→COP rate, read per run so a refreshed TRM applies from the next cycle. */
     private val fx: () -> FxRate = { FxRate(java.math.BigDecimal("3200"), "config") },
+    /**
+     * True when `defaults.watchDigestTimes` is set: alerts are recorded here and announced by
+     * `WatchDigest` at those times, one banner for all watches, instead of a banner per cycle.
+     */
+    private val digest: Boolean = false,
 ) {
 
     fun runAll(dryRun: Boolean = false): List<WatchReport> =
@@ -68,7 +73,8 @@ class WatchService(
         }
 
         val pending = watches.recordAlerts(watch, alerts)
-        val sent = announce(watch, pending)
+        // Left unnotified for the digest, which reads the ledger rather than this list.
+        val sent = if (digest) emptyList() else announce(watch, pending)
         watches.markNotified(sent)
 
         val report = WatchReport(watch.name, candidates.size, alerts.size, sent.size)

@@ -904,6 +904,9 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   color: var(--text-faint);
 }
 .err { color: var(--bad); }
+/* A run that ended without error but brought back nothing: amber, like other facts that should
+ * make you look twice, and never colour alone -- the cell also says "no items". */
+.runs .warn { color: var(--d-mid); cursor: help; }
 
 /* ---------- motion ---------- */
 
@@ -2061,3 +2064,58 @@ a.open-cart:hover { background: #ff8a3a; text-decoration: none; }
 @media (min-width: 641px) and (max-width: 1700px) {
   table.deals:not(.tracked) { --fs-xs: 11px; }
 }
+
+/* ---------- watch tuning and digest ---------- */
+
+/* "exclude word…" under a matching row's hide button: closed, it is one quiet line. */
+.exclude-word { margin-top: 6px; }
+.exclude-word summary {
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.exclude-word form { display: flex; gap: 4px; margin-top: 4px; }
+.exclude-word input { min-width: 0; width: 100%; font-size: var(--fs-xs); }
+.watchmatches .col-act { width: 190px; }
+
+.hidden-list { margin: 12px 0 20px; }
+.hidden-list summary { cursor: pointer; color: var(--text-dim); }
+.hidden-row { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+.hidden-row a { flex: 1; }
+
+/* The digest table on /watches: where the banner's click lands. */
+.digest { margin: 16px 0 28px; }
+.digest .col-disc { width: 90px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.digest .col-price { width: 150px; }
+.digest .col-seen { width: 150px; }
+
+/* ---------- deal page ---------- */
+
+.detail-links { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 12px; font-size: var(--fs-md); }
+.detail-actions { margin: 0 0 12px; }
+.detail-co { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 0 0 14px; }
+.detail-label {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.elsewhere { max-width: 640px; margin-bottom: 20px; }
+
+/* The chart's axes: high and low on the left, first and last date below. */
+.spark-chart { display: flex; gap: 8px; max-width: 760px; margin: 20px 0 6px; }
+.spark-chart .spark { margin: 0; }
+.spark-plot { flex: 1; min-width: 0; max-width: 640px; }
+.spark-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 0 26px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.spark-x { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--text-dim); margin-top: 4px; }

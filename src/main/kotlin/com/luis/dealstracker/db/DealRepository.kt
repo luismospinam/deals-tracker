@@ -136,18 +136,25 @@ internal const val WATCHED_DEAL_CLAUSE = """NOT EXISTS (
 private const val MAX_SEARCH_TERMS = 20
 
 /**
+ * Exclusions grow by accretion -- a word per junk listing -- so they get a far higher cap than a
+ * search box. Under the shared cap of 20, Soporte TV's 55 exclusions lost their last 35 in the watch's
+ * own candidates (to 2026-11-02), while the feed's "hide watched" SQL applied all of them.
+ */
+internal const val MAX_EXCLUDE_TERMS = 200
+
+/**
  * Splits a search box value on `|` into independent terms, OR'd together by [DealRepository.feed].
  *
  * `"airpods | airtag"` -> `["airpods", "airtag"]`, while a value with no pipe yields a
  * single term and behaves exactly as a plain search did.
  */
-fun parseSearchTerms(search: String?): List<String> {
+fun parseSearchTerms(search: String?, limit: Int = MAX_SEARCH_TERMS): List<String> {
     if (search.isNullOrBlank()) return emptyList()
     return search.split('|')
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinct()
-        .take(MAX_SEARCH_TERMS)
+        .take(limit)
 }
 
 /**
@@ -793,6 +800,27 @@ class DealRepository(
             }
         }.associateBy { it.id }
         return ids.mapNotNull { byId[it] }
+    }
+
+    /**
+     * The same product at other retailers, cheapest first: active listings elsewhere that share either
+     * identity key with [deal] -- a validated GTIN or brand + model -- the rule the watches' cross-site
+     * alert uses, so this page cannot claim a match the alert would not. Empty for a listing with no key.
+     */
+    fun sameProductElsewhere(deal: Deal): List<Deal> {
+        val keys = listOfNotNull(deal.matchKey, deal.modelKey).distinct()
+        if (keys.isEmpty()) return emptyList()
+        return ds.connection.use { conn ->
+            conn.prepareStatement(
+                dealSelect("d.is_active AND d.source <> ? AND (d.match_key = ANY(?) OR d.model_key = ANY(?))") + " ORDER BY po.price",
+            ).use { st ->
+                val arr = conn.createArrayOf("text", keys.toTypedArray())
+                st.setString(1, deal.source)
+                st.setArray(2, arr)
+                st.setArray(3, arr)
+                st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.toDeal()) } }
+            }
+        }
     }
 
     /** The row shape [toDeal] reads, for single- and multi-id lookups. */

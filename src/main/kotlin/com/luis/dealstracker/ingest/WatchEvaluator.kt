@@ -145,6 +145,7 @@ object WatchEvaluator {
                     "${watch.lookbackDays}-day floor held by ${incumbent.source}, " +
                     "by ${formatMoney(saving, candidate.currency)}" +
                     conversionNote(fx, candidate, incumbent),
+                gapPercent = saving.divide(floor, 6, RoundingMode.HALF_UP).multiply(HUNDRED).setScale(1, RoundingMode.HALF_UP),
             )
         }
     }
@@ -205,6 +206,7 @@ object WatchEvaluator {
                 evidence = "$spread% cheaper than ${elsewhere.source} " +
                     "at ${formatMoney(elsewhere.price, candidate.currency)} (same $shared)" +
                     conversionNote(fx, candidate, elsewhere),
+                gapPercent = spread,
             )
         }
     }

@@ -44,9 +44,14 @@ import java.math.RoundingMode
  * ## Weighed items
  *
  * Meat trays are sold by weight: `price_CO_<club>` is the tray's price, `sign_price_CO_<club>` the
- * per-kg shelf price and `weight_CO_<club>` the tray weight in kg -- checked on 35 trays, price = sign
- * price x weight every time. The tray price is the one stored, as for any other pack; the weight is
- * its pack size, so the unit price comes out per 100 g like everywhere else.
+ * per-kg shelf price (in cents, like the price) and `weight_CO_<club>` the tray weight in kg -- checked
+ * on 35 trays, price = sign price x weight every time.
+ *
+ * The per-kg price is the one stored, sized as 1 kg. The tray on offer changes weight between crawls,
+ * so its price moves with the weight: a Ribeye tray went from 860,827 to 401,821 on 2026-11-02 and read
+ * as 52% under its usual price. These rows carry the pid plus [PER_KG_SUFFIX] as their id, because
+ * history recorded before 2026-11-02 holds tray prices and the old weights were never stored, so it
+ * cannot be converted.
  *
  * ## robots.txt
  *
@@ -203,26 +208,36 @@ class PriceSmartSource : DealSource {
 
         val inStock = doc.str("inventory_$suffix") == "in stock" && doc.str("availability_$suffix") != "false"
 
-        val weighed = doc.str("sold_by_weight_$suffix") == "true"
         val weight = doc.num("weight_$suffix")?.takeIf { it.signum() > 0 }
-        val weightUnit = doc.str("weight_uom_description_$suffix")?.lowercase()
-        // A weighed tray's own weight is its pack size. For fixed packs the title states the size
-        // ("Arándanos 508 g / 1.12 lb"), and UnitSize reads the LAST size, which here is the imperial one
-        // -- so the metric size is read first, from the part before " / ".
-        val size = if (weighed && weight != null && weightUnit == "kg") {
-            UnitSize(UnitSize.GRAMS, weight.multiply(BigDecimal(1000)).setScale(0, RoundingMode.HALF_UP))
+            ?.takeIf { doc.str("sold_by_weight_$suffix") == "true" && doc.str("weight_uom_description_$suffix")?.lowercase() == "kg" }
+        // A weighed tray is priced per kg (see the class comment); the per-kg sign price is read
+        // directly, and the tray price over its weight stands in when a document lacks one.
+        val perKg = weight?.let { kg ->
+            doc.num("sign_price_$suffix")?.takeIf { it.signum() > 0 }?.let { pesos(it) }
+                ?: price.divide(kg, 2, RoundingMode.HALF_UP)
+        }
+        // For fixed packs the title states the size ("Arándanos 508 g / 1.12 lb"), and UnitSize reads
+        // the LAST size, which here is the imperial one -- so the metric size is read first, from the
+        // part before " / ".
+        val size = if (perKg != null) {
+            UnitSize(UnitSize.GRAMS, BigDecimal(1000))
         } else {
             UnitSize.of(title.substringBefore(" / "), null, null) ?: UnitSize.of(title, null, null)
         }
 
         val slug = doc.str("slug")
         return RawDeal(
-            externalId = pid,
-            title = title,
+            // A new id for the per-kg row: its history must not continue from tray prices.
+            externalId = if (perKg != null) "$pid$PER_KG_SUFFIX" else pid,
+            title = if (perKg != null) "$title (por kg)" else title,
             url = if (slug != null) "$base/es-co/producto/$slug/$pid" else "$base/es-co",
-            price = price,
+            price = perKg ?: price,
             currency = doc.str("currency") ?: currency,
-            listPrice = original,
+            listPrice = if (perKg != null && weight != null) {
+                original?.divide(weight, 2, RoundingMode.HALF_UP)?.takeIf { it > perKg }
+            } else {
+                original
+            },
             merchant = "pricesmart.com",
             brand = doc.str("brand")?.takeIf { it.isNotBlank() },
             category = "Alimentos > $aisle",
@@ -235,6 +250,9 @@ class PriceSmartSource : DealSource {
     }
 
     companion object {
+        /** Appended to a weighed item's pid, so its per-kg row starts a history of its own. */
+        internal const val PER_KG_SUFFIX = ":kg"
+
         /** Bloomreach's documented page limit is 200; 48 is what the site itself asks for. */
         internal const val DEFAULT_ROWS = 48
 

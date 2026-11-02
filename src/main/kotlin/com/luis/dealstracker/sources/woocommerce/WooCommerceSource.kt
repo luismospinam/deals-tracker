@@ -50,7 +50,6 @@ class WooCommerceSource : DealSource {
                     println("[${cfg.id}] $slug page $page failed: ${e.message}")
                     break
                 }
-                if (result.notModified) break
                 val body = result.body
                 if (body == null || !result.ok) {
                     println("[${cfg.id}] $slug page $page -> HTTP ${result.status}")

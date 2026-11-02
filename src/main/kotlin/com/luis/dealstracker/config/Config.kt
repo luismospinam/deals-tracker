@@ -166,6 +166,13 @@ data class Defaults(
     val pinnedAlertTimes: List<String> = listOf("08:00", "19:00"),
 
     /**
+     * Local times of day the watch alerts go out, as ONE banner covering every watch, biggest price
+     * gap first. Sent per watch per hourly cycle, Televisor and Nevera fired 98 between them in the
+     * week to 2026-11-02 -- enough to stop being read. An empty list restores the per-cycle banners.
+     */
+    val watchDigestTimes: List<String> = listOf("19:00"),
+
+    /**
      * Warn when this percentage of active deals has landed in the `Other` category. 0 disables.
      *
      * Category rules need gardening as the sources' catalogs shift, and there was a feedback
@@ -270,6 +277,8 @@ class AppConfig(
     /** Discord webhook URLs, one channel per section; null leaves that section's post off. From `.env`. */
     val discordGroceriesWebhook: String? = null,
     val discordTrackedWebhook: String? = null,
+    /** The daily watch digest's channel; null posts it to the desktop only. From `.env`. */
+    val discordWatchesWebhook: String? = null,
 ) {
     val enabledProviders: List<ProviderConfig> get() = providers.filter { it.enabled }
 
@@ -317,6 +326,7 @@ class AppConfig(
                     ?: local.getProperty("ml.clientSecret")?.takeIf { it.isNotBlank() },
                 discordGroceriesWebhook = setting("DISCORD_GROCERIES_WEBHOOK_URL", "").ifBlank { null },
                 discordTrackedWebhook = setting("DISCORD_TRACKED_WEBHOOK_URL", "").ifBlank { null },
+                discordWatchesWebhook = setting("DISCORD_WATCHES_WEBHOOK_URL", "").ifBlank { null },
             )
         }
 

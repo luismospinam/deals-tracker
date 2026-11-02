@@ -52,7 +52,6 @@ class ShopifySource : DealSource {
                     println("[${cfg.id}] $handle page $page failed: ${e.message}")
                     break
                 }
-                if (result.notModified) break
                 val body = result.body
                 if (body == null || !result.ok) {
                     println("[${cfg.id}] $handle page $page -> HTTP ${result.status}")

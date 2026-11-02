@@ -30,6 +30,7 @@ class PoliteHttp(
     private val userAgent: String,
     private val perHostDelayMillis: Long,
     private val maxRetries: Int = 3,
+    private val maxCachedChars: Long = 64L * 1024 * 1024,
 ) : Closeable {
 
     private val client = HttpClient(OkHttp) {
@@ -44,23 +45,32 @@ class PoliteHttp(
     private val lastRequestAt = mutableMapOf<String, Long>()
     private val hostLock = Mutex()
 
-    // Conditional-request cache, keyed by URL.
-    private val etags = mutableMapOf<String, String>()
-    private val lastModified = mutableMapOf<String, String>()
+    /**
+     * Conditional-request cache, keyed by URL: the validators a server sent with a body, and
+     * that body. A 304 says "what you already have is current", which is only useful if we
+     * still have it — without the body an adapter read 304 as "no products", so Fullhogar's
+     * unchanged collections came back empty on 114 runs in a week and their rows stopped being
+     * marked as seen. Least-recently-used entries go once the bodies pass [maxCachedChars].
+     */
+    private class Cached(val etag: String?, val lastModified: String?, val body: String, val status: Int)
+
+    private val cache = object : LinkedHashMap<String, Cached>(16, 0.75f, true) {}
+    private var cachedChars = 0L
 
     data class Result(val body: String?, val status: Int, val notModified: Boolean) {
         val ok: Boolean get() = status in 200..299 || notModified
     }
 
     /**
-     * GETs [url], returning `notModified = true` (and a null body) when the server
-     * says nothing changed.
+     * GETs [url]. When the server says nothing changed, returns `notModified = true` with the
+     * body last received for that URL, so callers parse an unchanged page exactly like a fresh one.
      *
      * Note: VTEX returns 206 Partial Content for `_from`/`_to` paged requests, so
      * any success check here has to accept the whole 2xx range rather than just 200.
      */
     suspend fun get(url: String, extraHeaders: Map<String, String> = emptyMap()): Result {
         throttle(Url(url).host)
+        val cached = synchronized(cache) { cache[url] }
 
         var attempt = 0
         var lastError: Exception? = null
@@ -80,13 +90,16 @@ class PoliteHttp(
                     if (!extraHeaders.keys.any { it.equals("Accept-Language", ignoreCase = true) }) {
                         header("Accept-Language", "es-CO,es;q=0.9,en;q=0.8")
                     }
-                    etags[url]?.let { header("If-None-Match", it) }
-                    lastModified[url]?.let { header("If-Modified-Since", it) }
+                    cached?.etag?.let { header("If-None-Match", it) }
+                    cached?.lastModified?.let { header("If-Modified-Since", it) }
                     extraHeaders.forEach { (k, v) -> header(k, v) }
                 }
 
+                // Validators are only sent while a body is cached, but check anyway: a 304
+                // with nothing to fall back on must not read as an empty page.
                 if (response.status == HttpStatusCode.NotModified) {
-                    return Result(null, 304, notModified = true)
+                    return if (cached != null) Result(cached.body, cached.status, notModified = true)
+                    else Result(null, 304, notModified = false)
                 }
 
                 // Retry rate limiting and server errors; return anything else as-is
@@ -98,10 +111,9 @@ class PoliteHttp(
                     continue
                 }
 
-                response.headers["ETag"]?.let { etags[url] = it }
-                response.headers["Last-Modified"]?.let { lastModified[url] = it }
-
-                return Result(response.bodyAsText(), response.status.value, notModified = false)
+                val body = response.bodyAsText()
+                remember(url, response.headers["ETag"], response.headers["Last-Modified"], body, response.status.value)
+                return Result(body, response.status.value, notModified = false)
             } catch (e: Exception) {
                 lastError = e
                 attempt++
@@ -160,6 +172,22 @@ class PoliteHttp(
         }
         throw lastError ?: IllegalStateException("POST $url failed after $maxRetries attempts")
     }
+
+    /** Caches a 2xx body that came with a validator; anything else drops what was cached for [url]. */
+    private fun remember(url: String, etag: String?, lastModified: String?, body: String, status: Int) =
+        synchronized(cache) {
+            cache.remove(url)?.let { cachedChars -= it.body.length }
+            if (status !in 200..299 || (etag == null && lastModified == null)) return@synchronized
+            cache[url] = Cached(etag, lastModified, body, status)
+            cachedChars += body.length
+            val oldest = cache.entries.iterator()
+            while (cachedChars > maxCachedChars && oldest.hasNext()) {
+                val evicted = oldest.next()
+                if (evicted.key == url) break
+                cachedChars -= evicted.value.body.length
+                oldest.remove()
+            }
+        }
 
     private fun backoffMillis(attempt: Int): Long = perHostDelayMillis * (1L shl attempt)
 

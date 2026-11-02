@@ -327,8 +327,10 @@ private fun MAIN.groceryBody(
             ". Un producto que se vende en dos tiendas de la misma cadena aparece una sola vez, en la más barata, marcado con cuál es. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus ",
         )
         +tr(
-            "daily prices over the last 30 days — never the store's \"before\" price. Read at 07:00 and 15:00.",
-            "precios diarios de los últimos 30 días — nunca el precio \"antes\" de la tienda. Se lee a las 07:00 y 15:00.",
+            // No clock times here: each store keeps its own schedule in sources.yaml, and the Last
+            // sync table below reads it, so it cannot go stale the way "07:00 and 15:00" did.
+            "daily prices over the last 30 days — never the store's \"before\" price. Each store is read two or three times a day; Last sync, at the bottom, has the times.",
+            "precios diarios de los últimos 30 días — nunca el precio \"antes\" de la tienda. Cada tienda se lee dos o tres veces al día; Última sincronización, al final, tiene las horas.",
         )
     }
 
@@ -458,20 +460,24 @@ internal fun groceryPageRows(shown: List<GroceryRow>, page: Int): List<GroceryRo
 }
 
 /** Above and below the table: 500 rows is a long scroll back up. Nothing for a single page. */
-private fun FlowContent.pager(controls: GroceryControls, page: Int, pages: Int) {
+private fun FlowContent.pager(controls: GroceryControls, page: Int, pages: Int) =
+    pagerLinks(page, pages) { controls.url(page = it) }
+
+/** First / prev / "page N of M" / next / last, with [urlFor] building each page's link. Nothing for a single page. */
+internal fun FlowContent.pagerLinks(page: Int, pages: Int, urlFor: (Int) -> String) {
     if (pages <= 1) return
     div("pager") {
         if (page > 1) {
-            a(href = controls.url(page = 1)) { +tr("« first", "« primera") }
-            a(href = controls.url(page = page - 1)) { +tr("‹ prev", "‹ anterior") }
+            a(href = urlFor(1)) { +tr("« first", "« primera") }
+            a(href = urlFor(page - 1)) { +tr("‹ prev", "‹ anterior") }
         } else {
             span("off") { +tr("« first", "« primera") }
             span("off") { +tr("‹ prev", "‹ anterior") }
         }
         span("at") { +tr("page $page of $pages", "página $page de $pages") }
         if (page < pages) {
-            a(href = controls.url(page = page + 1)) { +tr("next ›", "siguiente ›") }
-            a(href = controls.url(page = pages)) { +tr("last »", "última »") }
+            a(href = urlFor(page + 1)) { +tr("next ›", "siguiente ›") }
+            a(href = urlFor(pages)) { +tr("last »", "última »") }
         } else {
             span("off") { +tr("next ›", "siguiente ›") }
             span("off") { +tr("last »", "última »") }

@@ -58,14 +58,54 @@ class PriceSmartSourceTest {
         assertNull(deal("446204")!!.listPrice)
     }
 
-    /** A meat tray is priced whole; its weight in kg is its pack size. */
+    /**
+     * A meat tray is priced per kg, not whole: the tray's weight changes between crawls, and a lighter
+     * tray read as a 52% drop on a Ribeye. Sign price 1,990,000 cents is $19,900/kg (the tray: 1.398 kg,
+     * $27,820.20).
+     */
     @Test
-    fun `a weighed tray is sized by its own weight`() {
+    fun `a weighed tray is priced per kg`() {
         val d = deal("127788")!!
-        assertEquals(BigDecimal("27820.20"), d.price)
+        assertEquals(BigDecimal("19900.00"), d.price)
         assertEquals("g", d.unitMeasure)
-        assertEquals(0, BigDecimal(1398).compareTo(d.unitQuantity))
+        assertEquals(0, BigDecimal(1000).compareTo(d.unitQuantity))
+        assertTrue(d.title.endsWith("(por kg)"), d.title)
     }
+
+    /** The per-kg row cannot continue the tray-priced history, so it is a row of its own. */
+    @Test
+    fun `a weighed item has its own id, a fixed pack keeps the pid`() {
+        assertEquals("127788:kg", deal("127788")!!.externalId)
+        assertEquals("420380", deal("420380")!!.externalId)
+    }
+
+    /** Two trays of one cut at different weights are the same price, which is the point. */
+    @Test
+    fun `tray weight does not move the price`() {
+        val light = weighedDoc(weight = "1.398", trayCents = "2782020")
+        val heavy = weighedDoc(weight = "2.796", trayCents = "5564040")
+        assertEquals(
+            source.toRawDeal(light, "https://www.pricesmart.com", "6106", "COP", "Meat & fish")!!.price,
+            source.toRawDeal(heavy, "https://www.pricesmart.com", "6106", "COP", "Meat & fish")!!.price,
+        )
+    }
+
+    /** Without a sign price the tray price over its weight is the same number; a saving scales with it. */
+    @Test
+    fun `no sign price falls back to tray over weight, and the list price is per kg too`() {
+        val doc = weighedDoc(weight = "2", trayCents = "4000000", signCents = null, originalPesos = "50000")
+        val d = source.toRawDeal(doc, "https://www.pricesmart.com", "6106", "COP", "Meat & fish")!!
+        assertEquals(BigDecimal("20000.00"), d.price)
+        assertEquals(BigDecimal("25000.00"), d.listPrice)
+    }
+
+    private fun weighedDoc(weight: String, trayCents: String, signCents: String? = "1990000", originalPesos: String? = null) =
+        Json.parseToJsonElement(
+            """{"pid":"900","title":"Filete Bandeja","price_CO_6106":$trayCents,"weight_CO_6106":$weight,
+               "sold_by_weight_CO_6106":"true","weight_uom_description_CO_6106":"kg","inventory_CO_6106":"in stock"
+               ${signCents?.let { ""","sign_price_CO_6106":$it""" } ?: ""}
+               ${originalPesos?.let { ""","original_price_without_saving_CO_6106":$it""" } ?: ""}}""",
+        ).jsonObject
 
     /** "508 g / 1.12 lb": the metric size, not the trailing imperial one. */
     @Test

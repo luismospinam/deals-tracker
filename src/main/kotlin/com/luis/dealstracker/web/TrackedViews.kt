@@ -207,7 +207,14 @@ internal enum class TrackedOrigin(val label: String) {
  * definition of each in SQL — the drift this project guards against in `DealScore`.
  */
 internal enum class TrackedSort(val key: String, val label: String) {
-    /** Default. Cheapest first — the question the page exists to answer. */
+    /**
+     * Default. Cheapest delivered first -- price plus quoted freight, the question the page exists
+     * to answer. Sorting by sticker price put a US$7.41 shirt that costs US$22.46 delivered above
+     * free-shipping shirts at US$12. Rows with no freight quote sort after every quoted one.
+     */
+    DELIVERED("delivered", "Delivered"),
+
+    /** Cheapest sticker price first, freight ignored. */
     PRICE("price", "Now"),
 
     /** Amazon's advertised discount, deepest first. Rows with no list price sort last. */
@@ -220,8 +227,10 @@ internal enum class TrackedSort(val key: String, val label: String) {
     CHECKED("checked", "Checked");
 
     companion object {
+        val DEFAULT = DELIVERED
+
         fun of(value: String?): TrackedSort =
-            entries.firstOrNull { it.key.equals(value?.trim(), ignoreCase = true) } ?: PRICE
+            entries.firstOrNull { it.key.equals(value?.trim(), ignoreCase = true) } ?: DEFAULT
     }
 }
 
@@ -233,6 +242,8 @@ internal enum class TrackedSort(val key: String, val label: String) {
  * columns follow when they render `—`.
  */
 internal fun comparatorFor(sort: TrackedSort): Comparator<Deal> = when (sort) {
+    TrackedSort.DELIVERED -> compareBy<Deal, BigDecimal?>(nullsLast()) { it.deliveredPrice }
+        .thenBy { it.price }
     TrackedSort.PRICE -> compareBy { it.price }
     TrackedSort.OFF -> compareByDescending<Deal> { it.discountPercent ?: BigDecimal("-1") }
         .thenBy { it.price }
@@ -257,18 +268,36 @@ private fun trackedUrl(
     origin: TrackedOrigin? = null,
     showNoShip: Boolean = false,
     freeShip: Boolean = false,
+    // Only the pager passes a page. Every other control starts again at page 1, since a new
+    // filter or order makes the old page number point at different rows.
+    page: Int = 1,
 ): String {
     val params = buildList {
         if (types.isNotEmpty()) add("type=" + types.joinToString(",") { it.label })
         // The default is omitted, so the plain path stays the canonical URL for it.
-        if (sort != TrackedSort.PRICE) add("sort=${sort.key}")
+        if (sort != TrackedSort.DEFAULT) add("sort=${sort.key}")
         brand?.takeIf { it.isNotBlank() }?.let { add("brand=" + java.net.URLEncoder.encode(it, "UTF-8")) }
         origin?.let { add("origin=${it.label}") }
         // Hidden is the default, so only the opt-in is written.
         if (showNoShip) add("noship=show")
         if (freeShip) add("freeship=1")
+        if (page > 1) add("page=$page")
     }
     return if (params.isEmpty()) "/tracked" else "/tracked?" + params.joinToString("&")
+}
+
+/**
+ * Rows per page of the tracked table. All 1,136 rows in one page came to 2.9 MB and ~40,000
+ * elements on 2026-11-02, and the tab only grows.
+ */
+internal const val TRACKED_PAGE_SIZE = 100
+
+internal fun trackedPageCount(total: Int): Int = ((total + TRACKED_PAGE_SIZE - 1) / TRACKED_PAGE_SIZE).coerceAtLeast(1)
+
+/** The rows of 1-based [page], clamped into range, so a stale `?page=40` shows the last page. */
+internal fun <T> trackedPageRows(shown: List<T>, page: Int): List<T> {
+    val current = page.coerceIn(1, trackedPageCount(shown.size))
+    return shown.drop((current - 1) * TRACKED_PAGE_SIZE).take(TRACKED_PAGE_SIZE)
 }
 
 /**
@@ -722,7 +751,7 @@ internal fun MAIN.trackedPage(
     allDeals: List<Deal>,
     sources: List<String>,
     selected: Set<ProductType> = emptySet(),
-    sort: TrackedSort = TrackedSort.PRICE,
+    sort: TrackedSort = TrackedSort.DEFAULT,
     brand: String? = null,
     notice: String? = null,
     manualAsins: Set<String> = emptySet(),
@@ -731,6 +760,7 @@ internal fun MAIN.trackedPage(
     freeShip: Boolean = false,
     searchToggles: List<Triple<String, String, Boolean>> = emptyList(),
     searchesOpen: Boolean = false,
+    page: Int = 1,
 ) {
     addItemForm(notice)
 
@@ -833,6 +863,7 @@ internal fun MAIN.trackedPage(
 
     sortTags(
         listOf(
+            tr("Delivered", "Puesto en casa") to TrackedSort.DELIVERED,
             tr("Now", "Ahora") to TrackedSort.PRICE,
             tr("Off", "Dto.") to TrackedSort.OFF,
             tr("Lowest yet", "Mínimo histórico") to TrackedSort.LOWEST,
@@ -840,6 +871,11 @@ internal fun MAIN.trackedPage(
         )
             .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip, freeShip), sort == s) },
     )
+    // The count above and the Ask panel cover every row; only the table is paged.
+    val pages = trackedPageCount(shown.size)
+    val current = page.coerceIn(1, pages)
+    val pageUrl = { p: Int -> trackedUrl(selected, sort, brand, origin, showNoShip, freeShip, p) }
+    pagerLinks(current, pages, pageUrl)
     table("deals tracked") {
         // For screen readers only: names the table, so its columns have something to belong to.
         caption("sr-only") { +tr("Tracked items", "Artículos en seguimiento") }
@@ -867,17 +903,19 @@ internal fun MAIN.trackedPage(
                             "precio de lista; esas filas quedan de últimas.",
                     ),
                 )
-                th(scope = ThScope.col, classes = "col-extra") {
-                    title = tr(
+                sortTh(
+                    "Extra", TrackedSort.DELIVERED, sort, selected, "col-extra", brand, origin, showNoShip, freeShip,
+                    tooltip = tr(
                         "International shipping and import charges Amazon quotes on top of " +
                             "the price, plus what the item therefore actually costs delivered. " +
-                            "Blank until the Colombia shipping check has run for that item.",
+                            "Blank until the Colombia shipping check has run for that item. " +
+                            "Sorts by the delivered cost, cheapest first; rows with no freight quote go last.",
                         "Envío internacional e impuestos de importación que Amazon cobra además del " +
                             "precio, y lo que el producto cuesta entonces puesto en casa. " +
-                            "Vacío hasta que se revise el envío a Colombia de ese producto.",
-                    )
-                    +"Extra"
-                }
+                            "Vacío hasta que se revise el envío a Colombia de ese producto. " +
+                            "Ordena por el costo puesto en casa, de menor a mayor; sin cotización de envío van de últimas.",
+                    ),
+                )
                 th(scope = ThScope.col, classes = "col-price") {
                     title = tr("Cheapest price we have recorded for this item", "El precio más bajo que hemos registrado para este producto")
                     +tr("Lowest", "Mínimo")
@@ -909,9 +947,10 @@ internal fun MAIN.trackedPage(
             }
         }
         tbody {
-            shown.forEach { trackedRow(it, manualAsins, variants[it.id].orEmpty(), origin == TrackedOrigin.PINNED) }
+            trackedPageRows(shown, current).forEach { trackedRow(it, manualAsins, variants[it.id].orEmpty(), origin == TrackedOrigin.PINNED) }
         }
     }
+    pagerLinks(current, pages, pageUrl)
 }
 
 /**

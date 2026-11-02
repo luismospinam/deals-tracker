@@ -335,6 +335,17 @@ data class Deal(
      */
     val shippingCostDominates: Boolean
         get() = (shippingCostPercent ?: BigDecimal.ZERO) >= BigDecimal(50)
+
+    /**
+     * Price plus the quoted freight: what the item costs delivered to Colombia. A US$7.41 shirt with
+     * US$15.05 freight is a US$22.46 shirt, and the order of a list by sticker price says otherwise.
+     *
+     * Null when no freight was quoted -- unchecked is not free -- and for an item that does not ship.
+     * Import charges are not added, for the reason the Tracked tab's Extra column gives: Amazon flags
+     * them without always quoting an amount.
+     */
+    val deliveredPrice: BigDecimal?
+        get() = coShippingCost?.takeIf { coShipping != CoShipping.NO }?.let { price.add(it) }
 }
 
 data class PriceObservation(

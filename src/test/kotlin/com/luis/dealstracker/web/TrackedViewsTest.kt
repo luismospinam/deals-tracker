@@ -164,10 +164,63 @@ class TrackedViewsTest {
     /** An unknown sort key falls back to the default rather than erroring. */
     @Test
     fun `an unknown sort key falls back to the default`() {
-        assertEquals(TrackedSort.PRICE, TrackedSort.of(null))
-        assertEquals(TrackedSort.PRICE, TrackedSort.of("nonsense"))
+        assertEquals(TrackedSort.DELIVERED, TrackedSort.of(null))
+        assertEquals(TrackedSort.DELIVERED, TrackedSort.of("nonsense"))
+        assertEquals(TrackedSort.PRICE, TrackedSort.of("price"))
         assertEquals(TrackedSort.OFF, TrackedSort.of("off"))
         assertEquals(TrackedSort.LOWEST, TrackedSort.of("LOWEST"))
+    }
+
+    /** The 2026-11-02 case: a US$7.41 shirt with US$15.05 freight costs more than a free-shipping US$12 one. */
+    @Test
+    fun `delivered sort ranks by price plus freight, unquoted rows last`() {
+        val cheapStickerDearFreight = trackedDeal("7.41", shippingCost = "15.05").copy(id = 1)
+        val freeShipping = trackedDeal("12.00", shippingCost = "0").copy(id = 2)
+        val unquoted = trackedDeal("3.00").copy(id = 3)
+        val ordered = listOf(cheapStickerDearFreight, unquoted, freeShipping).sortedWith(comparatorFor(TrackedSort.DELIVERED))
+        assertEquals(listOf(2L, 1L, 3L), ordered.map { it.id })
+        assertEquals(listOf(3L, 1L, 2L), ordered.sortedWith(comparatorFor(TrackedSort.PRICE)).map { it.id })
+    }
+
+    /** Unchecked is not free, and a refused item has no delivered cost at all. */
+    @Test
+    fun `delivered price needs a freight quote and a shippable item`() {
+        assertEquals(BigDecimal("22.46"), trackedDeal("7.41", shippingCost = "15.05").deliveredPrice)
+        assertEquals(BigDecimal("12.00"), trackedDeal("12.00", shippingCost = "0").deliveredPrice)
+        assertNull(trackedDeal("3.00").deliveredPrice)
+        assertNull(trackedDeal("3.00", shippingCost = "5").copy(coShipping = CoShipping.NO).deliveredPrice)
+    }
+
+    /** 1,136 rows in one page was 2.9 MB; the table now shows 100 at a time, the count still all of them. */
+    @Test
+    fun `the table is paged, the count is not`() {
+        val all = (1..250L).map { trackedDeal("${it}.00", shippingCost = "0").copy(id = it, sourceDealId = "B$it", asin = "B$it") }
+        val html = createHTML().main { trackedPage(all, listOf("amazon"), page = 3) }
+        assertTrue(html.contains("250 item(s) tracked"), "the count covers every row")
+        assertTrue(html.contains("page 3 of 3"))
+        val rows = html.substringAfter("<tbody>").substringBefore("</tbody>").split("<tr").size - 1
+        assertEquals(50, rows, "the last page holds the remainder")
+        assertTrue(html.contains("href=\"/tracked?page=2\""), "prev links to page 2 and keeps the default sort implicit")
+    }
+
+    @Test
+    fun `a page past the end shows the last, and controls drop the page`() {
+        assertEquals(listOf(201, 202), trackedPageRows((1..202).toList(), 99))
+        assertEquals((1..100).toList(), trackedPageRows((1..202).toList(), 0))
+        assertEquals(1, trackedPageCount(0))
+        val all = (1..150L).map { trackedDeal("${it}.00").copy(id = it, sourceDealId = "B$it", asin = "B$it") }
+        val html = createHTML().main { trackedPage(all, listOf("amazon"), sort = TrackedSort.OFF, page = 2) }
+        assertTrue(html.contains("href=\"/tracked?sort=off&amp;page=1\"") || html.contains("href=\"/tracked?sort=off\""))
+        // The sort headers start over at page 1: none of them carries a page.
+        val headers = html.substringAfter("<thead>").substringBefore("</thead>")
+        assertFalse(headers.contains("page="), headers)
+    }
+
+    /** A single page needs no pager. */
+    @Test
+    fun `no pager for one page`() {
+        val html = createHTML().main { trackedPage(listOf(trackedDeal("5.00")), listOf("amazon")) }
+        assertFalse(html.contains("class=\"pager\""))
     }
 
     /**

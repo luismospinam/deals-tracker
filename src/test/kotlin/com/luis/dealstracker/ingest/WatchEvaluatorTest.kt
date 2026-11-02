@@ -504,4 +504,23 @@ class WatchEvaluatorTest {
         assertEquals("2500000", low.price.toPlainString(), "the alert price is the cash price")
         assertTrue(low.evidence.contains("$3,050,000"), low.evidence)
     }
+
+    // --- gap, for the digest's ranking ---
+
+    /** 2,000,000 against a 2,500,000 floor is 20% under it; a rival at 2,500,000 is the same 20%. */
+    @Test
+    fun `each alert carries its gap in percent`() {
+        val low = WatchEvaluator.lowestInWindow(
+            watch(),
+            listOf(candidate(1, "exito", "2500000", priorFloor = "2500000"), candidate(2, "easy", "2000000", priorFloor = "2600000")),
+        ).single()
+        assertEquals(BigDecimal("20.0"), low.gapPercent)
+
+        val cross = WatchEvaluator.crossSiteSpread(
+            watch(),
+            listOf(candidate(1, "exito", "2000000", matchKey = "gtin:1"), candidate(2, "easy", "2500000", matchKey = "gtin:1")),
+        ).single()
+        assertEquals(BigDecimal("20.0"), cross.gapPercent)
+        assertTrue(cross.evidence.startsWith("20.0% cheaper"), "V31 backfills old rows from this prefix")
+    }
 }
