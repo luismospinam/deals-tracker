@@ -53,6 +53,7 @@ fun MAIN.askPanel(screen: String, placeholder: String, offerSpecs: Boolean = fal
                     id = "ask-q"
                     rows = "2"
                     attributes["placeholder"] = placeholder
+                    attributes["aria-label"] = tr("Question for Claude", "Pregunta para Claude")
                     attributes["maxlength"] = "2000"
                     attributes["required"] = ""
                 }

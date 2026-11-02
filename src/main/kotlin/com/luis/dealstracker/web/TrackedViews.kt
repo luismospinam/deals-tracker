@@ -23,6 +23,8 @@ import kotlinx.html.span
 import kotlinx.html.table
 import kotlinx.html.tbody
 import kotlinx.html.td
+import kotlinx.html.ThScope
+import kotlinx.html.caption
 import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.title
@@ -289,7 +291,7 @@ private fun kotlinx.html.TR.sortTh(
 ) {
     val href = trackedUrl(selected, sort, brand, origin, showNoShip, freeShip)
 
-    th(classes = classes) {
+    th(scope = ThScope.col, classes = classes) {
         tooltip?.let { title = it }
         a(href = href, classes = if (current == sort) "sorted" else null) {
             +label
@@ -406,8 +408,9 @@ private fun MAIN.addItemForm(notice: String?) {
             attributes["action"] = "/tracked/add"
 
             div("f wide") {
-                label { +tr("Amazon URL", "URL de Amazon") }
+                label { htmlFor = "add-url"; +tr("Amazon URL", "URL de Amazon") }
                 input(type = InputType.text, name = "url") {
+                    id = "add-url"
                     required = true
                     placeholder = "https://www.amazon.com/dp/B074JLDHK3"
                     title = tr(
@@ -419,8 +422,9 @@ private fun MAIN.addItemForm(notice: String?) {
                 }
             }
             div("f") {
-                label { +tr("Brand (optional)", "Marca (opcional)") }
+                label { htmlFor = "add-brand"; +tr("Brand (optional)", "Marca (opcional)") }
                 input(type = InputType.text, name = "brand") {
+                    id = "add-brand"
                     placeholder = tr("read from the page", "se lee de la página")
                     title = tr(
                         "Only needed if the page's byline does not name a brand.",
@@ -429,8 +433,9 @@ private fun MAIN.addItemForm(notice: String?) {
                 }
             }
             div("f") {
-                label { +tr("Type (optional)", "Tipo (opcional)") }
+                label { htmlFor = "add-productType"; +tr("Type (optional)", "Tipo (opcional)") }
                 input(type = InputType.text, name = "productType") {
+                    id = "add-productType"
                     placeholder = tr("read from the breadcrumb", "se lee de la ruta de categorías")
                     title = tr(
                         "Only needed if Amazon's breadcrumb categorises it unhelpfully.",
@@ -836,13 +841,15 @@ internal fun MAIN.trackedPage(
             .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip, freeShip), sort == s) },
     )
     table("deals tracked") {
+        // For screen readers only: names the table, so its columns have something to belong to.
+        caption("sr-only") { +tr("Tracked items", "Artículos en seguimiento") }
         thead {
             tr {
-                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
-                th(classes = "col-deal") { +tr("Item", "Producto") }
-                th(classes = "col-size") { +tr("Size", "Talla") }
+                th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                th(scope = ThScope.col, classes = "col-deal") { +tr("Item", "Producto") }
+                th(scope = ThScope.col, classes = "col-size") { +tr("Size", "Talla") }
                 sortTh(tr("Now", "Ahora"), TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip, freeShip)
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr(
                         "Amazon's own \"List:\" price, where it publishes one",
                         "El precio \"List:\" de Amazon, cuando lo publica",
@@ -860,7 +867,7 @@ internal fun MAIN.trackedPage(
                             "precio de lista; esas filas quedan de últimas.",
                     ),
                 )
-                th(classes = "col-extra") {
+                th(scope = ThScope.col, classes = "col-extra") {
                     title = tr(
                         "International shipping and import charges Amazon quotes on top of " +
                             "the price, plus what the item therefore actually costs delivered. " +
@@ -871,11 +878,11 @@ internal fun MAIN.trackedPage(
                     )
                     +"Extra"
                 }
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr("Cheapest price we have recorded for this item", "El precio más bajo que hemos registrado para este producto")
                     +tr("Lowest", "Mínimo")
                 }
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr("Dearest price we have recorded for this item", "El precio más alto que hemos registrado para este producto")
                     +tr("Highest", "Máximo")
                 }
@@ -888,7 +895,7 @@ internal fun MAIN.trackedPage(
                             "uno más alto que vimos. Un precio que nunca se movió no cuenta.",
                     ),
                 )
-                th(classes = "col-chg") {
+                th(scope = ThScope.col, classes = "col-chg") {
                     title = tr(
                         "Change from the dearest price we recorded. Blank until a second " +
                             "observation exists — one price is not a trend.",
@@ -898,7 +905,7 @@ internal fun MAIN.trackedPage(
                     +tr("Change", "Cambio")
                 }
                 sortTh(tr("Checked", "Revisado"), TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip, freeShip)
-                th(classes = "col-act") { +"" }
+                th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
             }
         }
         tbody {
@@ -1065,6 +1072,7 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
             val img = deal.imageUrl
             if (img != null) {
                 a(href = deal.url) {
+                    thumbLinkHidden()
                     attributes["target"] = "_blank"
                     attributes["rel"] = "noopener noreferrer"
                     img(classes = "thumb", src = img, alt = "") {

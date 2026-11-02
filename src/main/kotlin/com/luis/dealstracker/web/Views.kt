@@ -24,7 +24,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "61"
+private const val CSS_VERSION = "66"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -250,7 +250,7 @@ private fun HEADER.languageSwitch() {
     span("sub langswitch") {
         attributes["aria-label"] = tr("Language", "Idioma")
         com.luis.dealstracker.i18n.Lang.entries.forEachIndexed { i, l ->
-            if (i > 0) span("langsep") { +"/" }
+            if (i > 0) span("langsep") { attributes["aria-hidden"] = "true"; +"/" }
             val on = l == com.luis.dealstracker.i18n.I18n.lang
             a(href = "/lang/${l.code}?back=$back", classes = if (on) "on" else null) {
                 if (on) attributes["aria-current"] = "true"
@@ -724,17 +724,18 @@ fun MAIN.dealTable(
         return
     }
     table("deals") {
+            caption("sr-only") { +tr("Deals", "Ofertas") }
         thead {
             tr {
-                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
-                th { +tr("Deal", "Oferta") }
-                th(classes = "col-price") { +tr("Price", "Precio") }
-                th(classes = "col-disc") { +tr("Off", "Dto.") }
-                th(classes = "col-score") {
+                th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                th(scope = ThScope.col) { +tr("Deal", "Oferta") }
+                th(scope = ThScope.col, classes = "col-price") { +tr("Price", "Precio") }
+                th(scope = ThScope.col, classes = "col-disc") { +tr("Off", "Dto.") }
+                th(scope = ThScope.col, classes = "col-score") {
                     title = tr("Community vote score, where the source publishes one", "Puntaje de votos de la comunidad, cuando la fuente lo publica")
                     +tr("Score", "Puntaje")
                 }
-                th(classes = "col-rank") {
+                th(scope = ThScope.col, classes = "col-rank") {
                     // Says plainly that the column is not strictly descending. The default sort
                     // adds a rotation offset while this column shows the true score, so without
                     // this note a row scoring 52.8 sitting below one scoring 50.9 reads as a bug.
@@ -750,10 +751,10 @@ fun MAIN.dealTable(
                     )
                     +tr("Rank", "Ranking")
                 }
-                th(classes = "col-sig") { +tr("Signals", "Señales") }
-                th(classes = "col-co") { +"Colombia" }
-                th(classes = "col-seen") { +tr("Seen", "Visto") }
-                th(classes = "col-act") { +tr("Actions", "Acciones") }
+                th(scope = ThScope.col, classes = "col-sig") { +tr("Signals", "Señales") }
+                th(scope = ThScope.col, classes = "col-co") { +"Colombia" }
+                th(scope = ThScope.col, classes = "col-seen") { +tr("Seen", "Visto") }
+                th(scope = ThScope.col, classes = "col-act") { +tr("Actions", "Acciones") }
             }
         }
         tbody {
@@ -871,7 +872,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
 
         td(classes = "col-thumb") {
             val img = deal.imageUrl
-            if (img != null) img(classes = "thumb", src = img, alt = "") else div("thumb-blank") {}
+            if (img != null) img(classes = "thumb", src = img, alt = "") { attributes["loading"] = "lazy" } else div("thumb-blank") {}
         }
 
         // Classed so it can host the heat gutter at narrow widths, where .col-thumb is
@@ -1303,6 +1304,7 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
     // carried no image at all -- you clicked through to judge a product and got no picture.
     deal.imageUrl?.let { src ->
         a(href = deal.url, target = "_blank", classes = "detail-img-link") {
+            thumbLinkHidden()
             img(alt = "", src = src, classes = "detail-img")
         }
     }
@@ -1331,6 +1333,9 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
             span("sub") { +tr("lowest recorded $m", "mínimo registrado $m") }
         }
     }
+    // The card-only price from the latest reading, if it carried one: the shelf price above is what
+    // anyone pays, this is what the right card pays.
+    history.maxByOrNull { it.observedAt }?.card?.let { cardChip(it, deal.currency) }
 
     if (history.size < 2) {
         p("sub") {
@@ -1347,18 +1352,39 @@ fun MAIN.dealDetail(deal: Deal, history: List<PriceObservation>, pinnable: Boole
     } else {
         sparkline(history)
         table("history") {
-            thead { tr { th { +tr("When", "Cuándo") }; th { +tr("Price", "Precio") }; th { +tr("List price", "Precio de lista") } } }
+            caption("sr-only") { +tr("Price history", "Historial de precios") }
+            thead { tr { th(scope = ThScope.col) { +tr("When", "Cuándo") }; th(scope = ThScope.col) { +tr("Price", "Precio") }; th(scope = ThScope.col) { +tr("List price", "Precio de lista") }; th(scope = ThScope.col) { +tr("Card price", "Precio con tarjeta") } } }
             tbody {
-                history.reversed().take(50).forEach { obs ->
+                historyRows(history).take(50).forEach { obs ->
                     tr {
                         td { +relativeAgo(obs.observedAt) }
                         td { +formatMoney(obs.price, obs.currency) }
                         td { +(obs.listPrice?.let { formatMoney(it, obs.currency) } ?: "—") }
+                        td { obs.card?.let { cardChip(it, obs.currency) } ?: +"—" }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * The history table's rows, newest first. Today's observations are all kept, since the hourly poll's
+ * repeats are the evidence the price held; on each earlier day a price (with its list price) appears
+ * once, at its first reading that day, so a day that sat at one figure is one row, not one per hour.
+ */
+internal fun historyRows(
+    history: List<PriceObservation>,
+    today: java.time.LocalDate = java.time.LocalDate.now(),
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+): List<PriceObservation> {
+    val seen = HashSet<Pair<Triple<java.time.LocalDate, java.math.BigDecimal, java.math.BigDecimal?>, java.math.BigDecimal?>>()
+    val kept = history.sortedBy { it.observedAt }.filter { obs ->
+        val day = obs.observedAt.atZone(zone).toLocalDate()
+        day >= today ||
+            seen.add(Triple(day, obs.price.stripTrailingZeros(), obs.listPrice?.stripTrailingZeros()) to obs.card?.price?.stripTrailingZeros())
+    }
+    return kept.reversed()
 }
 
 /**
@@ -1435,10 +1461,11 @@ fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
     div("runs") {
         h2 { +tr("Recent fetch runs", "Consultas recientes") }
         table {
+            caption("sr-only") { +tr("Recent fetch runs", "Consultas recientes") }
             thead {
                 tr {
-                    th { +tr("Source", "Fuente") }; th { +tr("Started", "Inicio") }; th { +tr("Items", "Productos") }
-                    th { +tr("New", "Nuevos") }; th { +tr("Status", "Estado") }
+                    th(scope = ThScope.col) { +tr("Source", "Fuente") }; th(scope = ThScope.col) { +tr("Started", "Inicio") }; th(scope = ThScope.col) { +tr("Items", "Productos") }
+                    th(scope = ThScope.col) { +tr("New", "Nuevos") }; th(scope = ThScope.col) { +tr("Status", "Estado") }
                 }
             }
             tbody {
@@ -1462,4 +1489,14 @@ fun MAIN.recentRuns(runs: List<Map<String, Any?>>) {
             }
         }
     }
+}
+
+/**
+ * A picture link that repeats the title link beside it. Left in the tab order and the accessibility
+ * tree it is a nameless link per row (the image has no alt on purpose); hiding it leaves one link
+ * per item, the titled one.
+ */
+internal fun kotlinx.html.A.thumbLinkHidden() {
+    attributes["aria-hidden"] = "true"
+    attributes["tabindex"] = "-1"
 }

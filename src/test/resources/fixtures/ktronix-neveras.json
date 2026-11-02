@@ -1,0 +1,455 @@
+{
+ "hits": [
+  {
+   "alto-refrigeracion_string_mv": [
+    "De 121 a 150 cm"
+   ],
+   "tecnologia-frio_string_mv": [
+    "Frost"
+   ],
+   "img-105wx105h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=105",
+   "pickupavailableflag_boolean": true,
+   "objectID": "7909569469194",
+   "name_text_es": "Nevera ELECTROLUX  Frost Congelador Inferior 173 Litros ERB163HB Negro",
+   "diseno-nevera-nevecon_string_mv": [
+    "Nevera Congelador Inferior"
+   ],
+   "presale_boolean": false,
+   "baseprice_cop_string": 1699900.0,
+   "linea-modelo-referencia_string_mv": [
+    "ERB163HB"
+   ],
+   "last_updated_date": "2026-11-01T12:52:23.531778105",
+   "comparableattributes_string_mv": [
+    "5=Medidas Externas (Ancho x Alto x Fondo)=50 x 142 x 56 Centímetros",
+    "3=Eficiencia Energetica=B",
+    "4=Almacenamiento=173 Litros",
+    "1=Diseño=Nevera Congelador Inferior",
+    "2=Consumo Minimo Energetico=24.5 Kilovatio-hora/Mes"
+   ],
+   "datalayercategories_string": "electrodomesticos/refrigeracion/neveras",
+   "img-155wx155h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=155",
+   "hasKasadoNotFree_boolean": false,
+   "pricevalue_cop_double": 1699900.0,
+   "brand_string_mv": [
+    "ELECTROLUX"
+   ],
+   "paymentpromotion_text_mv": [
+    ""
+   ],
+   "reviewavgrating_double": 0.0,
+   "category_string_mv": [
+    "BI_ELHO_KTRON",
+    "BI_163_KTRON",
+    "BI_0583_KTRON"
+   ],
+   "linea-modelo_string_mv": [
+    "ERB163HB"
+   ],
+   "discountprice_double": 1119900.0,
+   "isinstallationservice_boolean": false,
+   "bestinstallmentvalue_long": 33861,
+   "comparableattributes_detailed_string_mv": [
+    "{\"code\":\"DISENO_DE_LA_NEVERA_NEVECON\",\"label\":\"Dise\\u00F1o\",\"value\":\"Nevera Congelador Inferior\"}",
+    "{\"code\":\"CONSUMO_MINIMO_ENERGETICO\",\"label\":\"Consumo Minimo Energetico\",\"value\":\"24.5 Kilovatio-hora\\/Mes\"}",
+    "{\"code\":\"EFICIENCIA_ENERGETICA\",\"label\":\"Eficiencia Energetica\",\"value\":\"B\"}",
+    "{\"code\":\"VOLUMEN_DE_ALMACENAMIENTO\",\"label\":\"Almacenamiento\",\"value\":\"173 Litros\"}",
+    "{\"code\":\"MEDIDAS_DEL_PRODUCTO_DE_REFRIGERACION_ANCHO_X_ALTO_X_FONDO_EN_CM\",\"label\":\"Medidas Externas (Ancho x Alto x Fondo)\",\"value\":\"50 x 142 x 56 Cent\\u00EDmetros\"}"
+   ],
+   "allcategories_string_mv": [
+    "neveras-congelador-inferior",
+    "recien-casados",
+    "nevera-electrolux",
+    "marcas",
+    "electrolux",
+    "ofertas",
+    "neveras-frost",
+    "BI_ELHO_KTRON",
+    "BI_163_KTRON",
+    "BI_0583_KTRON",
+    "nevera-dos-puertas",
+    "ofertas-mundialistas"
+   ],
+   "img-1400wx1400h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=1400",
+   "rangedaveragescore_string_mv": [
+    "4",
+    "3",
+    "2",
+    "1"
+   ],
+   "categorypath_string_mv": [
+    "BI_ELHO_KTRON/BI_163_KTRON",
+    "BI_ELHO_KTRON/BI_163_KTRON/BI_0583_KTRON",
+    "BI_ELHO_KTRON"
+   ],
+   "eficiencia-energetica_string_mv": [
+    "B"
+   ],
+   "stocklevelstatus_string": "inStock",
+   "popularity_int": 0,
+   "ancho-refrigeracion_string_mv": [
+    "Menos de 50 cm"
+   ],
+   "keyfeatures_string_mv": [
+    "1=Diseño Fit The Home: 50 cm de ancho",
+    "2=Puerta reversible para tu comodidad",
+    "3=Luz LED interior",
+    "4=Ahorro de energía",
+    "5=3 años de garantía en compresor"
+   ],
+   "marca_text": "ELECTROLUX",
+   "stockexhibition_int": 0,
+   "percentagediscount_string": "-34%",
+   "visible_boolean": "true",
+   "lowestprice_double": 1119900.0,
+   "url_es_string": "/nevera-electrolux-frost-congelador-inferior-173-litros/p/7909569469194",
+   "img-820wx820h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=820",
+   "stocklevel_int": 735,
+   "img-750wx750h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=750",
+   "isVariablePrice_boolean": false,
+   "last_updated_by": "UPDATE",
+   "bestfrequencyvalue_string": "Quincenales",
+   "availableBuyButNotVisible_boolean": false,
+   "code_string": "7909569469194",
+   "categoryname_text_es_mv": [
+    "Electrodomésticos",
+    "Refrigeración",
+    "Neveras"
+   ],
+   "maxnumberinstallments_int": 48,
+   "hierarchicalcategory_string_mv": {
+    "lvl2": "Electrodomésticos > Refrigeración > Neveras",
+    "lvl0": "Electrodomésticos",
+    "lvl1": "Electrodomésticos > Refrigeración"
+   },
+   "totalreviews_int": 163,
+   "fondo-refrigeracion_string_mv": [
+    "De 51 a 60 cm"
+   ],
+   "color_string_mv": [
+    "Negro"
+   ],
+   "diseno_de_la_nevera_nevecon_text_es": "Nevera Congelador Inferior",
+   "averagescore_double": 4.8282,
+   "img-60wx60h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=60",
+   "opciones-conectividad_string_mv": [
+    "No Tiene/ No Aplica"
+   ],
+   "price_cop_string_mv": [
+    "$1.000.000 - $2.000.000"
+   ],
+   "maximumamountavailable_int": 3,
+   "fuente-alimentacion-electro_string_mv": [
+    "Energía Eléctrica"
+   ],
+   "instockflag_boolean": true,
+   "salesproducts_double": 548353780000.0,
+   "img-310wx310h_string": "https://cdn.dam.ktronix.com/products/7909569469194/7909569469194-001.webp/nevera-electrolux-frost-congelador-inferior-173-litros-erb163hb-negro?w=310",
+   "createddate_long": 1775619111,
+   "gama-producto_string_mv": [
+    "Entrada"
+   ]
+  },
+  {
+   "price_cop_string_mv": [
+    "$1.000.000 - $2.000.000"
+   ],
+   "keyfeatures_string_mv": [
+    "1=Mayor capacidad interior para almacenar todos tus alimentos",
+    "2=Con Total Fresh Flow, manten tus alimentos frescos",
+    "3=Ahorra hasta 67% de energía",
+    "4=Diseño discreto y practico"
+   ],
+   "averagescore_double": 4.8612,
+   "categorypath_string_mv": [
+    "BI_ELHO_KTRON/BI_163_KTRON",
+    "BI_ELHO_KTRON/BI_163_KTRON/BI_0583_KTRON",
+    "BI_ELHO_KTRON"
+   ],
+   "stocklevelstatus_string": "inStock",
+   "variantdescriptor_string": "color:GRIS OSCURO",
+   "linea-modelo_string_mv": [
+    "RMA247FXCG"
+   ],
+   "categoryname_text_es_mv": [
+    "Electrodomésticos",
+    "Refrigeración",
+    "Neveras"
+   ],
+   "linea-modelo-referencia_string_mv": [
+    "RMA247FXCG"
+   ],
+   "last_updated_date": "2026-11-01T13:23:16.193401923",
+   "ancho-refrigeracion_string_mv": [
+    "De 51 a 70 cm"
+   ],
+   "paymentpromotion_text_mv": [
+    ""
+   ],
+   "img-310wx310h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=310",
+   "instockflag_boolean": true,
+   "comparableattributes_detailed_string_mv": [
+    "{\"code\":\"DISENO_DE_LA_NEVERA_NEVECON\",\"label\":\"Dise\\u00F1o\",\"value\":\"Nevera Congelador Superior\"}",
+    "{\"code\":\"CONSUMO_MINIMO_ENERGETICO\",\"label\":\"Consumo Minimo Energetico\",\"value\":\"28.2 Kilovatio-hora\\/Mes\"}",
+    "{\"code\":\"EFICIENCIA_ENERGETICA\",\"label\":\"Eficiencia Energetica\",\"value\":\"B\"}",
+    "{\"code\":\"VOLUMEN_DE_ALMACENAMIENTO\",\"label\":\"Almacenamiento\",\"value\":\"230 Litros\"}",
+    "{\"code\":\"MEDIDAS_DEL_PRODUCTO_DE_REFRIGERACION_ANCHO_X_ALTO_X_FONDO_EN_CM\",\"label\":\"Medidas Externas (Ancho x Alto x Fondo)\",\"value\":\"55.6 x 157.5 x 67 Cent\\u00EDmetros\"}"
+   ],
+   "last_updated_by": "UPDATE",
+   "visible_boolean": "true",
+   "bestinstallmentvalue_long": 46862,
+   "presale_boolean": false,
+   "bestfrequencyvalue_string": "Quincenales",
+   "eficiencia-energetica_string_mv": [
+    "B"
+   ],
+   "marca_text": "MABE",
+   "category_string_mv": [
+    "BI_ELHO_KTRON",
+    "BI_163_KTRON",
+    "BI_0583_KTRON"
+   ],
+   "stockexhibition_int": 0,
+   "percentagediscount_string": "-28%",
+   "tecnologia-frio_string_mv": [
+    "No Frost"
+   ],
+   "maxnumberinstallments_int": 48,
+   "url_es_string": "/nevera-mabe-no-frost-congelador-superior-230-litros/p/7704712418391",
+   "pickupavailableflag_boolean": true,
+   "opciones-conectividad_string_mv": [
+    "No Tiene/ No Aplica"
+   ],
+   "name_text_es": "Nevera MABE No Frost Congelador Superior 230 Litros RMA247FXCG Grafito",
+   "maximumamountavailable_int": 3,
+   "gama-producto_string_mv": [
+    "Media"
+   ],
+   "isinstallationservice_boolean": false,
+   "img-1400wx1400h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=1400",
+   "allcategories_string_mv": [
+    "recien-casados",
+    "neveras-no-frost",
+    "ofertas",
+    "marcas",
+    "mabe",
+    "nevera-mabe",
+    "BI_ELHO_KTRON",
+    "BI_163_KTRON",
+    "BI_0583_KTRON",
+    "nevera-dos-puertas",
+    "temporadas",
+    "hotsale"
+   ],
+   "popularity_int": 0,
+   "code_string": "7704712418391",
+   "baseprice_cop_string": 2177900.0,
+   "discountprice_double": 1549900.0,
+   "img-820wx820h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=820",
+   "hasKasadoNotFree_boolean": false,
+   "color_string_mv": [
+    "Negro"
+   ],
+   "fuente-alimentacion-electro_string_mv": [
+    "Energía Eléctrica"
+   ],
+   "alto-refrigeracion_string_mv": [
+    "De 151 a 180 cm"
+   ],
+   "reviewavgrating_double": 0.0,
+   "comparableattributes_string_mv": [
+    "5=Medidas Externas (Ancho x Alto x Fondo)=55.6 x 157.5 x 67 Centímetros",
+    "3=Eficiencia Energetica=B",
+    "4=Almacenamiento=230 Litros",
+    "1=Diseño=Nevera Congelador Superior",
+    "2=Consumo Minimo Energetico=28.2 Kilovatio-hora/Mes"
+   ],
+   "totalreviews_int": 209,
+   "pricevalue_cop_double": 2177900.0,
+   "objectID": "7704712418391",
+   "createddate_long": 1777012841,
+   "img-60wx60h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=60",
+   "img-105wx105h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=105",
+   "diseno-nevera-nevecon_string_mv": [
+    "Nevera Congelador Superior"
+   ],
+   "salesproducts_double": 1470213450000.0,
+   "datalayercategories_string": "electrodomesticos/refrigeracion/neveras",
+   "fondo-refrigeracion_string_mv": [
+    "De 61 a 70 cm"
+   ],
+   "lowestprice_double": 1549900.0,
+   "rangedaveragescore_string_mv": [
+    "4",
+    "3",
+    "2",
+    "1"
+   ],
+   "hierarchicalcategory_string_mv": {
+    "lvl2": "Electrodomésticos > Refrigeración > Neveras",
+    "lvl0": "Electrodomésticos",
+    "lvl1": "Electrodomésticos > Refrigeración"
+   },
+   "img-155wx155h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=155",
+   "availableBuyButNotVisible_boolean": false,
+   "img-750wx750h_string": "https://cdn.dam.ktronix.com/products/7704712418391/7704712418391-001.webp/nevera-mabe-no-frost-congelador-superior-230-litros-rma247fxcg-grafito?w=750",
+   "isVariablePrice_boolean": false,
+   "stocklevel_int": 408,
+   "brand_string_mv": [
+    "MABE"
+   ],
+   "diseno_de_la_nevera_nevecon_text_es": "Nevera Congelador Superior"
+  },
+  {
+   "price_cop_string_mv": [
+    "$500.000 - $1.000.000"
+   ],
+   "stocklevel_int": 1,
+   "img-1400wx1400h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=1400",
+   "instockflag_boolean": true,
+   "img-155wx155h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=155",
+   "discountprice_double": 999900.0,
+   "img-60wx60h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=60",
+   "category_string_mv": [
+    "BI_ELHO_KTRON",
+    "BI_163_KTRON",
+    "BI_0583_KTRON"
+   ],
+   "datalayercategories_string": "electrodomesticos/refrigeracion/neveras",
+   "totalreviews_int": 37,
+   "stockexhibition_int": 0,
+   "img-820wx820h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=820",
+   "alto-refrigeracion_string_mv": [
+    "De 121 a 150 cm"
+   ],
+   "ancho-refrigeracion_string_mv": [
+    "De 51 a 70 cm"
+   ],
+   "brand_string_mv": [
+    "HACEB"
+   ],
+   "opciones-conectividad_string_mv": [
+    "No Tiene/ No Aplica"
+   ],
+   "categorypath_string_mv": [
+    "BI_ELHO_KTRON/BI_163_KTRON",
+    "BI_ELHO_KTRON/BI_163_KTRON/BI_0583_KTRON",
+    "BI_ELHO_KTRON"
+   ],
+   "bestinstallmentvalue_long": 30232,
+   "gama-producto_string_mv": [
+    "Media"
+   ],
+   "diseno_de_la_nevera_nevecon_text_es": "Nevera Congelador Superior",
+   "hierarchicalcategory_string_mv": {
+    "lvl2": "Electrodomésticos > Refrigeración > Neveras",
+    "lvl0": "Electrodomésticos",
+    "lvl1": "Electrodomésticos > Refrigeración"
+   },
+   "eficiencia-energetica_string_mv": [
+    "B"
+   ],
+   "fuente-alimentacion-electro_string_mv": [
+    "Energía Eléctrica"
+   ],
+   "pickupavailableflag_boolean": true,
+   "categoryname_text_es_mv": [
+    "Electrodomésticos",
+    "Refrigeración",
+    "Neveras"
+   ],
+   "last_full_date": "2026-11-01T03:30:08.661104362",
+   "salesproducts_double": 697409250000.0,
+   "percentagediscount_string": "-11%",
+   "rangedaveragescore_string_mv": [
+    "4",
+    "3",
+    "2",
+    "1"
+   ],
+   "objectID": "7704353484939",
+   "maximumamountavailable_int": 3,
+   "img-310wx310h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=310",
+   "img-105wx105h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=105",
+   "paymentpromotion_text_mv": [
+    "tarjeta_alkosto:$849.900:/medias/tarjeta-alkosto.png?context=bWFzdGVyfGltYWdlc3w0MTQyfGltYWdlL3BuZ3xhRFpqTDJnNU5pOHhOVGs0T0RFNE1ETTFNekExTkM5MFlYSnFaWFJoTFdGc2EyOXpkRzh1Y0c1bnw1MWM0YzA4MWVkYjBmY2JhODEyZDJjYjAxNWEwZTU0YTkzOWZkNzNjN2VhODU1ZmUwNTQ2ZTc0NDE2NDViNjI0:Para pagos con Tarjeta Alkosto:Vigencia desde 31-10-2026 hasta 06-11-2026"
+   ],
+   "bestfrequencyvalue_string": "Quincenales",
+   "createddate_long": 1780382485,
+   "code_string": "7704353484939",
+   "comparableattributes_string_mv": [
+    "5=Medidas Externas (Ancho x Alto x Fondo)=55 x 143 x 56 Centímetros",
+    "3=Eficiencia Energetica=B",
+    "4=Almacenamiento=206 Litros",
+    "1=Diseño=Nevera Congelador Superior",
+    "2=Consumo Minimo Energetico=21.9 Kilovatio-hora/Mes"
+   ],
+   "isinstallationservice_boolean": false,
+   "baseprice_cop_string": 1135900.0,
+   "url_es_string": "/nevera-haceb-frost-congelador-superior-206-litros-manija/p/7704353484939",
+   "averagescore_double": 4.7838,
+   "marca_text": "HACEB",
+   "tecnologia-frio_string_mv": [
+    "Frost"
+   ],
+   "last_updated_by": "FULL",
+   "popularity_int": 0,
+   "lowestprice_double": 999900.0,
+   "keyfeatures_string_mv": [
+    "1=Corrientes de aire que lo recorren cada rincon de la nevera",
+    "2=Sistema de congelación 4 estrellas que enfría más rápido",
+    "3=Iluminación LED de gran alcance que ilumina cada rincón",
+    "4=Apertura dual: elige hacia dónde abrir la puerta",
+    "5=Llévame con confianza, 10 años de garantía en el compresor"
+   ],
+   "reviewavgrating_double": 0.0,
+   "allcategories_string_mv": [
+    "recien-casados",
+    "nevera-haceb",
+    "marcas",
+    "haceb",
+    "ofertas",
+    "neveras-frost",
+    "BI_ELHO_KTRON",
+    "BI_163_KTRON",
+    "BI_0583_KTRON",
+    "nevera-dos-puertas",
+    "ofertas-medios-pago",
+    "ofertas-tarjeta-alkosto"
+   ],
+   "color_string_mv": [
+    "Gris",
+    "Negro"
+   ],
+   "visible_boolean": "true",
+   "maxnumberinstallments_int": 48,
+   "diseno-nevera-nevecon_string_mv": [
+    "Nevera Congelador Superior"
+   ],
+   "isVariablePrice_boolean": false,
+   "hasKasadoNotFree_boolean": false,
+   "name_text_es": "Nevera HACEB Frost Congelador Superior 206 Litros Manija Integrada  NEV 207 CE MI IN R2 Negra",
+   "comparableattributes_detailed_string_mv": [
+    "{\"code\":\"DISENO_DE_LA_NEVERA_NEVECON\",\"label\":\"Dise\\u00F1o\",\"value\":\"Nevera Congelador Superior\"}",
+    "{\"code\":\"CONSUMO_MINIMO_ENERGETICO\",\"label\":\"Consumo Minimo Energetico\",\"value\":\"21.9 Kilovatio-hora\\/Mes\"}",
+    "{\"code\":\"EFICIENCIA_ENERGETICA\",\"label\":\"Eficiencia Energetica\",\"value\":\"B\"}",
+    "{\"code\":\"VOLUMEN_DE_ALMACENAMIENTO\",\"label\":\"Almacenamiento\",\"value\":\"206 Litros\"}",
+    "{\"code\":\"MEDIDAS_DEL_PRODUCTO_DE_REFRIGERACION_ANCHO_X_ALTO_X_FONDO_EN_CM\",\"label\":\"Medidas Externas (Ancho x Alto x Fondo)\",\"value\":\"55 x 143 x 56 Cent\\u00EDmetros\"}"
+   ],
+   "linea-modelo_string_mv": [
+    "9003650"
+   ],
+   "availableBuyButNotVisible_boolean": false,
+   "fondo-refrigeracion_string_mv": [
+    "De 51 a 60 cm"
+   ],
+   "pricevalue_cop_double": 1135900.0,
+   "linea-modelo-referencia_string_mv": [
+    "9003650"
+   ],
+   "presale_boolean": false,
+   "stocklevelstatus_string": "inStock",
+   "img-750wx750h_string": "https://cdn.dam.ktronix.com/products/7704353484939/7704353484939-001.webp/nevera-haceb-frost-congelador-superior-206-litros-manija-integrada-nev-207-ce-mi-in-r2-negra?w=750"
+  }
+ ]
+}

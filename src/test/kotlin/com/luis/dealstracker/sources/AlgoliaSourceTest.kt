@@ -150,3 +150,26 @@ class AlgoliaSourceTest {
         assertEquals("45999900.00", deal.listPrice!!.toPlainString())
     }
 }
+
+/**
+ * Ktronix is Alkomprar's sister store on the same Algolia app, so the same adapter reads it. The
+ * fixture is three real hits from its index (captured 2026-11-01), minus Algolia's highlight noise.
+ */
+class KtronixIndexTest {
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val hits = json.parseToJsonElement(
+        requireNotNull(javaClass.getResourceAsStream("/fixtures/ktronix-neveras.json")) { "missing fixture" }
+            .bufferedReader().readText(),
+    ).jsonObject["hits"].let { it as JsonArray }.map { it.jsonObject }
+
+    @Test
+    fun `the alkomprar adapter maps ktronix hits to priced rows with a barcode`() {
+        val deals = hits.mapNotNull { AlgoliaSource().toRawDeal(it, "https://www.ktronix.com", "COP") }
+        assertEquals(hits.size, deals.size)
+        deals.forEach {
+            assertTrue(it.price > BigDecimal.ZERO, it.title)
+            assertTrue(it.url.startsWith("https://www.ktronix.com/"), it.url)
+            assertNotNull(it.gtin, "EAN is what joins these rows to the same product at other shops")
+        }
+    }
+}

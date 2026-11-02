@@ -136,7 +136,7 @@ class EasyCardOfferTest {
             source.intelligentSearchUrl(base, category, page = 1, count = 24),
         )
         assertEquals(
-            "$base/api/io/_v/api/intelligent-search/product_search/?query=freidora%20de%20aire&count=24&page=3",
+            "$base/api/io/_v/api/intelligent-search/product_search?query=freidora%20de%20aire&count=24&page=3",
             source.intelligentSearchUrl(
                 base,
                 CategoryTarget(path = "", order = null, term = "freidora de aire"),

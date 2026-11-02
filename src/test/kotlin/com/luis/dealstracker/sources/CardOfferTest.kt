@@ -111,4 +111,44 @@ class CardOfferTest {
         val card = cardOfferOf(offer(cardTeaser("4,501", "20"), price = "20000"), BigDecimal("0.5"), BigDecimal("10000.00"))
         assertEquals(BigDecimal("8000.00"), card?.price)
     }
+
+    private fun tableTeaser(condition: VtexParam, discount: String) = VtexTeaser(
+        name = "x_aliado_tabladeprecios_electrodigital",
+        conditions = VtexTeaserConditions(listOf(condition), 0),
+        effects = VtexTeaserEffects(listOf(VtexParam("PromotionalPriceTableItemsIds", "1"), VtexParam("PromotionalPriceTableItemsDiscount", discount))),
+    )
+
+    /** Nevecon Electrolux 423 L, exito.com 2026-11-01: list 3,199,900, shelf 2,399,925. */
+    @Test
+    fun `a price-table discount comes off the list price and the best one wins`() {
+        val o = VtexOffer(
+            Price = BigDecimal("2399925"), ListPrice = BigDecimal("3199900"), PriceWithoutDiscount = BigDecimal("3199900"),
+            teasers = listOf(
+                tableTeaser(VtexParam("RestrictionsBins", "555845,570423"), "1300900.00"),
+                tableTeaser(VtexParam("PaymentMethodId", "102"), "1200900.00"),
+            ),
+        )
+        val card = cardOfferOf(o, BigDecimal.ONE, BigDecimal("2399925.00"))
+        assertEquals(BigDecimal("1899000.00"), card?.price)
+        assertEquals(BigDecimal("40.65"), card?.percent)
+        assertEquals(CardScope.OTHER, card?.scope)
+    }
+
+    @Test
+    fun `the addi price-table offer alone is kept`() {
+        val o = VtexOffer(
+            Price = BigDecimal("2399925"), ListPrice = BigDecimal("3199900"), PriceWithoutDiscount = BigDecimal("3199900"),
+            teasers = listOf(tableTeaser(VtexParam("PaymentMethodId", "102"), "1200900.00")),
+        )
+        assertEquals(BigDecimal("1999000.00"), cardOfferOf(o, BigDecimal.ONE, BigDecimal("2399925.00"))?.price)
+    }
+
+    @Test
+    fun `a price-table discount that does not beat the shelf is dropped`() {
+        val o = VtexOffer(
+            Price = BigDecimal("2399925"), ListPrice = BigDecimal("3199900"), PriceWithoutDiscount = BigDecimal("3199900"),
+            teasers = listOf(tableTeaser(VtexParam("RestrictionsBins", "555845"), "500000.00")),
+        )
+        assertNull(cardOfferOf(o, BigDecimal.ONE, BigDecimal("2399925.00")))
+    }
 }

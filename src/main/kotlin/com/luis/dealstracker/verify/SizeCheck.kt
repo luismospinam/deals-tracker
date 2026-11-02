@@ -29,23 +29,6 @@ internal object SizeCheck {
     private val LEADING_NUMBER = Regex("""^(\d+(?:\.\d+)?)""")
     private val OTHER_SHOE = Regex("""wide|narrow|women|kid|little|big|youth|toddler""", RegexOption.IGNORE_CASE)
 
-    private val WOMENS = Regex("""\b(?:wom[ae]n(?:'?s)?|wmns|ladies|girls?)\b""", RegexOption.IGNORE_CASE)
-    private val MENS = Regex("""\b(?:men|mens|men's|unisex)\b""", RegexOption.IGNORE_CASE)
-
-    /**
-     * Why a row is for the wrong wearer, or null when it is not evidently so.
-     *
-     * Every tracked search names men's items, but Amazon's results mix in women's ones, and a women's
-     * size 8 is a different shoe from a men's 8. Only a name that says women's (or girls', ladies',
-     * `WMNS`) and never men's or unisex counts: "Hoodie for Men & Women" fits, so it stays. The word
-     * boundaries matter -- `men's` also appears inside `Women's`, and must not make it look unisex.
-     */
-    fun wrongAudience(title: String): String? {
-        val name = title.substringBeforeLast(" — ")
-        if (!WOMENS.containsMatchIn(name) || MENS.containsMatchIn(name)) return null
-        return "listing is for women (\"${WOMENS.find(name)!!.value}\" in the name), tracking men's"
-    }
-
     /** The size a title claims: what follows the last ` — `, or null when it carries none. */
     fun claimedSize(title: String): String? =
         title.substringAfterLast(" — ", missingDelimiterValue = "").trim().takeIf { it.isNotEmpty() }

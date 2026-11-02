@@ -86,16 +86,4 @@ class SizeCheckTest {
 
     @Test fun `a size dimension on the page wins over the name`() =
         assertEquals(Verdict.Match, SizeCheck.judge(named("Mens Trainers (UK 8.5 US 9.5 EU 43)"), "8"))
-
-    @Test fun `a women's listing is the wrong wearer`() {
-        for (t in listOf("Womens Duramo Sl 2.0 — 8", "Women's Pegasus 41 Running Shoes — 8", "Women's WMNS Air Max Dawn — 8", "Ladies Sneaker — 8", "Girls Runner — 8")) {
-            assertNotNull(SizeCheck.wrongAudience(t), t)
-        }
-    }
-
-    @Test fun `men's, unisex and both-sexes listings are kept`() {
-        for (t in listOf("Men's Hoodie for Men & Women — M", "Mens Pegasus — 8", "Unisex Runner Women Men — 8", "Pegasus 41 — 8", "Mens Shoes — 8")) {
-            assertNull(SizeCheck.wrongAudience(t), t)
-        }
-    }
 }

@@ -213,7 +213,13 @@ class AgeLimitTest {
     private val amazon = ProviderConfig(
         id = "amazon",
         type = "amazon",
-        listOptions = mapOf("excludeTitlePatterns" to listOf("\\bkid(s|'s)?\\b")),
+        listOptions = mapOf(
+            "excludeTitlePatterns" to listOf(
+                "\\bkid(s|'s)?\\b",
+                "\\b(youth|toddler)\\b",
+                "^(?!.*\\b(men|mens|men's|unisex)\\b).*(wom[ae]n|wmns|\\b(ladies|girls?)\\b)",
+            ),
+        ),
     )
 
     @Test
@@ -228,5 +234,20 @@ class AgeLimitTest {
         )
         val kept = service.applyExclusions(amazon, titles.map { deal(it, null) }).map { it.title }
         assertEquals(listOf("Men's Vomero 18 Road Running Shoe — 8", "Men's Skidmore Hoodie — M"), kept)
+    }
+
+    @Test
+    fun `amazon drops women's listings but keeps men's, unisex and both-sexes ones`() {
+        val dropped = listOf(
+            "Womens Duramo Sl 2.0 — 8", "Women's Pegasus 41 Running Shoes — 8", "Women's WMNS Air Max Dawn — 8",
+            "Ladies Sneaker — 8", "Girls Runner — 8", "Sneakers ShoesWoman — 8", "Running ShoesWomen — 9",
+            "Youth Runner — 5", "Toddler Sandal — 7",
+        )
+        val kept = listOf(
+            "Men's Hoodie for Men & Women — M", "Mens Pegasus — 8", "Unisex Runner Women Men — 8",
+            "Pegasus 41 — 8", "Mens Shoes — 8",
+        )
+        val result = service.applyExclusions(amazon, (dropped + kept).map { deal(it, null) }).map { it.title }
+        assertEquals(kept, result)
     }
 }

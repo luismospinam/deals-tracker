@@ -167,6 +167,16 @@ class CoShippingExtractor(private val country: String = "Colombia") {
             signals.availability.isBlank() &&
             NO_OFFER_RE.containsMatchIn(signals.buybox)
 
+    /**
+     * Whether a read is clear enough to REPLACE a settled shipping verdict when the page was only loaded
+     * for its size and price. Strict on purpose: a YES that names the destination AND quotes a cost, with
+     * both the delivery box and the global-shipping box present. A page still filling in, or a NO inferred
+     * from an absence, keeps the old verdict as before.
+     */
+    internal fun clearEnoughToRefresh(signals: PageSignals, verdict: CoVerdict): Boolean =
+        !verdict.unclear && verdict.value == CoShipping.YES && verdict.shippingCost != null &&
+            signals.deliveryBlock.isNotBlank() && signals.amazonGlobal.isNotBlank()
+
     /** Digital goods: nothing is shipped, so no shipping widget ever renders. */
     internal fun isDigital(signals: PageSignals): Boolean =
         DIGITAL_TITLE_RE.containsMatchIn(signals.title) ||

@@ -29,6 +29,8 @@ import kotlinx.html.span
 import kotlinx.html.table
 import kotlinx.html.tbody
 import kotlinx.html.td
+import kotlinx.html.ThScope
+import kotlinx.html.caption
 import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.title
@@ -528,13 +530,14 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
         ).map { (label, sort) -> SortOption(label, controls.url(sort = sort), controls.sort == sort) },
     )
     table("deals tracked grocery") {
+            caption("sr-only") { +tr("Grocery items", "Productos de mercado") }
         thead {
             tr {
-                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                 sortableTh(tr("Item", "Producto"), GrocerySort.NAME, controls, "col-deal")
-                th(classes = "col-size") { +tr("Store", "Tienda") }
+                th(scope = ThScope.col, classes = "col-size") { +tr("Store", "Tienda") }
                 // Two sorts in one header: by the shelf price, or by how much a card saves on it today.
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr(
                         "Shelf price, what anyone pays. The chip beneath is the card-only price where the store runs one.",
                         "Precio en góndola, lo que paga cualquiera. La etiqueta debajo es el precio solo con tarjeta, cuando la tienda tiene uno.",
@@ -559,7 +562,7 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                             "la publicación no lo indica — nunca se adivina.",
                     ),
                 )
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr(
                         "Median of this item's daily prices at this store over the last 30 days, today excluded",
                         "Mediana de los precios diarios de este producto en esta tienda en los últimos 30 días, sin contar hoy",
@@ -584,11 +587,11 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                             "días anteriores registrados.",
                     ),
                 )
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr("Cheapest daily price in the last 30 days, today excluded", "El precio diario más bajo de los últimos 30 días, sin contar hoy")
                     +tr("30d low", "Mín. 30d")
                 }
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     title = tr(
                         "Cheapest price ever recorded for this item at this store, today included. Old repeated readings are " +
                             "thinned, but every distinct price is kept, so this is exact.",
@@ -597,11 +600,11 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                     )
                     +tr("Lowest ever", "Mín. histórico")
                 }
-                th(classes = "col-chg") {
+                th(scope = ThScope.col, classes = "col-chg") {
                     title = tr("Earlier days of history the usual price rests on", "Días anteriores de historial en los que se basa el precio habitual")
                     +tr("Days", "Días")
                 }
-                th(classes = "col-act") { +"" }
+                th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
             }
         }
         tbody { rows.forEach { groceryRow(it, controls.view) } }
@@ -615,7 +618,7 @@ private fun kotlinx.html.TR.sortableTh(
     classes: String?,
     tooltip: String? = null,
 ) {
-    th(classes = classes) {
+    th(scope = ThScope.col, classes = classes) {
         tooltip?.let { title = it }
         if (controls == null) {
             +label
@@ -635,6 +638,7 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
         td(classes = "col-thumb") {
             deal.imageUrl?.let { src ->
                 a(href = deal.url) {
+                    thumbLinkHidden()
                     attributes["target"] = "_blank"
                     attributes["rel"] = "noopener noreferrer"
                     img(classes = "thumb", src = src, alt = "") { attributes["loading"] = "lazy" }
@@ -845,13 +849,14 @@ private fun MAIN.syncFooter(lines: List<SyncLine>) {
     div("runs grocery-sync") {
         h2 { +tr("Last sync", "Última sincronización") }
         table {
+            caption("sr-only") { +tr("Last sync", "Última sincronización") }
             thead {
                 tr {
-                    th { +tr("Store", "Tienda") }
-                    th { +tr("Prices read", "Precios leídos") }
-                    th { +tr("Items", "Productos") }
-                    th { +tr("Latest run", "Última ejecución") }
-                    th { +tr("Next", "Siguiente") }
+                    th(scope = ThScope.col) { +tr("Store", "Tienda") }
+                    th(scope = ThScope.col) { +tr("Prices read", "Precios leídos") }
+                    th(scope = ThScope.col) { +tr("Items", "Productos") }
+                    th(scope = ThScope.col) { +tr("Latest run", "Última ejecución") }
+                    th(scope = ThScope.col) { +tr("Next", "Siguiente") }
                 }
             }
             tbody {

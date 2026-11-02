@@ -130,6 +130,7 @@ internal fun exitoCartPanel(token: String?, cartId: String?, now: Instant = Inst
                 // A password field so the cookie is not echoed on screen or kept in autofill history.
                 input(type = InputType.password, name = "cookie") {
                     attributes["autocomplete"] = "off"
+                    attributes["aria-label"] = tr("Exito login cookie", "Cookie de sesión de Éxito")
                     attributes["placeholder"] = tr("login cookie (eyJ…)", "cookie de sesión (eyJ…)")
                 }
                 button(type = ButtonType.submit) { +tr("Save", "Guardar") }

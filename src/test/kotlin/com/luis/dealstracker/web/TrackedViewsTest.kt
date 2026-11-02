@@ -268,6 +268,30 @@ class TrackedViewsTest {
         assertFalse("fav-btn" in detailHtml(trackedDeal(price = "10"), pinnable = false))
     }
 
+    private fun cardObs(at: Long, card: String?) = com.luis.dealstracker.model.PriceObservation(
+        1, java.time.Instant.ofEpochSecond(at), java.math.BigDecimal("100"), null, "COP",
+        card = card?.let { com.luis.dealstracker.model.CardOffer(java.math.BigDecimal(it), java.math.BigDecimal("40"), com.luis.dealstracker.model.CardScope.OTHER) },
+    )
+
+    @Test
+    fun `the detail page shows the latest card price and a card column in the history`() {
+        val html = kotlinx.html.stream.createHTML(prettyPrint = false).main {
+            dealDetail(trackedDeal(price = "100"), listOf(cardObs(1_000_000, null), cardObs(2_000_000, "60")), false)
+        }
+        assertTrue("Card price" in html, html)
+        assertTrue("card-price" in html, html)
+        assertTrue("60" in html, html)
+    }
+
+    @Test
+    fun `no card chip when the latest reading has no card price`() {
+        val html = kotlinx.html.stream.createHTML(prettyPrint = false).main {
+            dealDetail(trackedDeal(price = "100"), listOf(cardObs(1_000_000, "60"), cardObs(2_000_000, null)), false)
+        }
+        // The old reading's card price is still in the history table, but not as the headline chip.
+        assertTrue(html.indexOf("card-price") == html.lastIndexOf("card-price"), "only the history row, not a headline chip")
+    }
+
     private fun groceryDetailHtml(deal: Deal, groceryPinnable: Boolean) =
         kotlinx.html.stream.createHTML(prettyPrint = false).main { dealDetail(deal, emptyList(), pinnable = false, groceryPinnable = groceryPinnable) }
 
@@ -539,7 +563,8 @@ class TrackedViewsTest {
         val thead = html.substringAfter("<thead>").substringBefore("</thead>")
         val row = html.substringAfter("<tbody>").substringBefore("</tr>")
         fun classes(tag: String, of: String) =
-            Regex("<$tag(?: class=\"([^\"]*)\")?[ >]").findAll(of).map { it.groupValues[1] }.toList()
+            Regex("<$tag\\b([^>]*)>").findAll(of)
+                .map { Regex("class=\"([^\"]*)\"").find(it.groupValues[1])?.groupValues?.get(1) ?: "" }.toList()
 
         val headers = classes("th", thead)
         assertTrue(headers.size > 5, "expected the tracked header row, got: $headers")
@@ -672,5 +697,23 @@ class TrackedViewsTest {
     @Test
     fun `the brand is escaped`() {
         assertFalse("<b>" in brandHtml("<b>x</b>"))
+    }
+
+    private fun trackedHtml() =
+        createHTML().main { trackedPage(listOf(trackedDeal("20.00")), listOf("amazon")) }
+
+    @Test
+    fun `every column header declares it heads a column`() {
+        val html = trackedHtml()
+        val heads = Regex("<th\\b[^>]*>").findAll(html).map { it.value }.toList()
+        assertTrue(heads.size >= 10, "the tracked table has its column heads")
+        assertTrue(heads.all { "scope=\"col\"" in it }, "a th without scope: ${heads.filterNot { "scope=\"col\"" in it }}")
+    }
+
+    @Test
+    fun `the table has a caption for screen readers and the actions column has a name`() {
+        val html = trackedHtml()
+        assertTrue("<caption class=\"sr-only\">Tracked items</caption>" in html, html.take(300))
+        assertTrue(Regex("<th[^>]*col-act[^>]*aria-label=\"actions\"|<th[^>]*aria-label=\"actions\"[^>]*col-act").containsMatchIn(html))
     }
 }

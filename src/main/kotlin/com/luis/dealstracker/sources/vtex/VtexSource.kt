@@ -100,12 +100,10 @@ class VtexSource : DealSource {
 
         val pageSize = cfg.int("pageSize", 24).coerceIn(1, 50)
 
-        // Intelligent Search instead of `catalog_system`, per provider. Off by default, because
-        // switching a store is not free: `catalog_system` answers `ft=nevera` at Exito and
-        // Intelligent Search answers it with nothing (`recordsFiltered=0`, measured 2026-09-29),
-        // so three of the live watch terms would silently go to zero there. Easy loses no term and
-        // is the only store whose card prices live in `teasers`, which `catalog_system` never
-        // fills in -- see `VtexOffer.teasers` and `cardOfferOf`.
+        // Intelligent Search instead of `catalog_system`, per provider. Off by default. It is the
+        // only API that fills in `teasers`, where Easy's and Exito's card prices live -- see
+        // `VtexOffer.teasers` and `cardOfferOf`. (The 2026-09-29 note that it answers Exito's
+        // keyword searches with nothing was the trailing-slash 301 in [intelligentSearchUrl].)
         val intelligentSearch = cfg.options["useIntelligentSearch"]?.toBoolean() ?: false
 
         val all = LinkedHashMap<String, RawDeal>()
@@ -120,53 +118,70 @@ class VtexSource : DealSource {
             }.coerceAtLeast(1)
 
 
-            var page = 0
-            var fetched = 0
-            while (page < maxPages) {
-                val from = page * pageSize
-                val to = from + pageSize - 1
-                val url = if (intelligentSearch) {
-                    intelligentSearchUrl(base, target, page + 1, pageSize)
-                } else {
-                    searchUrl(base, target, from, to)
-                }
-
-                val result = try {
-                    http.get(url, mapOf("Accept" to "application/json"))
-                } catch (e: Exception) {
-                    println("[${cfg.id}] ${target.label} page $page failed: ${e.message}")
-                    break
-                }
-                if (result.notModified) break
-                // VTEX answers 206 Partial Content for _from/_to ranges, so a plain
-                // `status == 200` check here would reject every successful page.
-                val body = result.body
-                // Intelligent Search answers 406 even when it succeeds, so for that API the body
-                // is the only test -- the same call `VtexGrocerySource.readPage` makes. The status
-                // check stays in force for `catalog_system`, where it does detect real failures.
-                if (body == null || (!result.ok && !intelligentSearch)) {
-                    println("[${cfg.id}] ${target.label} page $page -> HTTP ${result.status}")
-                    break
-                }
-
-                val products = try {
-                    if (intelligentSearch) {
-                        json.decodeFromString<IsSearchResponse>(body).products
+            suspend fun walk(intelligentSearch: Boolean): Int {
+                var page = 0
+                var fetched = 0
+                while (page < maxPages) {
+                    val from = page * pageSize
+                    val to = from + pageSize - 1
+                    val url = if (intelligentSearch) {
+                        intelligentSearchUrl(base, target, page + 1, pageSize)
                     } else {
-                        withSpecs(body)
+                        searchUrl(base, target, from, to)
                     }
-                } catch (e: Exception) {
-                    println("[${cfg.id}] ${target.label} page $page unparseable: ${e.message}")
-                    break
-                }
-                if (products.isEmpty()) break
 
-                products.forEach { product ->
-                    toRawDeal(product, base, cfg.currency)?.let { all.putIfAbsent(it.externalId, it) }
+                    val result = try {
+                        http.get(url, mapOf("Accept" to "application/json"))
+                    } catch (e: Exception) {
+                        println("[${cfg.id}] ${target.label} page $page failed: ${e.message}")
+                        break
+                    }
+                    if (result.notModified) break
+                    // VTEX answers 206 Partial Content for _from/_to ranges, so a plain
+                    // `status == 200` check here would reject every successful page.
+                    val body = result.body
+                    // Intelligent Search answers 406 even when it succeeds, so for that API the body
+                    // is the only test -- the same call `VtexGrocerySource.readPage` makes. The status
+                    // check stays in force for `catalog_system`, where it does detect real failures.
+                    if (body == null || (!result.ok && !intelligentSearch)) {
+                        println("[${cfg.id}] ${target.label} page $page -> HTTP ${result.status}")
+                        break
+                    }
+
+                    val products = try {
+                        if (intelligentSearch) {
+                            json.decodeFromString<IsSearchResponse>(body).products
+                        } else {
+                            withSpecs(body)
+                        }
+                    } catch (e: Exception) {
+                        println("[${cfg.id}] ${target.label} page $page unparseable: ${e.message}")
+                        break
+                    }
+                    if (products.isEmpty()) break
+
+                    products.forEach { product ->
+                        toRawDeal(product, base, cfg.currency)?.let { all.putIfAbsent(it.externalId, it) }
+                    }
+                    fetched += products.size
+                    if (products.size < pageSize) break
+                    page++
                 }
-                fetched += products.size
-                if (products.size < pageSize) break
-                page++
+
+                return fetched
+            }
+            // Intelligent Search first: it is the only API that carries card prices, and it ranks
+            // by relevance. But it is stricter on keywords than `catalog_system` -- measured
+            // 2026-11-02 at Exito, `sofacama` finds nothing there and 24 sofa-beds here, and
+            // `sound bar` misses the JBL SB510. So a SEARCH also asks `catalog_system`, and keeps
+            // only what Intelligent Search did not return (`putIfAbsent`, so the card-priced copy
+            // wins). Those extra rows carry no card price. Categories do not need it.
+            var fetched = walk(intelligentSearch)
+            if (intelligentSearch && target.isSearch && cfg.options["searchFallbackToCatalog"]?.toBoolean() != false) {
+                val before = all.size
+                val extra = walk(false)
+                println("[${cfg.id}] ${target.label} catalog_system fallback: $extra read, ${all.size - before} not in Intelligent Search")
+                fetched += extra
             }
             println("[${cfg.id}] ${target.label} -> $fetched products")
         }
@@ -245,7 +260,9 @@ class VtexSource : DealSource {
         val root = "$base/api/io/_v/api/intelligent-search/product_search"
         val paging = "count=$count&page=$page"
         return if (target.isSearch) {
-            "$root/?query=${encodeQueryValue(target.term!!)}&$paging"
+            // No slash before the `?`: Exito answers `product_search/?query=` with a 301 to plain http,
+            // whose body is HTML, so every keyword search parsed as nothing (measured 2026-11-02).
+            "$root?query=${encodeQueryValue(target.term!!)}&$paging"
         } else {
             "$root/${facetPath(normalizePath(target.path))}?$paging"
         }
@@ -640,9 +657,11 @@ internal fun cardOfferOf(
         when {
             // Exito and Carulla: the teaser names a payment method and publishes a percentage,
             // and the price must be computed off the pre-promotion base.
-            params.all { it.name == "PaymentMethodId" } -> byPaymentMethod(teaser, values, base, shelfPrice)
+            params.all { it.name == "PaymentMethodId" } ->
+                byPaymentMethod(teaser, values, base, shelfPrice) ?: byPriceTable(teaser, base, shelfPrice)
             // Easy: the teaser restricts by card BIN and publishes the price to pay outright.
-            params.all { it.name == "RestrictionsBins" } -> byCardBin(teaser, values, shelfPrice)
+            params.all { it.name == "RestrictionsBins" } ->
+                byCardBin(teaser, values, shelfPrice) ?: byPriceTable(teaser, base, shelfPrice)
             // A mixed or unknown condition is not a plain card offer -- a SkuIdsList makes it a
             // multi-buy. Dropped rather than guessed at.
             else -> null
@@ -717,6 +736,34 @@ private fun byCardBin(
     if (percent.signum() <= 0 || percent >= BigDecimal(100)) return null
 
     return com.luis.dealstracker.model.CardOffer(price, percent, scope)
+}
+
+/**
+ * The Exito "price table" shape (`*_aliado_tabladeprecios_*`): a payment condition (card BINs or a
+ * payment method such as Addi, id 102) with a `PromotionalPriceTableItemsDiscount` effect, an
+ * ABSOLUTE amount off the pre-promotion base.
+ *
+ * Measured 2026-11-01 on Nevecon Electrolux 423 L (exito.com ...-3231539): list 3,199,900, shelf
+ * 2,399,925; discounts 1,300,900 (card BINs) and 1,200,900 (Addi) give 1,899,000 and 1,999,000 --
+ * round numbers, which is what a price set by hand looks like, so the amount is taken off the base
+ * rather than the shelf price. Unlike a BIN percentage, an absolute amount cannot already be baked
+ * into the shelf price; a result that does not beat the shelf price is dropped all the same.
+ * The scope is [com.luis.dealstracker.model.CardScope.OTHER]: the BIN list is not mapped to a bank.
+ */
+private fun byPriceTable(
+    teaser: VtexTeaser,
+    base: BigDecimal,
+    shelfPrice: BigDecimal,
+): com.luis.dealstracker.model.CardOffer? {
+    val discount = teaser.effects?.parameters
+        ?.firstOrNull { it.name == "PromotionalPriceTableItemsDiscount" }?.value?.trim()?.toBigDecimalOrNull()
+        ?.takeIf { it.signum() > 0 } ?: return null
+    val price = base.subtract(discount).setScale(0, java.math.RoundingMode.HALF_UP).asMoney()
+    if (price.signum() <= 0 || price >= shelfPrice || base.signum() <= 0) return null
+    val percent = base.subtract(price).divide(base, 6, java.math.RoundingMode.HALF_UP)
+        .multiply(BigDecimal(100)).setScale(2, java.math.RoundingMode.HALF_UP)
+    if (percent.signum() <= 0 || percent >= BigDecimal(100)) return null
+    return com.luis.dealstracker.model.CardOffer(price, percent, com.luis.dealstracker.model.CardScope.OTHER)
 }
 
 /** Reads a JSON number as BigDecimal from its literal text, bypassing Double entirely. */

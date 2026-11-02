@@ -811,7 +811,7 @@ class DealRepository(
     fun priceHistory(dealId: Long): List<PriceObservation> =
         ds.connection.use { conn ->
             conn.prepareStatement(
-                "SELECT deal_id, observed_at, price, list_price, currency FROM price_observations " +
+                "SELECT deal_id, observed_at, price, list_price, currency, card_price, card_percent, card_scope FROM price_observations " +
                     "WHERE deal_id = ? ORDER BY observed_at ASC",
             ).use { st ->
                 st.setLong(1, dealId)
@@ -825,6 +825,16 @@ class DealRepository(
                                     price = rs.getBigDecimal("price"),
                                     listPrice = rs.getBigDecimal("list_price"),
                                     currency = rs.getString("currency"),
+                                    // card_price being present is the gate; an unrecognised scope
+                                    // degrades to OTHER rather than throwing.
+                                    card = rs.getBigDecimal("card_price")?.let { cp ->
+                                        com.luis.dealstracker.model.CardOffer(
+                                            price = cp,
+                                            percent = rs.getBigDecimal("card_percent") ?: BigDecimal.ZERO,
+                                            scope = runCatching { com.luis.dealstracker.model.CardScope.valueOf(rs.getString("card_scope")) }
+                                                .getOrDefault(com.luis.dealstracker.model.CardScope.OTHER),
+                                        )
+                                    },
                                 ),
                             )
                         }

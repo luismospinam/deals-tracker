@@ -30,6 +30,7 @@ internal fun FlowContent.searchBox(
         input(type = InputType.search, name = "q") {
             this.value = value.orEmpty()
             this.placeholder = placeholder
+            attributes["aria-label"] = tr("Search by title", "Buscar por título")
             title = tr(
                 "Title search, accent-insensitive. Separate terms with | to match any of them; " +
                     "start a term with ! to exclude it (!aceite = everything without aceite).",

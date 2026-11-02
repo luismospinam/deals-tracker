@@ -236,14 +236,6 @@ class AmazonVerifier(
                         println("[verify] $asin → ${v.value.name}  (digital, no page load needed)")
                         continue
                     }
-                    // Wrong wearer, evident from the stored name: retire without spending a page load.
-                    val wrongWearer = if (dealId in needsPage) SizeCheck.wrongAudience(title) else null
-                    if (wrongWearer != null) {
-                        repo.recordPageCheck(dealId, null, wrongWearer, null, null)
-                        println("[verify] $asin → RETIRED  $wrongWearer (no page load needed)")
-                        outcome = outcome.copy(checked = outcome.checked + 1, sizeRejected = outcome.sizeRejected + 1)
-                        continue
-                    }
                     lastHitAmazon = true
 
                     val signals = try {
@@ -309,14 +301,17 @@ class AmazonVerifier(
                             continue
                         }
                     }
+                    val verdict = extractor.extract(signals)
                     // A row only visited for its page was already decided on shipping; recording again
-                    // would overwrite a settled verdict with whatever this load happened to render.
-                    if (dealId !in shipIds) {
+                    // would overwrite a settled verdict with whatever this load happened to render. Unless
+                    // the read is unambiguous (see clearEnoughToRefresh): a "FREE" that Amazon has since
+                    // withdrawn otherwise survives until the 5-day shipping recheck, though the page that
+                    // contradicts it was just loaded.
+                    if (dealId !in shipIds && !extractor.clearEnoughToRefresh(signals, verdict)) {
                         outcome = outcome.copy(checked = outcome.checked + 1)
                         continue
                     }
-
-                    val verdict = extractor.extract(signals)
+                    snapShippingEvidence(page, asin, verdict)
                     val written = repo.recordCoShippingCheck(
                         dealId, verdict.value, verdict.unclear, verdict.evidence,
                         verdict.importChargesIncluded, verdict.shippingCost,
@@ -546,6 +541,32 @@ class AmazonVerifier(
             pagePrice = priced?.first,
             pageCurrency = priced?.second,
         )
+    }
+
+    /**
+     * TEMPORARY (added 2026-10-31): a small JPEG of the buy box at the moment a shipping verdict is
+     * recorded, so a verdict that later looks wrong ("free" on /deal/658330 and /deal/3936538) can be
+     * compared with what the page showed then. Remove once the cause is found. Best-effort: a failed
+     * screenshot never affects the check.
+     */
+    private fun snapShippingEvidence(page: Page, asin: String, verdict: CoVerdict) {
+        runCatching {
+            val dir = File("logs/shipping-shots").also { it.mkdirs() }
+            val cutoff = System.currentTimeMillis() - 7L * 24 * 3600 * 1000
+            dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+            val cost = verdict.shippingCost?.let { if (it.signum() == 0) "free" else "paid$it" } ?: "nocost"
+            val stamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+            val file = File(dir, "${stamp}_${asin}_${verdict.value.name}_$cost.jpg")
+            val opts = com.microsoft.playwright.Locator.ScreenshotOptions()
+                .setPath(file.toPath()).setType(com.microsoft.playwright.options.ScreenshotType.JPEG)
+                .setQuality(40).setTimeout(4000.0)
+            val box = page.locator("#buybox").first()
+            if (box.count() > 0) box.screenshot(opts)
+            else page.screenshot(
+                Page.ScreenshotOptions().setPath(file.toPath())
+                    .setType(com.microsoft.playwright.options.ScreenshotType.JPEG).setQuality(40),
+            )
+        }
     }
 
     /** Set by [checkPage] on a rejection when the family has the wanted size under another ASIN. */

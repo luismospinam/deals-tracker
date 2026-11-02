@@ -387,4 +387,35 @@ class CoShippingExtractorTest {
         assertEquals(java.math.BigDecimal("16.93"), verdict.shippingCost)
         assertEquals(true, verdict.importChargesIncluded)
     }
+
+    private fun refreshes(signals: PageSignals) = extractor.clearEnoughToRefresh(signals, extractor.extract(signals))
+
+    @Test
+    fun `a page load refreshes shipping when it names the destination and quotes a cost`() {
+        // B0D2GNDFVM, 2026-10-31: "free" had been stored on 10-28; the page now quotes $15.05.
+        val paid = PageSignals(
+            availability = "",
+            deliveryBlock = "Delivery Monday, November 9 to Colombia. Order within 4 hrs 52 mins",
+            amazonGlobal = "No Import Charges & \$15.05 Shipping to Colombia Details",
+        )
+        assertTrue(refreshes(paid))
+        assertEquals(java.math.BigDecimal("15.05"), extractor.extract(paid).shippingCost)
+        assertTrue(refreshes(paid.copy(amazonGlobal = "No Import Charges & FREE Shipping to Colombia Details")))
+    }
+
+    @Test
+    fun `a page load does not refresh from a half-rendered or uncertain read`() {
+        val full = PageSignals(
+            availability = "",
+            deliveryBlock = "FREE delivery Friday, November 6 to Colombia",
+            amazonGlobal = "No Import Charges & FREE Shipping to Colombia Details",
+        )
+        assertFalse(refreshes(full.copy(amazonGlobal = "")), "no global-shipping box yet: no cost to trust")
+        assertFalse(refreshes(full.copy(deliveryBlock = "")), "no delivery box yet")
+        assertFalse(refreshes(PageSignals(availability = "", deliveryBlock = "", amazonGlobal = "")), "empty page")
+        assertFalse(
+            refreshes(PageSignals(availability = "", deliveryBlock = "", amazonGlobal = "", buybox = "See All Buying Options")),
+            "a NO inferred from an absence never overwrites a verdict",
+        )
+    }
 }

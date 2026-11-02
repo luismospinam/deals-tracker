@@ -30,6 +30,7 @@ import kotlinx.html.h2
 import kotlinx.html.h3
 import kotlinx.html.img
 import kotlinx.html.input
+import kotlinx.html.id
 import kotlinx.html.label
 import kotlinx.html.option
 import kotlinx.html.p
@@ -41,6 +42,8 @@ import kotlinx.html.summary
 import kotlinx.html.table
 import kotlinx.html.tbody
 import kotlinx.html.td
+import kotlinx.html.ThScope
+import kotlinx.html.caption
 import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.title
@@ -251,7 +254,7 @@ private fun TR.sortableTh(
     } else {
         watchUrl(basePath, next, alerts, page = 1, source = source)
     }
-    th(classes = classes) {
+    th(scope = ThScope.col, classes = classes) {
         a(href = href, classes = if (current.isOn(column)) "sorted" else null) {
             +label
             if (current.isOn(column)) {
@@ -361,13 +364,14 @@ fun MAIN.watchesPage(
         }
     } else {
         table("deals watches") {
+            caption("sr-only") { +tr("Watches", "Búsquedas") }
             thead {
                 tr {
-                    th(classes = "col-deal") { +tr("Watch", "Búsqueda") }
-                    th(classes = "col-price") { +tr("Price band", "Rango de precio") }
-                    th(classes = "col-disc") { +tr("Window", "Ventana") }
-                    th(classes = "col-sig") { +tr("Matches", "Coincidencias") }
-                    th(classes = "col-act") { +"" }
+                    th(scope = ThScope.col, classes = "col-deal") { +tr("Watch", "Búsqueda") }
+                    th(scope = ThScope.col, classes = "col-price") { +tr("Price band", "Rango de precio") }
+                    th(scope = ThScope.col, classes = "col-disc") { +tr("Window", "Ventana") }
+                    th(scope = ThScope.col, classes = "col-sig") { +tr("Matches", "Coincidencias") }
+                    th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
                 }
             }
             tbody { watches.forEach { watchRow(it, counts[it.id]) } }
@@ -486,24 +490,27 @@ private fun MAIN.watchForm(
         classes = "filters watchform",
     ) {
         div("f") {
-            label { +tr("Name", "Nombre") }
+            label { htmlFor = "w-name"; +tr("Name", "Nombre") }
             input(type = InputType.text, name = "name") {
+                id = "w-name"
                 required = true
                 placeholder = "Nevera"
                 value = watch?.name ?: ""
             }
         }
         div("f wide") {
-            label { +tr("Match terms", "Términos a buscar") }
+            label { htmlFor = "w-terms"; +tr("Match terms", "Términos a buscar") }
             input(type = InputType.text, name = "terms") {
+                id = "w-terms"
                 required = true
                 placeholder = "nevera | refrigerador"
                 value = watch?.terms ?: ""
             }
         }
         div("f wide") {
-            label { +tr("Amazon terms", "Términos en Amazon") }
+            label { htmlFor = "w-amazonTerms"; +tr("Amazon terms", "Términos en Amazon") }
             input(type = InputType.text, name = "amazonTerms") {
+                id = "w-amazonTerms"
                 placeholder = "55 inch 4k tv | smart tv 65"
                 attributes["title"] = tr(
                     "What to search amazon.com for, in English. Blank = this watch does not " +
@@ -515,22 +522,25 @@ private fun MAIN.watchForm(
             }
         }
         div("f wide") {
-            label { +tr("Exclude", "Excluir") }
+            label { htmlFor = "w-excludeTerms"; +tr("Exclude", "Excluir") }
             input(type = InputType.text, name = "excludeTerms") {
+                id = "w-excludeTerms"
                 placeholder = "organizador | repuesto | filtro"
                 value = watch?.excludeTerms ?: ""
             }
         }
         div("f") {
-            label { +tr("Min price", "Precio mínimo") }
+            label { htmlFor = "w-minPrice"; +tr("Min price", "Precio mínimo") }
             input(type = InputType.number, name = "minPrice") {
+                id = "w-minPrice"
                 placeholder = "800000"
                 value = watch?.minPrice?.toBigInteger()?.toString() ?: ""
             }
         }
         div("f") {
-            label { +tr("Max price", "Precio máximo") }
+            label { htmlFor = "w-maxPrice"; +tr("Max price", "Precio máximo") }
             input(type = InputType.number, name = "maxPrice") {
+                id = "w-maxPrice"
                 placeholder = "3500000"
                 value = watch?.maxPrice?.toBigInteger()?.toString() ?: ""
             }
@@ -540,8 +550,8 @@ private fun MAIN.watchForm(
             summary { +tr("more", "más") }
             div("morepanel") {
                 div("f") {
-                    label { +tr("Category", "Categoría") }
-                    select { name = "categoryGroup"
+                    label { htmlFor = "w-categoryGroup"; +tr("Category", "Categoría") }
+                    select { name = "categoryGroup"; id = "w-categoryGroup"
                         option { value = ""; +tr("any", "cualquiera") }
                         categories.forEach {
                             option {
@@ -553,8 +563,8 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
-                    label { +tr("Source", "Fuente") }
-                    select { name = "source"
+                    label { htmlFor = "w-source"; +tr("Source", "Fuente") }
+                    select { name = "source"; id = "w-source"
                         option { value = ""; +tr("all", "todas") }
                         sources.forEach {
                             option {
@@ -566,8 +576,8 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
-                    label { +tr("Currency", "Moneda") }
-                    select { name = "currency"
+                    label { htmlFor = "w-currency"; +tr("Currency", "Moneda") }
+                    select { name = "currency"; id = "w-currency"
                         listOf("COP", "USD").forEach {
                             option {
                                 value = it
@@ -578,27 +588,31 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
-                    label { +tr("Window (days)", "Ventana (días)") }
+                    label { htmlFor = "w-lookbackDays"; +tr("Window (days)", "Ventana (días)") }
                     input(type = InputType.number, name = "lookbackDays") {
+                        id = "w-lookbackDays"
                         value = (watch?.lookbackDays ?: 30).toString()
                     }
                 }
                 div("f") {
-                    label { +tr("Ships to Colombia only", "Solo envío a Colombia") }
+                    label { htmlFor = "w-requireCoShipping"; +tr("Ships to Colombia only", "Solo envío a Colombia") }
                     input(type = InputType.checkBox, name = "requireCoShipping") {
+                        id = "w-requireCoShipping"
                         value = "1"
                         checked = watch?.requireCoShipping ?: true
                     }
                 }
                 div("f") {
-                    label { +tr("Max shipping (US$)", "Envío máx. (US$)") }
+                    label { htmlFor = "w-maxShippingCost"; +tr("Max shipping (US$)", "Envío máx. (US$)") }
                     input(type = InputType.number, name = "maxShippingCost") {
+                        id = "w-maxShippingCost"
                         value = watch?.maxShippingCost?.stripTrailingZeros()?.toPlainString() ?: ""
                     }
                 }
                 div("f") {
-                    label { +tr("Cross-site %", "Entre sitios %") }
+                    label { htmlFor = "w-crossSiteMinSpread"; +tr("Cross-site %", "Entre sitios %") }
                     input(type = InputType.number, name = "crossSiteMinSpread") {
+                        id = "w-crossSiteMinSpread"
                         value = (watch?.crossSiteMinSpread ?: BigDecimal("15")).stripTrailingZeros().toPlainString()
                     }
                 }
@@ -671,12 +685,13 @@ fun MAIN.watchDetail(
             isAlerts = true, matchingSort, alertsSort, basePath, matchingSource,
         )
         table("deals watchalerts") {
+            caption("sr-only") { +tr("Watch alerts", "Alertas de búsquedas") }
             thead {
                 tr {
                     val th = { label: String, col: String, cls: String, desc: Boolean ->
                         sortableTh(label, col, cls, true, matchingSort, alertsSort, desc, basePath, matchingSource)
                     }
-                    th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                    th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                     th(tr("Deal", "Oferta"), "deal", "col-deal", false)
                     th(tr("Price", "Precio"), "price", "col-price", false)
                     th(tr("Why", "Motivo"), "why", "col-sig", false)
@@ -835,17 +850,18 @@ private fun MAIN.matchingTable(
         isAlerts = false, sort, alertsSort, basePath, source,
     )
     table("deals watchmatches") {
+            caption("sr-only") { +tr("Watch matches", "Coincidencias de búsquedas") }
         thead {
             tr {
                 val th = { label: String, col: String, cls: String, desc: Boolean ->
                     sortableTh(label, col, cls, false, sort, alertsSort, desc, basePath, source)
                 }
-                th(classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
+                th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                 th(tr("Product", "Producto"), "product", "col-deal", false)
                 // Two sorts in one header, as on the Groceries tab: by the price anyone pays, or by
                 // how much a card saves on it. Written out rather than via `th` because that helper
                 // emits a whole cell and this one holds two links.
-                th(classes = "col-price") {
+                th(scope = ThScope.col, classes = "col-price") {
                     val priceNext = sort.toggledFor("price", false)
                     a(
                         href = watchUrl(basePath, priceNext, alertsSort, page = 1, source = source),
@@ -872,7 +888,7 @@ private fun MAIN.matchingTable(
                 }
                 th(tr("Window low", "Mín. de la ventana"), "floor", "col-price", false)
                 // Plain text now: narrowing by source is the dropdown above the table.
-                th(classes = "col-sig") { +tr("Source", "Fuente") }
+                th(scope = ThScope.col, classes = "col-sig") { +tr("Source", "Fuente") }
             }
         }
         tbody {
@@ -1045,6 +1061,7 @@ private fun TR.thumbCell(imageUrl: String?, href: String?) {
             div("thumb-blank") {}
         } else if (href != null) {
             a(href = href) {
+                thumbLinkHidden()
                 attributes["target"] = "_blank"
                 attributes["rel"] = "noopener noreferrer"
                 img(classes = "thumb", src = imageUrl, alt = "") { attributes["loading"] = "lazy" }

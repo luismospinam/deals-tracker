@@ -343,4 +343,6 @@ data class PriceObservation(
     val price: BigDecimal,
     val listPrice: BigDecimal?,
     val currency: String,
+    /** The card-only price this reading carried, if any. See `V17__card_price`. */
+    val card: CardOffer? = null,
 )

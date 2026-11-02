@@ -222,6 +222,13 @@ providers:
       # makes the grocery breadth below affordable.
       pageSize: "24"
       maxPagesPerCategory: "3"
+      # Read over Intelligent Search so Exito's card prices (`teasers`, which `catalog_system` never
+      # fills in) are recorded -- e.g. the Electrolux 423 L Nevecon at 1,899,000 with a card against
+      # a 2,399,925 shelf. Re-measured 2026-11-02: keyword searches work here (2,515 hits for
+      # `nevera`; the 2026-09-29 "recordsFiltered=0" no longer reproduces), ranking is MORE relevant
+      # than `ft=` (fridges, not fridge organizers), and the cheapest in-stock price matches
+      # `catalog_system` on every shared product.
+      useIntelligentSearch: "true"
     listOptions:
       # Walked in VTEX's DEFAULT order, which is best-sellers (an unordered request returns
       # results identical to O=OrderByTopSaleDESC). Right for these two: they are broad, and
@@ -546,10 +553,7 @@ providers:
       # Milan toilet is 299,900 cash and 269,900 with TMC, and roughly half the rows in the
       # categories below carry such a price.
       #
-      # Enabled HERE and nowhere else, on purpose. At Exito the same switch answers `query=nevera`
-      # with nothing at all (`recordsFiltered=0`, while `ft=nevera` returns results), which would
-      # silently zero three of the live watch terms -- and Exito's own card prices already arrive
-      # through `exito-grocery`. Easy loses no term. See VtexSource.fetch.
+      # (Exito uses the same switch since 2026-11-02.) See VtexSource.fetch.
       useIntelligentSearch: "true"
     listOptions:
       categories: ["electrodomesticos", "tecnologia", "cocinas", "televisores-y-audio", "banos"]
@@ -823,6 +827,35 @@ providers:
         - "televisores-led"
         - "lavadoras-carga-superior"
 
+  - id: ktronix
+    type: algolia
+    # Alkosto/Alkomprar's sister store (same group), on the SAME Algolia app and the same index schema,
+    # so the existing adapter reads it with only the index, key and category list changed. Added 2026-11-01.
+    #
+    # Honest note on value: measured against our other shops by EAN, its prices equal Alkomprar's where
+    # that is the cheapest we track, and it beat the best price on only 1 of 13 matched fridges (by $20).
+    # It is here as a second storefront for availability, not as a new source of lows.
+    #
+    # The key is the one Ktronix's own page publishes for its search: a secured key whose only payload is
+    # a filter (availableBuyButNotVisible_boolean:false), no expiry, ACL search. Browsed by category facet,
+    # NOT keyword, for the same robots.txt reason as alkomprar (/search/ and *?q= are disallowed).
+    # Facet values were read from the index's own facet list.
+    enabled: true
+    baseUrl: "https://www.ktronix.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      algoliaAppId: "QX5IPS1B1Q"
+      algoliaSearchKey: "ODNiNzFhOTg5MWEyNWYxZGIyMmMyODFjYjNkMWU3NjVhNjUzYzgzZWUwMjkwODI3NmM4MDliNTY4OTEzODc5NCZmaWx0ZXJzPWF2YWlsYWJsZUJ1eUJ1dE5vdFZpc2libGVfYm9vbGVhbiUzQWZhbHNl"
+      algoliaIndex: "ktronixIndexAlgoliaPRD"
+      categoryFacet: "allcategories_string_mv"
+      pageSize: "20"
+      maxPagesPerCategory: "2"
+    listOptions:
+      categories:
+        - "neveras-no-frost"
+        - "nevera-dos-puertas"
+
   - id: amazon
     type: amazon
     # Tracks SPECIFIC items in YOUR size, which is what the slickdeals provider above cannot
@@ -927,11 +960,16 @@ providers:
       #   resultPriceSelector, resultImageSelector, productTitleSelector,
       #   productPriceSelector, productAvailabilitySelector
     listOptions:
-      # Kids' sizes are never wanted here (added 2026-10-28): a men's search still returns the
+      # Kids' and youth sizes are never wanted here (added 2026-10-28): a men's search still returns the
       # odd "Kids' Cloud Foam" row, and a youth size 8 is not an adult 8. Same mechanism as the
       # slickdeals grocery list, so `--purge-excluded --source amazon` clears existing rows.
       excludeTitlePatterns:
         - "\\bkid(s|'s)?\\b"
+        - "\\b(youth|toddler)\\b"
+        # Women's / girls' / ladies' listings (added 2026-10-29): a women's size 8 is a different shoe.
+        # "Hoodie for Men & Women" and unisex stay -- the lookahead skips any title that also says men.
+        # `wom[ae]n` has no leading \\b on purpose: titles run words together ("ShoesWoman").
+        - "^(?!.*\\b(men|mens|men's|unisex)\\b).*(wom[ae]n|wmns|\\b(ladies|girls?)\\b)"
       # NOTE the key is `trackSearches`, not `searches`, and that is deliberate.
       #
       # IngestService merges every enabled watch's terms into every provider's `searches`.

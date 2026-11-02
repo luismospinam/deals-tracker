@@ -57,7 +57,7 @@
   --bad: #d9566e;
 
   /* Type scale. Every font-size below routes through these four. */
-  --fs-xs: 11px;
+  --fs-xs: 12px;
   --fs-sm: 12px;
   --fs-md: 13.5px;
   --fs-lg: 14.5px;
@@ -188,7 +188,8 @@ header h1::after {
 .langswitch { display: inline-flex; gap: 5px; align-items: center; }
 .langswitch a { color: var(--text-faint); }
 .langswitch a.on { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
-.langsep { color: var(--line); }
+.langsep { color: var(--text-faint); }
+.langswitch a { display: inline-block; padding: 4px 6px; }
 
 main { padding: 20px 22px 72px; max-width: 1500px; }
 
@@ -2006,3 +2007,57 @@ a.open-cart:hover { background: #ff8a3a; text-decoration: none; }
  * colour and wording cannot. Set by the script in Views.kt for a few seconds after each press. */
 .actions button.cart-btn.cart-done { background: #1f9d62; border-color: #1f9d62; color: #fff; }
 .actions button.cart-btn.cart-fail { background: #cf3c58; border-color: #cf3c58; color: #fff; }
+
+/* ---------- Tracked tab legibility ---------- */
+
+/* Text that is there for screen readers only (the Tracked table's caption). */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 12px rather than the 11px --fs-xs for what is read on every row: the chips, the column heads and the meta
+ * line. Scoped to .tracked so the other tabs keep their size until reviewed. */
+.tracked thead th,
+.tracked .prov,
+.tracked .brand-tag,
+.tracked .manual-badge,
+.tracked .cat,
+.tracked .meta { font-size: var(--fs-sm); }
+
+/* The desktop action buttons stay at 11px: 12px widened the Actions column by ~30px and pushed the table
+ * past a 1512px window. They are 25px tall, which clears WCAG 2.2's 24px target minimum. Phones, where the
+ * buttons are full-width cards, get 12px. */
+@media (max-width: 640px) {
+  .tracked .actions button, .tracked .actions a { font-size: var(--fs-sm); }
+}
+
+/* Between a phone and a full desktop the table still shows, with its buttons 25px tall. Taller there,
+ * so a finger or a trackpad tap lands on the one intended; phones get cards and 40px buttons already. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .tracked .actions button, .tracked .actions a { padding-block: 6px; }
+  .tracked .actions { gap: 8px; }
+}
+
+/* Phones. Two things the accessibility pass measured at 420px wide. */
+@media (max-width: 640px) {
+  /* The Colombia verdict ("✓ ships" and its chips) is inline spans with nothing to break at between them, so
+   * on the Feed it ran off the right edge (the page measured 550px wide). A wrapping row lets it fold. */
+  .co-yes, .co-no, .co-unk { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .co-yes .prov, .co-no .prov, .co-unk .prov { margin-left: 0; }
+
+  /* The masthead tabs (feed, tracked, groceries, watches) were 15px tall: a thumb has to land on a line of text.
+   * Padding, not a bigger font, so the header keeps its height budget (see --header-h). */
+  header .sub a { display: inline-block; padding-block: 8px; }
+}
+
+/* The Feed table is the densest: at 12px it overflows a 1512px laptop screen by ~70px, so on
+   desktop widths its small text stays 11px. Phone cards (reflowed) and the other tabs use 12px. */
+@media (min-width: 641px) and (max-width: 1700px) {
+  table.deals:not(.tracked) { --fs-xs: 11px; }
+}
