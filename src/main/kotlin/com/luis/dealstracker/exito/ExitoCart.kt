@@ -172,7 +172,8 @@ internal fun interpretAdd(status: Int, body: String?, sku: CartSku): CartResult 
     }
     val message = (form["messages"] as? JsonArray)
         ?.firstNotNullOfOrNull { (it as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull }
-    return CartResult.Refused(message ?: "Exito did not add it (out of stock at this store?)")
+    // Blank when Exito gave no reason; the toast words that case in the reader's language.
+    return CartResult.Refused(message ?: "")
 }
 
 /** Exito's own words for why a line cannot be bought, or a plain default. */

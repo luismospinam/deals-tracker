@@ -52,7 +52,11 @@ internal fun cartToast(result: CartResult, title: String?, cartLink: String? = n
             "Your Exito login expired -- paste a fresh cookie under \"Exito cart\" at the bottom of this page.",
             "Tu sesión de Exito venció -- pega una cookie nueva en \"Carrito Exito\" al final de esta página.",
         )
-        is CartResult.Refused -> "err" to tr("Exito did not add it: ", "Exito no lo agregó: ") + result.reason
+        is CartResult.Refused -> "err" to if (result.reason.isBlank()) {
+            tr("Exito did not add it (out of stock at this store?)", "Exito no lo agregó (¿agotado en esta tienda?)")
+        } else {
+            tr("Exito did not add it: ", "Exito no lo agregó: ") + result.reason
+        }
         is CartResult.Failed -> "err" to tr("Could not reach Exito: ", "No se pudo contactar a Exito: ") + result.reason
     }
     return createHTML(prettyPrint = false).div("toast toast-$kind") {

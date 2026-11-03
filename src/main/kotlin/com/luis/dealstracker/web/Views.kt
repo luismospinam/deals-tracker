@@ -1132,17 +1132,27 @@ internal fun kotlinx.html.FlowContent.shippingCheckedChip(deal: Deal) {
     }
 }
 
+/**
+ * The shipping verdict's tooltip: who decided it, then the page text it rests on. That text is
+ * Amazon's own wording, quoted as read, so it stays in English; only the frame around it translates.
+ */
+internal fun shippingProvenance(source: String?, evidence: String): String = when (source) {
+    "AUTO" -> tr("Checked automatically. Amazon's page says: $evidence", "Verificado automáticamente. La página de Amazon dice: $evidence")
+    "MANUAL" -> tr("Set by hand: $evidence", "Marcado a mano: $evidence")
+    else -> "$evidence"
+}
+
 private fun FlowContent.coShippingCell(deal: Deal, note: String? = null, onDetail: Boolean = false) {
     div("co") {
         // Evidence as a tooltip, and an "auto" marker, so an automated verdict can be told
         // apart from one Luis made by hand -- and audited without re-fetching the page.
         val provenance = deal.coShippingEvidence?.takeIf { it.isNotBlank() }
-            ?.let { "${deal.coShippingSource ?: "?"}: $it" }
+            ?.let { shippingProvenance(deal.coShippingSource, it) }
         when (deal.coShipping) {
             CoShipping.YES -> span("co-yes") {
                 provenance?.let { title = it }
                 +tr("✓ ships", "✓ envía")
-                if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
+                if (deal.coShippingSource == "AUTO") span("prov") { +tr("auto", "automático") }
                 shippingCheckedChip(deal)
                 // The shipping fee often decides whether a "deal" is still a deal: the same
                 // YES verdict covers "FREE Shipping" and "$60.66 Shipping".
@@ -1187,7 +1197,7 @@ private fun FlowContent.coShippingCell(deal: Deal, note: String? = null, onDetai
             CoShipping.NO -> span("co-no") {
                 provenance?.let { title = it }
                 +"✗ no"
-                if (deal.coShippingSource == "AUTO") span("prov") { +"auto" }
+                if (deal.coShippingSource == "AUTO") span("prov") { +tr("auto", "automático") }
             }
             CoShipping.UNKNOWN -> {
                 span("co-unk") { +tr("? unverified", "? sin verificar") }

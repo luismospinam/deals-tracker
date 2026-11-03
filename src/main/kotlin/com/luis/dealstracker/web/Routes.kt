@@ -69,6 +69,10 @@ fun Application.routes(
     dailyChanges: com.luis.dealstracker.db.DailyChangeRepository,
     exitoCart: com.luis.dealstracker.exito.ExitoCart,
 ) {
+    // Every request runs in its own language, wherever its coroutine resumes: see I18n.element.
+    intercept(io.ktor.server.application.ApplicationCallPipeline.Plugins) {
+        kotlinx.coroutines.withContext(com.luis.dealstracker.i18n.I18n.element(call.lang)) { proceed() }
+    }
     routing {
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
         languageRoute()
@@ -402,7 +406,7 @@ fun Application.routes(
                 val (provider, term) = v.split('\t', limit = 2).takeIf { it.size == 2 } ?: return@mapNotNull null
                 (provider to term).takeIf { app.enabledProviders.any { p -> p.id == provider && term in p.list("trackSearches") } }
             }
-            if (picks.isEmpty()) return@post call.respondText("unknown search", status = HttpStatusCode.BadRequest)
+            if (picks.isEmpty()) return@post call.respondText(tr("unknown search", "búsqueda desconocida"), status = HttpStatusCode.BadRequest)
             withContext(Dispatchers.IO) { picks.forEach { (p, t) -> disabledSearches.setEnabled(p, t, enabled) } }
             call.respondRedirect("/tracked?searches=open#searches")
         }
@@ -502,11 +506,11 @@ fun Application.routes(
         // removes the row -- leaving it there would put an unpinned item on the Pinned list.
         post("/groceries/{id}/{action}") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val pinned = when (call.parameters["action"]) {
                 "pin" -> true
                 "unpin" -> false
-                else -> return@post call.respondText("unknown action", status = HttpStatusCode.NotFound)
+                else -> return@post call.respondText(tr("unknown action", "acción desconocida"), status = HttpStatusCode.NotFound)
             }
             val fromDetail = call.request.queryParameters["view"] == DETAIL_VIEW
             val view = GroceryView.of(call.request.queryParameters["view"])
@@ -520,7 +524,7 @@ fun Application.routes(
                         withRivals(listOf(row), groceries.shelfPrices(listOfNotNull(row.deal.matchKey), sources), stores).first()
                     }
                 }
-            } ?: return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
+            } ?: return@post call.respondText(tr("no such item", "no existe ese producto"), status = HttpStatusCode.NotFound)
             call.respondFragment {
                 when {
                     fromDetail -> groceryDetailPinFragment(id, pinned)
@@ -534,7 +538,7 @@ fun Application.routes(
         // fragment rather than a row: nothing on the page changes, the cart is Exito's.
         post("/groceries/{id}/cart") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val deal = withContext(Dispatchers.IO) { repo.findById(id) }
             val result = if (deal == null || deal.source != com.luis.dealstracker.exito.EXITO_CART_SOURCE) {
                 // Only Laureles has the button; a hand-made request for another store is refused, not guessed at.
@@ -569,11 +573,11 @@ fun Application.routes(
         // list whatever their pin, so they get the button back.
         post("/tracked/{id}/{action}") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val pinned = when (call.parameters["action"]) {
                 "pin" -> true
                 "unpin" -> false
-                else -> return@post call.respondText("unknown action", status = HttpStatusCode.NotFound)
+                else -> return@post call.respondText(tr("unknown action", "acción desconocida"), status = HttpStatusCode.NotFound)
             }
             val also = call.request.queryParameters["also"]
                 ?.split(',')?.mapNotNull { it.trim().toLongOrNull() }.orEmpty()
@@ -582,7 +586,7 @@ fun Application.routes(
                 repo.setPinned(listOf(id) + also, pinned)
                 repo.findById(id) to manualItems.trackedAsins()
             }
-            if (deal == null) return@post call.respondText("no such item", status = HttpStatusCode.NotFound)
+            if (deal == null) return@post call.respondText(tr("no such item", "no existe ese producto"), status = HttpStatusCode.NotFound)
             val isAdded = deal.asin != null && deal.asin in added
             val removesRow = onPinnedView && !isAdded
             call.respondFragment {
@@ -592,7 +596,7 @@ fun Application.routes(
 
         post("/tracked/{id}/hide") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
 
             // `also` carries the variants folded into this row (see collapseVariants), which must go
             // with it. Non-numeric entries are dropped rather than failing the whole hide.
@@ -607,9 +611,9 @@ fun Application.routes(
 
         get("/deal/{id}") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@get call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val deal = repo.findById(id)
-                ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
+                ?: return@get call.respondText(tr("not found", "no encontrado"), status = HttpStatusCode.NotFound)
             val history = withContext(Dispatchers.IO) { repo.priceHistory(id) }
             val elsewhere = withContext(Dispatchers.IO) { repo.sameProductElsewhere(deal) }
             val pinnable = deal.source in trackingSources(app)
@@ -627,10 +631,10 @@ fun Application.routes(
 
         post("/deal/{id}/state") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val state = call.request.queryParameters["value"]
                 ?.let { runCatching { DealState.valueOf(it) }.getOrNull() }
-                ?: return@post call.respondText("bad state", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad state", "estado no válido"), status = HttpStatusCode.BadRequest)
 
             repo.updateState(id, state)
             // A dismissed row is not on the page after a reload, so it must not be after the click
@@ -643,10 +647,10 @@ fun Application.routes(
 
         post("/deal/{id}/co-shipping") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val value = call.request.queryParameters["value"]
                 ?.let { runCatching { CoShipping.valueOf(it) }.getOrNull() }
-                ?: return@post call.respondText("bad value", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad value", "valor no válido"), status = HttpStatusCode.BadRequest)
 
             repo.updateCoShipping(id, value)
             respondRow(id, repo)
@@ -662,7 +666,7 @@ fun Application.routes(
          */
         post("/deal/{id}/verify") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
 
             // Checked before launching anything: a deal that is already decided, MANUAL, or
             // has no ASIN must not cost a browser launch to find that out.
@@ -743,9 +747,9 @@ fun Application.routes(
 
         get("/watches/{id}") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@get call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@get call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val watch = watches.findById(id)
-                ?: return@get call.respondText("not found", status = HttpStatusCode.NotFound)
+                ?: return@get call.respondText(tr("not found", "no encontrado"), status = HttpStatusCode.NotFound)
 
             val fx = rates.current()
             val (candidates, matches, dealsById) = withContext(Dispatchers.IO) {
@@ -778,7 +782,7 @@ fun Application.routes(
                     val deal = dealsById[m.dealId]?.takeIf { matchingSource == null || it.source == matchingSource } ?: return@forEach
                     val existing = lines[m.dealId]
                     lines[m.dealId] = existing?.copy(kinds = existing.kinds + DigestKind.ALERT)
-                        ?: DigestLine(m.dealId, deal.title, deal.currency, null, m.priceAtMatch, setOf(DigestKind.ALERT), m.evidence)
+                        ?: DigestLine(m.dealId, deal.title, deal.currency, null, m.priceAtMatch, setOf(DigestKind.ALERT), m.evidence?.let { com.luis.dealstracker.i18n.localizeEvidence(it) })
                 }
                 lines.values.toList()
             }
@@ -808,27 +812,27 @@ fun Application.routes(
 
         post("/watches") {
             val draft = watchDraftFrom(call.receiveParameters())
-                ?: return@post call.respondText("a watch needs a name and terms", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("a watch needs a name and terms", "una búsqueda necesita un nombre y términos"), status = HttpStatusCode.BadRequest)
             watches.create(draft)
             call.respondRedirect("/watches")
         }
 
         post("/watches/{id}") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val draft = watchDraftFrom(call.receiveParameters())
-                ?: return@post call.respondText("a watch needs a name and terms", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("a watch needs a name and terms", "una búsqueda necesita un nombre y términos"), status = HttpStatusCode.BadRequest)
             if (!watches.update(id, draft)) {
-                return@post call.respondText("not found", status = HttpStatusCode.NotFound)
+                return@post call.respondText(tr("not found", "no encontrado"), status = HttpStatusCode.NotFound)
             }
             call.respondRedirect("/watches/$id")
         }
 
         post("/watches/{id}/enabled") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val value = call.request.queryParameters["value"]?.toBooleanStrictOrNull()
-                ?: return@post call.respondText("bad value", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad value", "valor no válido"), status = HttpStatusCode.BadRequest)
 
             watches.setEnabled(id, value)
             val updated = watches.findById(id)
@@ -840,7 +844,7 @@ fun Application.routes(
         post("/watches/{id}/hide/{dealId}") {
             val id = call.parameters["id"]?.toLongOrNull()
             val dealId = call.parameters["dealId"]?.toLongOrNull()
-            if (id == null || dealId == null) return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            if (id == null || dealId == null) return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             watches.setHidden(id, dealId, hidden = true)
             call.respondText("", ContentType.Text.Html)
         }
@@ -848,7 +852,7 @@ fun Application.routes(
         post("/watches/{id}/unhide/{dealId}") {
             val id = call.parameters["id"]?.toLongOrNull()
             val dealId = call.parameters["dealId"]?.toLongOrNull()
-            if (id == null || dealId == null) return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+            if (id == null || dealId == null) return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             watches.setHidden(id, dealId, hidden = false)
             call.respondRedirect("/watches/$id#hidden")
         }
@@ -856,18 +860,18 @@ fun Application.routes(
         // Adds one word to a watch's exclusions, from the "exclude word" field on a matching row.
         post("/watches/{id}/exclude") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
-            val watch = watches.findById(id) ?: return@post call.respondText("not found", status = HttpStatusCode.NotFound)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
+            val watch = watches.findById(id) ?: return@post call.respondText(tr("not found", "no encontrado"), status = HttpStatusCode.NotFound)
             val term = call.receiveParameters()["term"].orEmpty()
             val updated = withExcludedTerm(watch.excludeTerms, term)
-                ?: return@post call.respondText("an exclusion is one word or phrase, without |", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("an exclusion is one word or phrase, without |", "una exclusión es una palabra o frase, sin |"), status = HttpStatusCode.BadRequest)
             watches.setExcludeTerms(id, updated)
             call.respondRedirect("/watches/$id")
         }
 
         post("/watches/{id}/delete") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             watches.delete(id)
             // Empty body with an outerHTML swap removes the row, the same convention
             // respondRow uses when a deal vanishes mid-request.

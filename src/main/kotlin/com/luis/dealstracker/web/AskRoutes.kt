@@ -97,7 +97,7 @@ fun Routing.askRoutes(
             if (!screen.startsWith("watch:") || !withSpecs) ctx else withContext(Dispatchers.IO) {
                 runCatching { ctx.withSpecIds(DealSpecStore.idsWithSpecs(Db.dataSource, ctx.deals.map { it.id })) }.getOrDefault(ctx)
             }
-        } ?: return@post call.respondText("unknown screen", status = HttpStatusCode.BadRequest)
+        } ?: return@post call.respondText(tr("unknown screen", "pantalla desconocida"), status = HttpStatusCode.BadRequest)
 
         // The screen's identity for follow-ups: same screen, same filters. See AskService.
         // Includes the tick: a session started without the list of rows that have specs cannot ask for

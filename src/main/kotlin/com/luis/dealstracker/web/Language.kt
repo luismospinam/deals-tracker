@@ -1,5 +1,6 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.i18n.AppLanguage
 import com.luis.dealstracker.i18n.I18n
 import com.luis.dealstracker.i18n.Lang
@@ -86,7 +87,7 @@ internal suspend fun ApplicationCall.respondFragment(render: () -> String) {
 internal fun Route.languageRoute() {
     get("/lang/{code}") {
         val chosen = Lang.fromCode(call.parameters["code"])
-            ?: return@get call.respondText("unknown language", status = HttpStatusCode.NotFound)
+            ?: return@get call.respondText(tr("unknown language", "idioma desconocido"), status = HttpStatusCode.NotFound)
         call.response.cookies.append(
             Cookie(LANG_COOKIE, chosen.code, maxAge = LANG_COOKIE_MAX_AGE, path = "/", httpOnly = true),
         )

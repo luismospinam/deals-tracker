@@ -549,7 +549,7 @@ private fun MAIN.digestSection(rows: List<DigestRow>, times: List<String>, showA
                             div("meta") {
                                 span { a(href = "/watches/${p.watchId}") { +p.watchName } }
                                 span { +p.source }
-                                span("dim") { +p.alert.evidence }
+                                span("dim") { +com.luis.dealstracker.i18n.localizeEvidence(p.alert.evidence) }
                             }
                         }
                         td("col-price") { +formatMoney(p.alert.price, p.currency) }
@@ -922,7 +922,7 @@ fun MAIN.watchDetail(
                                     MatchReason.LOWEST_IN_WINDOW -> tr("new low", "nuevo mínimo")
                                 }
                             }
-                            match.evidence?.let { div("dim") { +it } }
+                            match.evidence?.let { div("dim") { +com.luis.dealstracker.i18n.localizeEvidence(it) } }
                         }
                         td(classes = "col-seen") {
                             cardLabel(tr("When", "Cuándo"))

@@ -1,5 +1,7 @@
 package com.luis.dealstracker.i18n
 
+import kotlinx.coroutines.asContextElement
+
 /**
  * The two languages the app's own text is written in.
  *
@@ -53,6 +55,15 @@ object I18n {
     private val current = ThreadLocal<Lang>()
 
     val lang: Lang get() = current.get() ?: Lang.EN
+
+    /**
+     * The language as a coroutine context element, installed once per request (`Application.routes`).
+     * It re-sets the thread-local wherever the request's coroutine resumes -- including inside
+     * `withContext(Dispatchers.IO)`, which inherits it -- so text built in a route body or on the IO
+     * pool is in the request's language too, not only the synchronous page build [with] wraps. Before
+     * this, the watch page's alert notes were built on the IO pool and always came out in English.
+     */
+    fun element(lang: Lang): kotlinx.coroutines.ThreadContextElement<Lang> = current.asContextElement(lang)
 
     fun <T> with(lang: Lang, block: () -> T): T {
         val previous = current.get()
