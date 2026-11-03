@@ -279,7 +279,7 @@ internal fun askContextFor(
             if (controls.view == GroceryView.PINNED) GroceryFilter(sources, pinnedOnly = true)
             else GroceryFilter(sources, controls.groups.toList(), controls.search),
         )
-        // Rivals as the page loads them, so "cheaper at another chain" filters the same rows here.
+        // Rivals as the page loads them, so the other-chain sort orders the same rows here.
         val merged = withRivalsFor(mergeStores(rows, stores), controls, stores) { groceries.shelfPrices(it, grocerySources(app)) }
         val shown = groceryShown(merged, controls)
         AskContext(

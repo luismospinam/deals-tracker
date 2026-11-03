@@ -131,31 +131,31 @@ class GroceryRivalsTest {
         )
         val controls = GroceryControls(view = GroceryView.ALL, groups = emptySet(), search = null, sort = GrocerySort.RIVAL)
         assertEquals(listOf(3L, 1L, 4L, 2L), groceryShown(rows, controls).map { it.deal.id })
-        val cheaper = groceryShown(rows, controls.copy(cheaperElsewhere = true))
-        assertEquals(listOf(3L, 1L), cheaper.map { it.deal.id }, "only the rows another chain sells for less")
     }
 
     @Test
-    fun `the filter, the sort and Pinned look up every row in view, otherwise only the page`() {
+    fun `the sort and Pinned look up every row in view, otherwise only the page`() {
         val base = GroceryControls(view = GroceryView.ALL, groups = emptySet(), search = null, sort = GrocerySort.NAME)
         assertFalse(needsAllRivals(base))
         assertTrue(needsAllRivals(base.copy(sort = GrocerySort.RIVAL)))
-        assertTrue(needsAllRivals(base.copy(cheaperElsewhere = true)))
         assertTrue(needsAllRivals(base.copy(view = GroceryView.PINNED)))
 
         val rows = (1L..(GROCERY_PAGE_SIZE + 5)).map { row(it, "exito-grocery", "1000", key = "gtin:$it", title = "Item %05d".format(it)) }
         var asked = 0
-        withRivalsFor(rows, base.copy(cheaperElsewhere = true), stores) { keys -> asked = keys.size; emptyList() }
+        withRivalsFor(rows, base.copy(sort = GrocerySort.RIVAL), stores) { keys -> asked = keys.size; emptyList() }
         assertEquals(rows.size, asked)
     }
 
     @Test
-    fun `the controls carry the filter everywhere and the stop only on Pinned`() {
+    fun `the controls carry the stop only on Pinned, and the old cheaper-elsewhere filter is gone`() {
         val c = GroceryControls.from(io.ktor.http.parametersOf("view" to listOf("pinned"), "elsewhere" to listOf("1"), "buy" to listOf("Carulla")))
-        assertTrue(c.cheaperElsewhere)
         assertEquals("carulla", c.buyAt)
-        assertEquals("/groceries?view=pinned&elsewhere=1&buy=carulla", c.url())
-        assertEquals("/groceries?view=all&elsewhere=1", c.url(view = GroceryView.ALL, sort = null))
+        assertEquals("/groceries?view=pinned&buy=carulla", c.url(), "an old ?elsewhere=1 bookmark is dropped")
+        assertEquals("/groceries?view=all", c.url(view = GroceryView.ALL, sort = null))
+        val html = createHTML().main {
+            groceryPage(listOf(row(1, "exito-grocery", "1000")), listOf("Pantry" to 1), c.copy(view = GroceryView.ALL), stores.keys.toList())
+        }
+        assertFalse(html.contains("cheaper at another chain"), "no checkbox")
         assertNull(GroceryControls.from(io.ktor.http.parametersOf("buy" to listOf("exito"))).buyAt, "Deals has no plan")
     }
 

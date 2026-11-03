@@ -151,12 +151,12 @@ internal fun withRivals(rows: List<GroceryRow>, prices: List<ShelfPrice>, stores
 }
 
 /**
- * Whether [controls] needs a rival on every row in view rather than the page's: sorting or filtering by
- * the other chain's price ranks rows that are not on screen yet, and Pinned's shopping plan totals
+ * Whether [controls] needs a rival on every row in view rather than the page's: sorting by the other
+ * chain's price ranks rows that are not on screen yet, and Pinned's shopping plan totals
  * the whole list.
  */
 internal fun needsAllRivals(controls: GroceryControls): Boolean =
-    controls.sort == GrocerySort.RIVAL || controls.cheaperElsewhere || controls.view == GroceryView.PINNED
+    controls.sort == GrocerySort.RIVAL || controls.view == GroceryView.PINNED
 
 /**
  * [rows] with a rival on each row [controls] needs one for: the page on screen, or every row in view
@@ -279,8 +279,6 @@ internal data class GroceryControls(
     val cartable: Boolean = false,
     /** 1-based page of the table. Clamped on use, so a stale bookmark lands on the last page. */
     val page: Int = 1,
-    /** Only rows another chain sells cheaper today. Any view. */
-    val cheaperElsewhere: Boolean = false,
     /**
      * Pinned only: just the items whose [bestBuy] is at this chain -- the shopping list for one trip,
      * picked from the shopping plan. Unlike [chains], it goes by where the item is cheapest, not by
@@ -295,7 +293,6 @@ internal data class GroceryControls(
         search: String? = this.search,
         chains: Set<String> = this.chains,
         cartable: Boolean = this.cartable,
-        cheaperElsewhere: Boolean = this.cheaperElsewhere,
         buyAt: String? = this.buyAt,
         // Not carried over: changing the view, filter, search or sort starts again at page 1.
         page: Int = 1,
@@ -310,7 +307,6 @@ internal data class GroceryControls(
             if (view != GroceryView.PINNED) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
             if (sort != null && sort != GrocerySort.of(null, view)) add("sort=${sort.key}")
             if (cartable && view == GroceryView.PINNED) add("cart=1")
-            if (cheaperElsewhere) add("elsewhere=1")
             if (buyAt != null && view == GroceryView.PINNED) add("buy=" + buyAt.encodeURLParameter())
             if (page > 1) add("page=$page")
         }
@@ -328,7 +324,6 @@ internal data class GroceryControls(
                 chains = params["store"]?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
                 cartable = params["cart"] == "1" && view == GroceryView.PINNED,
                 page = params["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
-                cheaperElsewhere = params["elsewhere"] == "1",
                 buyAt = params["buy"]?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && view == GroceryView.PINNED },
             )
         }
@@ -347,7 +342,6 @@ internal data class GroceryControls(
 internal fun groceryShown(rows: List<GroceryRow>, controls: GroceryControls): List<GroceryRow> =
     groceryInView(rows, controls.view)
         .filter { controls.view != GroceryView.PINNED || !controls.cartable || cartCopy(it) != null }
-        .filter { !controls.cheaperElsewhere || (it.rivalGap?.signum() ?: 0) < 0 }
         .filter { r -> controls.buyAt == null || r.bestBuy()?.first == controls.buyAt }
         .sortedWith(groceryComparator(controls.sort))
 
@@ -504,7 +498,6 @@ private fun MAIN.groceryBody(
                 put("view", controls.view.key)
                 if (controls.groups.isNotEmpty()) put("group", controls.groups.sorted().joinToString(","))
                 if (controls.chains.isNotEmpty()) put("store", controls.chains.sorted().joinToString(","))
-                if (controls.cheaperElsewhere) put("elsewhere", "1")
             },
         )
     }
@@ -515,12 +508,6 @@ private fun MAIN.groceryBody(
     if (controls.view == GroceryView.PINNED) {
         shoppingPlan(groceryInView(rows, GroceryView.PINNED))?.let { planBlock(it, chainLabels, controls) }
     }
-    elsewhereToggle(
-        // Known only when every row in view was looked up; otherwise just the page was, and a count of
-        // one page would read as the total.
-        if (needsAllRivals(controls)) groceryInView(rows, controls.view).count { (it.rivalGap?.signum() ?: 0) < 0 } else null,
-        controls,
-    )
     // Not on Pinned, which is the whole list whatever aisle is picked.
     if (controls.view != GroceryView.PINNED) groupTags(groupCounts, controls)
 
@@ -546,9 +533,9 @@ private fun MAIN.groceryBody(
     if (shown.isEmpty()) {
         div("empty") {
             // A filter of this page's own emptied it, not the view: say so, rather than "nothing pinned".
-            if (controls.cheaperElsewhere || controls.buyAt != null) {
+            if (controls.buyAt != null) {
                 +tr("No items match. ", "Ningún producto coincide. ")
-                a(href = controls.url(cheaperElsewhere = false, buyAt = null)) { +tr("Clear the filter", "Quitar el filtro") }
+                a(href = controls.url(buyAt = null)) { +tr("Clear the filter", "Quitar el filtro") }
                 return@div
             }
             when (controls.view) {
@@ -940,25 +927,6 @@ private fun FlowContent.rivalLine(rival: ChainRival, gap: BigDecimal?) {
         }
         +"${rival.store.substringBefore(' ')} ${formatMoney(rival.price, rival.currency)}"
         gap?.takeIf { it.signum() != 0 }?.let { span("gap") { +(if (cheaper) " −${it.negate().toPlainString()}%" else " +${it.toPlainString()}%") } }
-    }
-}
-
-/** "Only items cheaper at another chain", on every view. */
-private fun FlowContent.elsewhereToggle(count: Int?, controls: GroceryControls) {
-    div("noship-toggle") {
-        label {
-            title = tr(
-                "Rows whose barcode another chain sells for less today, in stock",
-                "Productos cuyo código de barras otra cadena vende más barato hoy, con existencias",
-            )
-            input(type = InputType.checkBox) {
-                checked = controls.cheaperElsewhere
-                attributes["onchange"] =
-                    "location.href=this.checked?'${controls.url(cheaperElsewhere = true)}':'${controls.url(cheaperElsewhere = false)}'"
-            }
-            +tr(" only items cheaper at another chain", " solo productos más baratos en otra cadena")
-            count?.let { span("typetag-n") { +it.toString() } }
-        }
     }
 }
 

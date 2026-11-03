@@ -587,8 +587,7 @@ other chain is cheaper. Only on-shelf copies in the same currency count, and onl
 is looked up. Exito and Carulla share ~4,400 barcodes; PriceSmart lists none, so it has no rival.
 
 Clicking the **Store** header (or the "Other chain" tag) sorts by how much cheaper the other chain
-is, and **only items cheaper at another chain** filters to those rows; either one looks up every row
-in view rather than the page (~0.3s on All items).
+is; that looks up every row in view rather than the page (~0.3s on All items).
 
 **Pinned** opens with the **cheapest split**: each pinned item assigned to the chain where it is
 cheapest today, one chip per chain with its item count and total, and what the split saves over
