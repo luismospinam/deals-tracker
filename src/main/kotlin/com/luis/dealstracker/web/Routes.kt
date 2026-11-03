@@ -33,6 +33,7 @@ import io.ktor.server.application.call
 import io.ktor.server.response.header
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respondBytes
+import io.ktor.server.request.uri
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
@@ -83,13 +84,13 @@ fun Application.routes(
             val page = repo.feedPage(filter)
             val sources = feedSourceOptions(app, FeedScreen.FEED, q["source"])
             // For the scope row's badge. Unscoped by the current filters on purpose: it answers "how
-            // many favorites do I have", not "how many match what I am currently searching for" -- a
+            // many pins do I have", not "how many match what I am currently searching for" -- a
             // count that fell to 0 because of an unrelated search would read as having lost them.
-            val favoriteCount = repo.countMatching(favoritesFilter(Parameters.Empty))
+            val pinnedCount = repo.countMatching(pinnedFeedFilter(Parameters.Empty, app))
 
             call.respondPage {
                 page("Deals Tracker") {
-                    feedScopes(q, FeedScreen.FEED, favoriteCount)
+                    feedScopes(q, FeedScreen.FEED, pinnedCount)
                     filterForm(sources, categorizer.categoryNames, q)
                     p("result-count") {
                         // State the total explicitly when the page is capped -- showing
@@ -159,9 +160,9 @@ fun Application.routes(
         }
 
         /**
-         * The favorites screen: the rows Luis marked, and only those.
+         * The feed's Pinned screen: the feed rows Luis pinned, and only those. (Favorites until V33.)
          *
-         * Reuses the feed's own [filterForm] and [dealTable] rather than a bespoke table — favorites
+         * Reuses the feed's own [filterForm] and [dealTable] rather than a bespoke table — Pinned
          * IS the feed restricted to chosen rows, so search, sort, the chip presets and the Excel
          * export all work here for free, and a second presentation would be a second thing to keep
          * in step. [FeedScreen] carries the three things that differ.
@@ -169,31 +170,31 @@ fun Application.routes(
          * `recentRuns` is deliberately omitted: fetch bookkeeping is about whether the poller is
          * healthy, which belongs on the feed and says nothing about a chosen row.
          */
-        get("/favorites") {
+        get("/pinned") {
             val params = call.request.queryParameters
             val q = FILTER_PARAMS.associateWith { params[it].orEmpty() }
-            val filter = favoritesFilter(params)
+            val filter = pinnedFeedFilter(params, app)
 
             val page = repo.feedPage(filter)
-            val sources = feedSourceOptions(app, FeedScreen.FAVORITES, q["source"])
+            val sources = feedSourceOptions(app, FeedScreen.PINNED, q["source"])
 
             call.respondPage {
-                page(tr("Favorites — Deals Tracker", "Favoritos — Deals Tracker")) {
+                page(tr("Pinned — Deals Tracker", "Fijados — Deals Tracker")) {
                     // `page.totalMatching` is this scope's own unfiltered-by-nothing total only when
                     // no filter is applied, so the badge reuses the same unscoped count the feed
                     // computes rather than the possibly-narrowed number shown below.
-                    feedScopes(q, FeedScreen.FAVORITES, repo.countMatching(favoritesFilter(Parameters.Empty)))
-                    filterForm(sources, categorizer.categoryNames, q, FeedScreen.FAVORITES)
+                    feedScopes(q, FeedScreen.PINNED, repo.countMatching(pinnedFeedFilter(Parameters.Empty, app)))
+                    filterForm(sources, categorizer.categoryNames, q, FeedScreen.PINNED)
                     p("result-count") {
                         if (page.truncated) {
                             +tr("showing ", "mostrando ")
                             strong { +"${page.deals.size}" }
                             +tr(" of ", " de ")
                             strong { +"${page.totalMatching}" }
-                            +tr(" favorites", " favoritos")
+                            +tr(" pinned", " fijados")
                         } else {
                             strong { +"${page.totalMatching}" }
-                            +tr(" favorite(s)", " favorito(s)")
+                            +tr(" pinned", " fijado(s)")
                         }
                         // Stated up front rather than left to be inferred from the chips, because
                         // this page breaks the rule every other view follows: a retired deal is
@@ -204,24 +205,24 @@ fun Application.routes(
                         }
                     }
                     askPanel(
-                        "favorites",
-                        tr("e.g. which of my favorites is the best buy right now?", "p. ej. ¿cuál de mis favoritos es la mejor compra ahora mismo?"),
+                        "pinned",
+                        tr("e.g. which of my pinned deals is the best buy right now?", "p. ej. ¿cuál de mis ofertas fijadas es la mejor compra ahora mismo?"),
                     )
                     // Whether a control is NARROWING the page, which is what changes the meaning of
-                    // an empty one. `sort` only reorders and `state` is pinned by favoritesFilter,
-                    // so neither can be why a favorite is missing.
+                    // an empty one. `sort` only reorders and `state` is fixed by pinnedFeedFilter,
+                    // so neither can be why a pin is missing.
                     dealTable(
                         page.deals,
-                        FeedScreen.FAVORITES,
+                        FeedScreen.PINNED,
                         filtered = q.any { (k, v) -> k !in NON_NARROWING_PARAMS && v.isNotBlank() },
                     )
                 }
             }
         }
 
-        /** As `/export.xlsx`, scoped to favorites. See [favoritesFilter]. */
-        get("/favorites/export.xlsx") {
-            val filter = favoritesFilter(call.request.queryParameters)
+        /** As `/export.xlsx`, scoped to Pinned. See [pinnedFeedFilter]. */
+        get("/pinned/export.xlsx") {
+            val filter = pinnedFeedFilter(call.request.queryParameters, app)
             val zone = ZoneId.systemDefault()
             val lang = call.lang
 
@@ -232,38 +233,62 @@ fun Application.routes(
                 DealsExport.build(deals, meta, zone, lang) to meta
             }
 
-            println("[export] ${meta.rowsExported} favorite(s) of ${meta.totalMatching} matching")
+            println("[export] ${meta.rowsExported} pinned of ${meta.totalMatching} matching")
 
             call.response.header(
                 HttpHeaders.ContentDisposition,
                 ContentDisposition.Attachment
                     .withParameter(
                         ContentDisposition.Parameters.FileName,
-                        "favorites-${LocalDate.now(zone)}.xlsx",
+                        "pinned-${LocalDate.now(zone)}.xlsx",
                     )
                     .toString(),
             )
             call.respondBytes(bytes, ContentType.parse(DealsExport.CONTENT_TYPE))
         }
 
+        // The old Favorites screen, kept for bookmarks: favorites became pins in V33.
+        get("/favorites") {
+            call.respondRedirect("/pinned" + call.request.uri.substringAfter("/favorites", ""), permanent = true)
+        }
+        get("/favorites/export.xlsx") {
+            call.respondRedirect("/pinned/export.xlsx" + call.request.uri.substringAfter("/favorites/export.xlsx", ""), permanent = true)
+        }
+
         /**
-         * Un-favorites a deal from the favorites screen itself.
+         * Unpins a deal from the Pinned screen itself.
          *
-         * Distinct from `POST /deal/{id}/state` — which performs the same update — because that one
+         * Distinct from `POST /deal/{id}/unpin` — which performs the same update — because that one
          * answers with a rendered row. Swapped into this page it would leave a row that no longer
-         * belongs here still sitting among the favorites, which is the "stale row claiming to be
+         * belongs here still sitting among the pins, which is the "stale row claiming to be
          * tracked" problem `POST /tracked/{id}/hide` exists to avoid. An empty body plus htmx's
          * `outerHTML` swap removes it instead.
-         *
-         * Writes SEEN rather than NEW: you have plainly seen a row you once favorited. See
-         * `favoriteToggle`.
          */
-        post("/favorites/{id}/remove") {
+        post("/pinned/{id}/remove") {
             val id = call.parameters["id"]?.toLongOrNull()
-                ?: return@post call.respondText("bad id", status = HttpStatusCode.BadRequest)
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
 
-            withContext(Dispatchers.IO) { repo.updateState(id, DealState.SEEN) }
+            withContext(Dispatchers.IO) { repo.setPinned(listOf(id), false) }
             call.respondText("", ContentType.Text.Html)
+        }
+
+        /**
+         * Pins or unpins a feed row and answers with the row, as the state buttons do. Pinning also
+         * lifts a hide: a row you chose to keep is not one you chose to stop seeing.
+         */
+        post("/deal/{id}/{action}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
+            val pinned = when (call.parameters["action"]) {
+                "pin" -> true
+                "unpin" -> false
+                else -> return@post call.respondText(tr("unknown action", "acción desconocida"), status = HttpStatusCode.NotFound)
+            }
+            withContext(Dispatchers.IO) {
+                repo.setPinned(listOf(id), pinned)
+                if (pinned && repo.findById(id)?.state == DealState.DISMISSED) repo.updateState(id, DealState.SEEN)
+            }
+            respondRow(id, repo)
         }
 
         /**
@@ -471,7 +496,7 @@ fun Application.routes(
             }
         }
 
-        // Same shape as the feed's favorite toggle: on Deals and All items the row is swapped for itself
+        // Same shape as the feed's pin toggle: on Deals and All items the row is swapped for itself
         // with the new pin state; on Pinned an unpin answers with an empty body, so htmx's outerHTML swap
         // removes the row -- leaving it there would put an unpinned item on the Pinned list.
         post("/groceries/{id}/{action}") {
@@ -592,7 +617,7 @@ fun Application.routes(
                 page(deal.title) {
                     dealDetail(
                         deal, history, pinnable = pinnable, groceryPinnable = groceryPinnable, elsewhere = elsewhere,
-                        // The feed's favorite and hide only mean something for a row the feed can show.
+                        // The feed's pin and hide buttons, for a row the feed can show; the others pin on their own tab.
                         feedRow = !pinnable && !groceryPinnable && deal.source !in feedHiddenSources(app),
                     )
                 }
@@ -884,16 +909,17 @@ private fun sourceNames(repo: DealRepository, app: AppConfig): List<String> =
     (app.providers.map { it.id } + repo.knownSources()).distinct().sorted()
 
 /**
- * The Source dropdown on the feed and on favorites: enabled providers only, and on the feed none of
+ * The Source dropdown on the feed and on Pinned: enabled providers only, and none of
  * [feedHiddenSources]. It used to list every provider and every source ever stored -- 24 on
  * 2026-11-02, among them the grocery stores, both Amazon providers, two disabled ones and a feed
  * last fetched in August -- and choosing any of those gave an empty page with no reason given.
  *
- * Favorites keeps the hidden types, since a favorite stays wherever it came from. The source the
- * URL asks for is always kept, so a link to a since-disabled provider still shows what it selects.
+ * Pinned leaves them out too: their pins are listed on their own tabs (see [pinnedFeedFilter]). The
+ * source the URL asks for is always kept, so a link to a since-disabled provider still shows what it
+ * selects.
  */
-internal fun feedSourceOptions(app: AppConfig, screen: FeedScreen, current: String?): List<String> {
-    val hidden = if (screen == FeedScreen.FEED) feedHiddenSources(app).toSet() else emptySet()
+internal fun feedSourceOptions(app: AppConfig, @Suppress("UNUSED_PARAMETER") screen: FeedScreen, current: String?): List<String> {
+    val hidden = feedHiddenSources(app).toSet()
     val offered = app.enabledProviders.map { it.id }.filterNot { it in hidden }
     return (offered + listOfNotNull(current?.takeIf { it.isNotBlank() })).distinct().sorted()
 }
@@ -972,8 +998,8 @@ internal val FILTER_PARAMS = listOf(
 /**
  * Filter parameters that cannot remove a row from the page.
  *
- * `sort` only reorders, and `state` is pinned server-side by [favoritesFilter] and has no control
- * on that screen. So neither can be the reason a favorite is missing, and treating either as a
+ * `sort` only reorders, and `state` is fixed server-side by [pinnedFeedFilter] and has no control
+ * on that screen. So neither can be the reason a pin is missing, and treating either as a
  * narrowing filter would offer to clear something that was never excluding anything.
  */
 private val NON_NARROWING_PARAMS = setOf("sort", "state", "hideWatched", "hideNoShip")
@@ -999,7 +1025,7 @@ internal fun feedFilterFrom(params: Parameters): FeedFilter = FeedFilter(
         ?.let { runCatching { listOf(DealState.valueOf(it)) }.getOrNull() }
         // Dismissed deals are hidden by default -- that is the point of dismissing
         // them -- but remain reachable via the State filter.
-        ?: listOf(DealState.NEW, DealState.SEEN, DealState.FAVORITE),
+        ?: listOf(DealState.NEW, DealState.SEEN),
     coShipping = params["co"]?.takeIf { it.isNotBlank() }
         ?.let { runCatching { listOf(CoShipping.valueOf(it)) }.getOrNull() }.orEmpty(),
     minScore = params["minScore"]?.takeIf { it.isNotBlank() }?.toIntOrNull(),
@@ -1036,8 +1062,7 @@ internal fun feedHiddenSources(app: AppConfig): List<String> =
  * The feed's own filter: [feedFilterFrom] with the fetch-everything providers left out.
  *
  * Shared by the feed, its export and its Ask panel, for the reason [feedFilterFrom] is shared.
- * Favorites deliberately does NOT use it: a row the operator chose stays theirs wherever it came
- * from.
+ * Pinned does not use it, since it does not default to one source: see [pinnedFeedFilter].
  */
 internal fun feedScreenFilter(params: Parameters, app: AppConfig): FeedFilter {
     val source = feedSourceParam(params, app)
@@ -1062,26 +1087,31 @@ internal fun feedSourceParam(params: Parameters, app: AppConfig): String {
 }
 
 /**
- * The favorites scope, as a [FeedFilter].
+ * The feed's Pinned scope, as a [FeedFilter].
  *
- * Shared by `/favorites` and `/favorites/export.xlsx` for the same reason [feedFilterFrom] is shared
- * by the feed and its export: two copies of a filter drift, and the failure is silent.
+ * Shared by `/pinned`, `/pinned/export.xlsx` and the Ask panel for the same reason [feedFilterFrom] is
+ * shared by the feed and its export: two copies of a filter drift, and the failure is silent.
  *
- * Both overrides are deliberate:
+ * The overrides are deliberate:
  *
- *  - **`states` is PINNED, not read from the query string.** The screen renders no State control
+ *  - **`states` is fixed, not read from the query string.** The screen renders no State control
  *    (see [FeedScreen]), so honouring `?state=DISMISSED` here would let a hand-edited URL turn the
- *    favorites page into a general feed while its heading still said "favorites".
- *  - **`includeInactive`** is what keeps a favorite visible after its offer ends. See the field's
- *    own comment: retirement is keyed on `last_seen_at` alone and never consults `state`.
+ *    page into a general feed while its heading still said "pinned". Every state is shown: a pin
+ *    is a pin whatever else the row says.
+ *  - **`includeInactive`** is what keeps a pin visible after its offer ends. See the field's
+ *    own comment: retirement is keyed on `last_seen_at` alone and never consults the pin.
+ *  - **The feed's hidden sources stay out**, as on the feed. Tracked and grocery rows are pinned too,
+ *    but their pins live on their own tabs' Pinned lists -- 300 staples here would bury the deals.
  *
  * Everything else — search, source, category, sort, the chip presets — comes straight from
  * [feedFilterFrom], so the feed's whole filter bar works here unchanged.
  */
-internal fun favoritesFilter(params: Parameters): FeedFilter = feedFilterFrom(params).copy(
-    states = listOf(DealState.FAVORITE),
+internal fun pinnedFeedFilter(params: Parameters, app: AppConfig): FeedFilter = feedFilterFrom(params).copy(
+    excludeSources = feedHiddenSources(app),
+    states = emptyList(),
+    pinnedOnly = true,
     includeInactive = true,
-    // The checkbox is not rendered here, and a favorite is yours whether or not a watch covers it.
+    // The checkbox is not rendered here, and a pin is yours whether or not a watch covers it.
     hideWatched = false,
     hideNoShip = false,
 )

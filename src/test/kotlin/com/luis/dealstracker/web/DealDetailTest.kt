@@ -53,9 +53,9 @@ class DealDetailTest {
 
     /** The feed's own endpoints, posted from here, reload the page instead of swapping a feed row in. */
     @Test
-    fun `a feed row gets favorite, hide and the shipping buttons, wired to reload`() {
+    fun `a feed row gets pin, hide and the shipping buttons, wired to reload`() {
         val html = render(deal())
-        assertTrue(html.contains("hx-post=\"/deal/7/state?value=FAVORITE\""))
+        assertTrue(html.contains("hx-post=\"/deal/7/pin\""))
         assertTrue(html.contains("hx-post=\"/deal/7/state?value=DISMISSED\""))
         assertTrue(html.contains("hx-post=\"/deal/7/co-shipping?value=YES\""))
         assertTrue(html.contains("hx-post=\"/deal/7/verify\""))
@@ -67,7 +67,7 @@ class DealDetailTest {
     @Test
     fun `a hidden deal offers unhide, and a non-feed row gets no feed buttons`() {
         assertTrue(render(deal(state = DealState.DISMISSED)).contains("value=SEEN"))
-        assertFalse(render(deal(), feedRow = false).contains("value=FAVORITE"))
+        assertFalse(render(deal(), feedRow = false).contains("/deal/7/pin"))
     }
 
     /** A Colombian retailer's default YES says nothing, so the Colombia line is left off. */
@@ -122,5 +122,13 @@ class DealDetailTest {
         assertTrue(y.contains("US$35.00") && y.contains("US$17.55"), y)
         val x = html.substringAfter("spark-x").substringBefore("</div>")
         assertTrue(x.contains("1 Oct") && x.contains("31 Oct"), x)
+    }
+
+    /** On the deal page too, unpinning stays on the page (it reloads) rather than posting to Pinned's remove route. */
+    @Test
+    fun `a pinned feed row offers unpin and no hide`() {
+        val html = render(deal().copy(pinnedAt = Instant.EPOCH))
+        assertTrue(html.contains("hx-post=\"/deal/7/unpin\""))
+        assertFalse(html.contains("value=DISMISSED"))
     }
 }

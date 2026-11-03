@@ -211,7 +211,7 @@ internal fun shoppingPlan(rows: List<GroceryRow>): ShoppingPlan? {
 }
 
 /**
- * The grocery tab's three screens, as the feed has All deals / Favorites: Deals (the default),
+ * The grocery tab's three screens, as the feed has All deals / Pinned: Deals (the default),
  * everything on the shelf for finding a staple, and the staples pinned so far.
  */
 internal enum class GroceryView(val key: String, val label: String, private val labelEs: String) {
@@ -473,14 +473,14 @@ private fun MAIN.groceryBody(
         return
     }
 
-    // The same segmented control the feed uses for All deals / Favorites, so the two tabs read alike.
+    // The same segmented control the feed uses for All deals / Pinned, so the two tabs read alike.
     div("scopes") {
         GroceryView.entries.forEach { v ->
             val on = v == controls.view
             a(href = controls.url(view = v, sort = null, search = null), classes = if (on) "scope on" else "scope") {
                 if (on) attributes["aria-current"] = "page"
                 +v.display()
-                // Shown only when there are some, as on Favorites: "Pinned 0" reads as a broken counter.
+                // Shown only when there are some, as on the feed: "Pinned 0" reads as a broken counter.
                 if (v == GroceryView.PINNED && pinnedCount > 0) span("scope-count") { +"$pinnedCount" }
             }
         }

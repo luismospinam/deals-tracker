@@ -31,10 +31,10 @@ private const val CSS_VERSION = "71"
 /**
  * Which feed-shaped screen is being rendered.
  *
- * `/` and `/favorites` share every column, every filter and the whole row renderer — favorites is
- * the feed restricted to rows Luis chose, not a second presentation of them. What differs is small
+ * `/` and `/pinned` share every column, every filter and the whole row renderer — Pinned is
+ * the feed restricted to rows Luis pinned, not a second presentation of them. What differs is small
  * and varies *together*, which is why it travels as one value rather than three parameters: a form
- * posting to `/favorites` while its export button points at `/export.xlsx` would hand over a file
+ * posting to `/pinned` while its export button points at `/export.xlsx` would hand over a file
  * that silently disagreed with the page it was taken from.
  */
 // Public rather than internal only because `filterForm`, `dealTable` and `rowFragment` are, and an
@@ -47,13 +47,13 @@ enum class FeedScreen(
     /**
      * Whether to render the State control.
      *
-     * False on favorites, which pins `states` server-side: a dropdown offering "dismissed" on a
-     * page that can only ever show favorites would be a control that does nothing.
+     * False on Pinned, which fixes `states` server-side: a dropdown offering "dismissed" on a
+     * page that shows pins whatever their state would be a control that does nothing.
      */
     val showState: Boolean,
 ) {
     FEED("/", "/export.xlsx", showState = true),
-    FAVORITES("/favorites", "/favorites/export.xlsx", showState = false),
+    PINNED("/pinned", "/pinned/export.xlsx", showState = false),
 }
 
 /**
@@ -215,11 +215,11 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         header {
             h1 { +"Deals Tracker" }
             span("sub") { a(href = "/") { +tr("feed", "ofertas") } }
-            // Favorites is deliberately NOT here. It was a fourth top-level tab, which put it beside
-            // `tracked` and `watches` and so implied it was a fourth kind of thing — but it is the
-            // feed with `state = FAVORITE` pinned: same query, same columns, same row renderer, same
+            // The feed's Pinned (Favorites until V33) is deliberately NOT here. It was a fourth top-level
+            // tab, which put it beside `tracked` and `watches` and so implied it was a fourth kind of
+            // thing — but it is the feed restricted to pinned rows: same query, same columns, same row renderer, same
             // filters (see FeedScreen). `tracked` and `watches` genuinely are different questions with
-            // different columns and different tables behind them. So favorites moved one level down,
+            // different columns and different tables behind them. So Pinned moved one level down,
             // to the scope row `feedScopes` renders inside the feed screen itself.
             // A separate tab rather than a filter on the feed, because it answers a different
             // question. The feed asks "what is discounted right now?" and is sorted by deal
@@ -335,7 +335,7 @@ internal fun hiddenFilterCount(q: Map<String, String>, screen: FeedScreen = Feed
     ADVANCED_PARAMS.count { p ->
         // A parameter whose control this screen does not render cannot be counted: the badge means
         // "something you cannot see is narrowing this", and offering to reveal a control that is
-        // not there would be a dead end. Favorites pins `state` server-side.
+        // not there would be a dead end. Pinned fixes `state` server-side.
         if (p == "state" && !screen.showState) return@count false
         val v = q[p].orEmpty()
         v.isNotBlank() && FILTER_CHIPS.none { it.param == p && it.value == v }
@@ -347,18 +347,18 @@ internal fun hiddenFilterCount(q: Map<String, String>, screen: FeedScreen = Feed
  * A scope is not a filter, and the distinction is why this is its own control above the filter bar
  * rather than a fourth chip in [FILTER_CHIPS]. A chip narrows *within* what you are looking at and
  * composes with the others; scope decides what the set is in the first place, and the two scopes are
- * mutually exclusive. Putting "Favorites" among the chips would also have implied it could be
- * combined with `state=DISMISSED`, which [favoritesFilter] pins server-side precisely to prevent.
+ * mutually exclusive. Putting "Pinned" among the chips would also have implied it could be
+ * combined with `state=DISMISSED`, which [pinnedFeedFilter] fixes server-side precisely to prevent.
  *
  * The current filters ride along in the links, so switching scope keeps your search and sort. Only
- * params this screen actually renders are carried — `state` is dropped, since favorites pins it and
+ * params this screen actually renders are carried — `state` is dropped, since Pinned fixes it and
  * a carried value would be silently ignored.
  *
  * Deliberately anchors rather than form buttons: these are two addressable pages (`/` and
- * `/favorites`), both bookmarkable, and an anchor is what the browser's back button expects.
+ * `/pinned`), both bookmarkable, and an anchor is what the browser's back button expects.
  */
-fun MAIN.feedScopes(q: Map<String, String>, screen: FeedScreen, favoriteCount: Int) {
-    // Rebuilt rather than passed through wholesale: `state` is meaningless on favorites, and an
+fun MAIN.feedScopes(q: Map<String, String>, screen: FeedScreen, pinnedCount: Int) {
+    // Rebuilt rather than passed through wholesale: `state` is meaningless on Pinned, and an
     // empty value would add `?state=` noise to every link.
     val carried = q.filterKeys { it != "state" }
         .filterValues { it.isNotBlank() }
@@ -374,14 +374,14 @@ fun MAIN.feedScopes(q: Map<String, String>, screen: FeedScreen, favoriteCount: I
             +tr("All deals", "Todas")
         }
         a(
-            href = "/favorites$suffix",
-            classes = if (screen == FeedScreen.FAVORITES) "scope on" else "scope",
+            href = "/pinned$suffix",
+            classes = if (screen == FeedScreen.PINNED) "scope on" else "scope",
         ) {
-            if (screen == FeedScreen.FAVORITES) attributes["aria-current"] = "page"
-            +tr("Favorites", "Favoritos")
-            // Shown only when there are some. A "Favorites 0" badge reads as a broken counter,
+            if (screen == FeedScreen.PINNED) attributes["aria-current"] = "page"
+            +tr("Pinned", "Fijados")
+            // Shown only when there are some. A "Pinned 0" badge reads as a broken counter,
             // while a bare label reads as an invitation -- and zero is the starting state.
-            if (favoriteCount > 0) span("scope-count") { +"$favoriteCount" }
+            if (pinnedCount > 0) span("scope-count") { +"$pinnedCount" }
         }
     }
 }
@@ -504,11 +504,11 @@ fun MAIN.filterForm(
                     // Says so explicitly, because this export breaks the guarantee the feed's
                     // makes -- retired offers are included here, and the file's Export info
                     // sheet records that too.
-                    FeedScreen.FAVORITES -> tr(
-                        "Download your favorites as an Excel file, " +
+                    FeedScreen.PINNED -> tr(
+                        "Download your pinned deals as an Excel file, " +
                             "including any whose offer has since expired.",
-                        "Descarga tus favoritos como archivo de Excel, " +
-                            "incluidos los que ya vencieron.",
+                        "Descarga tus ofertas fijadas como archivo de Excel, " +
+                            "incluidas las que ya vencieron.",
                     )
                 }
                 +tr("Export to Excel", "Exportar a Excel")
@@ -525,7 +525,7 @@ fun MAIN.filterForm(
         // Checkboxes rather than chips: plain on/off switches with nothing to clear. Both are ON by
         // default, so "off" has to be sent explicitly: the hidden `0` after each box is what an
         // unticked form submits (see `feedFilterFrom`, which reads the FIRST value, so the hidden
-        // input must come after its box). Feed only -- see `favoritesFilter`. They submit on
+        // input must come after its box). Feed only -- see `pinnedFeedFilter`. They submit on
         // change, like the chips do.
         if (screen == FeedScreen.FEED) {
             div("toggles") {
@@ -633,7 +633,6 @@ fun MAIN.filterForm(
                             listOf(
                                 "" to tr("active", "activas"),
                                 "NEW" to tr("new", "nuevas"),
-                                "FAVORITE" to tr("favorite", "favoritas"),
                                 "DISMISSED" to tr("dismissed", "ocultas"),
                             ).forEach { (v, t) ->
                                 option {
@@ -686,9 +685,9 @@ fun MAIN.filterForm(
 
 /**
  * [filtered] distinguishes "you have none of these" from "your filters exclude them all", which
- * matter differently on the favorites screen: the first needs telling where a favorite comes from,
+ * matter differently on the Pinned screen: the first needs telling where a pin comes from,
  * the second needs telling that clearing the filters brings yours back. Conflating them told a
- * page with two favorites on it that it had none.
+ * page with two pins on it that it had none.
  */
 fun MAIN.dealTable(
     deals: List<Deal>,
@@ -704,16 +703,16 @@ fun MAIN.dealTable(
                     +tr(" or press Refresh now.", " o pulsa Actualizar ahora.")
                 }
                 filtered -> {
-                    +tr("None of your favorites match those filters. ", "Ninguno de tus favoritos coincide con esos filtros. ")
-                    a(href = "/favorites") { +tr("Show all favorites", "Ver todos los favoritos") }
+                    +tr("None of your pinned deals match those filters. ", "Ninguna de tus ofertas fijadas coincide con esos filtros. ")
+                    a(href = "/pinned") { +tr("Show all pinned", "Ver todas las fijadas") }
                     +"."
                 }
-                // Says where a favorite comes from, since this page has no control that creates one.
+                // Says where a pin comes from, since this page has no control that creates one.
                 // Names the scope control by its own visible label ("All deals") rather than "the
                 // feed": both scopes are the feed now, so that phrasing no longer points anywhere.
                 else -> {
-                    +tr("No favorites yet. Press ", "Aún no tienes favoritos. Pulsa ")
-                    code { +tr("☆ favorite", "☆ favorita") }
+                    +tr("Nothing pinned yet. Press ", "Aún no hay nada fijado. Pulsa ")
+                    code { +tr("☆ pin", "☆ fijar") }
                     +tr(" on any row under ", " en cualquier fila de ")
                     a(href = "/") { +tr("All deals", "Todas") }
                     +tr(
@@ -977,17 +976,16 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
                 if (Duration.between(deal.firstSeenAt, Instant.now()).toHours() < 24) {
                     span("chip chip-new") { +tr("new", "nueva") }
                 }
-                if (deal.state == DealState.FAVORITE) {
+                if (deal.pinnedAt != null) {
                     span("chip chip-fav") {
                         title = tr(
-                            "One of your favorites. It stays on /favorites even after the " +
-                                "offer expires.",
-                            "Una de tus favoritas. Se queda en /favorites incluso después de que la oferta vence.",
+                            "Pinned. It stays on Pinned even after the offer expires.",
+                            "Fijada. Se queda en Fijados incluso después de que la oferta vence.",
                         )
-                        +tr("★ favorite", "★ favorita")
+                        +tr("★ pinned", "★ fijada")
                     }
                 }
-                // Only reachable on /favorites, which is the one screen that does not filter on
+                // Only reachable on /pinned, which is the one screen that does not filter on
                 // is_active. Says WHEN it was last seen rather than merely that it is gone: the
                 // price history is intact, and how stale the last observation is decides whether
                 // the number beside it still means anything.
@@ -1038,11 +1036,11 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
 
         td(classes = "col-act") {
             div("actions") {
-                favoriteToggle(deal, screen)
-                // Deliberately absent on a favorited row. `state` holds ONE value, so DISMISSED
-                // would overwrite FAVORITE -- hiding would silently un-favorite, and the undo
-                // lives behind a dropdown on another screen. Un-favorite first, and Hide returns.
-                if (deal.state != DealState.FAVORITE) {
+                pinToggle(deal, screen)
+                // Deliberately absent on a pinned row: hiding something you chose to keep is a
+                // contradiction, and a hidden pin would vanish from the feed while staying on
+                // Pinned. Unpin first, and Hide returns.
+                if (deal.pinnedAt == null) {
                     stateButton(deal.id, DealState.DISMISSED, tr("Hide", "Ocultar"))
                 }
                 a(href = "/deal/${deal.id}") { +tr("history", "historial") }
@@ -1217,29 +1215,22 @@ internal fun kotlinx.html.HTMLTag.dealAction(post: String, dealId: Long, onDetai
 }
 
 /**
- * The favorite toggle: marks a deal, and un-marks it.
+ * The feed's pin toggle: the same ☆ pin as Tracked and Groceries, stored the same way (`pinned_at`).
  *
- * ## Why un-favoriting writes SEEN rather than NEW
+ * ## Why unpinning posts somewhere different on each screen
  *
- * `state` is single-valued, so coming off FAVORITE has to land on something, and NEW would be a
- * lie — you have plainly seen a row you once favorited. This is the first thing in the app to
- * write SEEN, which `DealScore` notes was in the enum but never set; the consequence is that a
- * previously-favorited row loses the feed's "new" chip, which is correct.
- *
- * ## Why un-favoriting posts somewhere different on each screen
- *
- * On the feed the row stays and is swapped in place, so `/deal/{id}/state` — which answers with a
- * feed-shaped row — is exactly right. On `/favorites` the row no longer belongs on the page at
- * all, so it posts to `/favorites/{id}/remove`, which answers empty and lets the `outerHTML` swap
- * delete it. Swapping in a still-rendered row there would leave it claiming to be a favorite on a
- * page that lists favorites — the same trap `POST /tracked/{id}/hide` exists to avoid.
+ * On the feed the row stays and is swapped in place, so `/deal/{id}/unpin` — which answers with a
+ * feed-shaped row — is exactly right. On `/pinned` the row no longer belongs on the page at all,
+ * so it posts to `/pinned/{id}/remove`, which answers empty and lets the `outerHTML` swap delete
+ * it. Swapping in a still-rendered row there would leave it claiming to be pinned on a page that
+ * lists pins — the same trap `POST /tracked/{id}/hide` exists to avoid.
  */
-private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen, onDetail: Boolean = false) {
-    val on = deal.state == DealState.FAVORITE
+private fun DIV.pinToggle(deal: Deal, screen: FeedScreen, onDetail: Boolean = false) {
+    val on = deal.pinnedAt != null
     val post = when {
-        !on -> "/deal/${deal.id}/state?value=${DealState.FAVORITE.name}"
-        screen == FeedScreen.FAVORITES -> "/favorites/${deal.id}/remove"
-        else -> "/deal/${deal.id}/state?value=${DealState.SEEN.name}"
+        !on -> "/deal/${deal.id}/pin"
+        screen == FeedScreen.PINNED && !onDetail -> "/pinned/${deal.id}/remove"
+        else -> "/deal/${deal.id}/unpin"
     }
 
     button(classes = if (on) "fav-btn on" else "fav-btn") {
@@ -1248,16 +1239,16 @@ private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen, onDetail: Boolean
         // filter chips' convention.
         attributes["aria-pressed"] = on.toString()
         title = if (on) {
-            tr("Remove from favorites", "Quitar de favoritos") +
-                if (screen == FeedScreen.FAVORITES) tr(" — the row leaves this page", ": la fila sale de esta página") else ""
+            tr("Unpin", "Quitar de fijados") +
+                if (screen == FeedScreen.PINNED) tr(" — the row leaves this page", ": la fila sale de esta página") else ""
         } else {
             tr(
-                "Keep this deal on the favorites page, even after the offer ends",
-                "Guardar esta oferta en favoritos, incluso después de que termine",
+                "Pin this deal, listed under Pinned even after the offer ends",
+                "Fijar esta oferta, aparece en Fijados incluso después de que termine",
             )
         }
         // The glyph is filled or hollow AND the word changes, so the state never rests on colour.
-        +if (on) tr("★ favorited", "★ en favoritos") else tr("☆ favorite", "☆ favorita")
+        +if (on) tr("★ pinned", "★ fijada") else tr("☆ pin", "☆ fijar")
     }
 }
 
@@ -1275,7 +1266,7 @@ private fun DIV.favoriteToggle(deal: Deal, screen: FeedScreen, onDetail: Boolean
  * to the one clicked, which reads as the button doing nothing.
  *
  * [screen] has to travel with the swap, not just with the initial render: a row swapped into
- * `/favorites` by a shipping check needs its favorite toggle still pointed at that page's own
+ * `/pinned` by a shipping check needs its pin toggle still pointed at that page's own
  * remove route, or the next click would swap a row back in instead of removing it.
  */
 fun rowFragment(deal: Deal, note: String? = null, screen: FeedScreen = FeedScreen.FEED): String {
@@ -1324,8 +1315,8 @@ fun MAIN.dealDetail(
     else if (groceryPinnable) div("actions") { groceryDetailPinButton(deal.id, deal.pinnedAt != null) }
     // A feed row gets the feed's own controls, which posted from here reload the page.
     else if (feedRow) div("actions detail-actions") {
-        favoriteToggle(deal, FeedScreen.FEED, onDetail = true)
-        if (deal.state != DealState.FAVORITE) {
+        pinToggle(deal, FeedScreen.FEED, onDetail = true)
+        if (deal.pinnedAt == null) {
             if (deal.state == DealState.DISMISSED) {
                 stateButton(deal.id, DealState.SEEN, tr("Unhide", "Mostrar"), onDetail = true)
             } else {

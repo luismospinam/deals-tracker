@@ -43,7 +43,7 @@ data class FeedFilter(
     val minDiscount: BigDecimal? = null,
     val maxPrice: BigDecimal? = null,
     val minPrice: BigDecimal? = null,
-    val states: List<DealState> = listOf(DealState.NEW, DealState.SEEN, DealState.FAVORITE),
+    val states: List<DealState> = listOf(DealState.NEW, DealState.SEEN),
     val coShipping: List<CoShipping> = emptyList(),
     val minScore: Int? = null,
     val maxAgeDays: Int? = null,
@@ -54,15 +54,17 @@ data class FeedFilter(
     /**
      * Includes deals retired by `deactivateStale`, which every other query excludes.
      *
-     * The favorites screen is the only caller, and it needs this because retirement is keyed on
-     * `last_seen_at` alone — `deactivateStale` never reads `state`, so a favorited deal whose
-     * source stops returning it drops out after 48h exactly like an unfavorited one. A favorite
-     * disappearing reads as "it was never saved" rather than "the offer ended", and the second is
-     * the useful fact: the row and its full price history are still here.
+     * The feed's Pinned screen is the only caller, and it needs this because retirement is keyed on
+     * `last_seen_at` alone — `deactivateStale` never reads the pin, so a pinned deal whose source
+     * stops returning it drops out after 48h exactly like any other. A pin disappearing reads as "it
+     * was never kept" rather than "the offer ended", and the second is the useful fact: the row and
+     * its full price history are still here.
      *
      * Default false, so no existing query changes behaviour by omission.
      */
     val includeInactive: Boolean = false,
+    /** Only pinned rows (`pinned_at` set): the feed's Pinned screen. */
+    val pinnedOnly: Boolean = false,
     /**
      * Leaves out deals a watch already covers, a disabled one included, so the feed shows what no watch is
      * hunting. The watch's own page is where those belong.
@@ -613,9 +615,10 @@ class DealRepository(
         val where = mutableListOf<String>()
         val params = mutableListOf<Any>()
 
-        // Applied unless a caller opts out, which only the favorites screen does -- see
+        // Applied unless a caller opts out, which only the Pinned screen does -- see
         // FeedFilter.includeInactive. Kept first so the common query's plan is unchanged.
         if (!filter.includeInactive) where += "d.is_active"
+        if (filter.pinnedOnly) where += "d.pinned_at IS NOT NULL"
 
         // These are bound as a single SQL array parameter, so the list must be added
         // as one element -- `params += list` would splat it into separate params.

@@ -184,7 +184,7 @@ Design decisions worth not undoing:
 
 - **Links to the shop and to Amazon.** A Slickdeals row's link is the forum thread, so an ASIN also
   gets `amazon.com/dp/<ASIN>`. Each link is named after where it goes.
-- **The feed's buttons** (favorite, hide, ships / doesn't, verify). They post to the same endpoints as
+- **The feed's buttons** (pin, hide, ships / doesn't, verify). They post to the same endpoints as
   the feed and reload the page, rather than swapping in a feed-shaped row.
 - **Colombia shipping**, for imports and anything not a plain yes.
 - **Same product elsewhere**: active listings at other retailers sharing a GTIN or brand + model key,
@@ -192,37 +192,36 @@ Design decisions worth not undoing:
 - **A chart with axes.** Readings sit at their real time, not evenly spaced, and the line steps, since a
   price holds until the next reading. High and low on the left, first and last date below.
 
-## Favorites
+## Pinned (the feed's)
 
-`☆ favorite` on any feed row marks it; `/favorites` shows those and nothing else. Marking
-survives every poll — `upsertDeal` never touches `state` on conflict — and the toggle
-reverses itself, writing `SEEN` rather than `NEW` because you have plainly seen a row you
-once favorited.
+One gesture across the app: **☆ pin**. On the feed it marks a deal; on Tracked and Groceries it
+marks an item or a staple. All three store it the same way, in `pinned_at`, and each tab lists its
+own pins under its own **Pinned**: the feed's at `/pinned`, beside All deals. Tracked and grocery
+pins stay off the feed's list, as their rows stay off the feed. A pin survives every poll and the
+toggle reverses itself.
 
 The screen reuses the feed's own `filterForm` and `dealTable` via `FeedScreen`, so search,
-sort, the chip presets and the Excel export all work there unchanged. Favorites *is* the
-feed restricted to rows you chose, not a second presentation of them.
+sort, the chip presets and the Excel export (which has a **Pinned** column) all work there
+unchanged. It *is* the feed restricted to rows you chose, not a second presentation of them.
 
 Three things here are load-bearing:
 
-- **A retired favorite is kept, marked `expired`.** This is the only query in the app that
+- **A retired pin is kept, marked `expired`.** This is the only query in the app that
   does not filter on `is_active`. Retirement is keyed on `last_seen_at` alone —
-  `deactivateStale` never reads `state` — so without the exception a favorite would vanish
-  48h after its source stopped returning it, which reads as "it was never saved" rather
+  `deactivateStale` never reads the pin — so without the exception a pin would vanish
+  48h after its source stopped returning it, which reads as "it was never kept" rather
   than "the offer ended". The price on an expired row is the last one recorded, not a
   current one, which is why the chip is there at all.
-- **Hide is not offered on a favorited row.** `state` holds one value, so `DISMISSED` would
-  overwrite `FAVORITE`. Rather than warn about that, the button is absent until you
-  un-favorite — the conflict is made impossible to express.
-- **Un-favoriting from `/favorites` posts to `/favorites/{id}/remove`**, which answers with
-  an empty body so htmx's `outerHTML` swap deletes the row. `POST /deal/{id}/state` performs
-  the same update but answers with a rendered row, which on this page would leave something
-  claiming to be a favorite among the favorites.
+- **Hide is not offered on a pinned row.** Hiding something you chose to keep is a contradiction;
+  the button returns once you unpin. Pinning a hidden row (from its deal page) unhides it.
+- **Unpinning from `/pinned` posts to `/pinned/{id}/remove`**, which answers with an empty body so
+  htmx's `outerHTML` swap deletes the row. `POST /deal/{id}/unpin` performs the same update but
+  answers with a rendered row, which on this page would leave something claiming to be pinned
+  among the pins.
 
-`FAVORITE` was called `SAVED` until `V14__favorite_state.sql`, which renamed the stored
-value too — `state` is visible in the State dropdown, the export's `State` column and the
-query string, so a column saying one thing under a UI saying another is a discrepancy the
-operator would see.
+Until `V33__favorites_become_pins.sql` the feed had its own copy of the gesture, **Favorites**: a
+`FAVORITE` value of the single-valued `state` column (`SAVED` before V14). V33 moved every favorite
+to `pinned_at` (as `SEEN`) and dropped the value, and `/favorites` redirects to `/pinned`.
 
 ## Tracking Amazon items in one size
 
@@ -377,7 +376,7 @@ A watch can also search amazon.com: fill in **Amazon terms** on its form, in Eng
 - **Separate from the `amazon` provider** so that its rows stay off Tracked, and its requests are
   not spent from the clothing searches' budget.
 - **Neither Amazon provider appears on the feed**, which ranks offers; both fetch items whether or
-  not they are discounted. Favorites is unaffected. Slickdeals' Amazon deals are still on the feed.
+  not they are discounted. Pinned is unaffected. Slickdeals' Amazon deals are still on the feed.
 - **Shipping is not counted.** An Amazon TV is compared at its item price, even though freight
   to Colombia can nearly match it (`$248.68` on a `$267.99` TV). The rows get the usual
   automatic shipping check, and it shows on the feed and the Tracked tab.
@@ -591,10 +590,10 @@ rather than a guess. Coverage on the first crawl was 99.8% at Carulla and 98.9% 
 ### Pins
 
 The ☆ pin button adds a staple to the **Pinned** screen, the third tab beside Deals and All items,
-the way Favorites sits beside the feed. Pinned shows every pin whatever aisle is picked, and it
+the way the feed's Pinned sits beside All deals. Pinned shows every pin whatever aisle is picked, and it
 keeps a staple that Laureles stopped stocking, greyed out as `unavailable`. Unpinning there
 removes the row immediately. Pins use their own column
-(`pinned_at`, V16) rather than a `DealState`, so it never overwrites a favorite or a hide. Pins
+(`pinned_at`, V16) rather than a `DealState`, so it never overwrites a hide (and since V33 the feed pins the same way). Pins
 send no alerts.
 
 ### Cadence
@@ -787,7 +786,7 @@ Code: `db/DailyChanges.kt` (the query), `web/DailyDigest.kt` (lines and banner).
 
 ## Ask Claude about the rows on screen
 
-The feed, favorites, tracked and watch-detail screens each carry a collapsed **✦ Ask Claude
+The feed, Pinned, tracked and watch-detail screens each carry a collapsed **✦ Ask Claude
 about these rows** panel. Ask "which of these is the best full-motion mount for a 55" TV?" and
 the answer streams in, ranked, with every product it mentions linked to the retailer's page.
 
@@ -799,7 +798,7 @@ it under `defaults:` in `config/sources.yaml`: `askModel` (default `sonnet`), `a
 ### What it sees
 
 The server rebuilds the rows from the page's own query string, using the same functions the page
-calls (`feedFilterFrom`, `favoritesFilter`, `trackedShown`, `watches.candidates`). The browser
+calls (`feedFilterFrom`, `pinnedFeedFilter`, `trackedShown`, `watches.candidates`). The browser
 never sends rows, so an answer is always about what the page shows. A watch sends its whole
 "Matching now" list, not the 15 on the current page.
 
@@ -1063,15 +1062,15 @@ apart.
 | Constraint | Effect |
 |---|---|
 | `d.is_active` | retired deals excluded — anything unseen for `staleAfterHours` (48h) |
-| `state IN (NEW, SEEN, FAVORITE)` | **dismissed deals excluded** — reachable only via the State filter |
+| `state IN (NEW, SEEN)` | **dismissed deals excluded** — reachable only via the State filter |
 | relevance sort | promoted first, then recency, then discount |
 
 So it's every active, non-dismissed deal — not a dump of the `deals` table. Rather than
 leave that to be rediscovered, the **Export info** sheet writes it into every file, along
 with the generated timestamp, the row counts, and each filter's value.
 
-The one exception is `/favorites/export.xlsx`, which keeps retired deals (see
-[Favorites](#favorites)). Its **Export info** sheet says so explicitly rather than
+The one exception is `/pinned/export.xlsx`, which keeps retired deals (see
+[Pinned](#pinned-the-feeds)). Its **Export info** sheet says so explicitly rather than
 repeating the guarantee above: a file whose rows include dead offers while its own sheet
 promises "active deals only" would be read as evidence those offers are live.
 

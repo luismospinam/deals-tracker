@@ -28,6 +28,7 @@ class RowFragmentTest {
         asin: String? = "B01ABCDEFG",
         state: DealState = DealState.NEW,
         isActive: Boolean = true,
+        pinned: Boolean = false,
     ) = Deal(
         id = id,
         source = "slickdeals",
@@ -63,6 +64,7 @@ class RowFragmentTest {
         minPriceEver = BigDecimal("32.99"),
         maxPriceEver = BigDecimal("45.99"),
         observationCount = 3,
+        pinnedAt = if (pinned) now else null,
     )
 
     @Test
@@ -105,63 +107,50 @@ class RowFragmentTest {
     }
 
     /**
-     * The toggle has to be able to undo itself, which the old Save button could not: it always
-     * wrote SAVED, so a second click was a no-op and there was no route off the state at all.
-     *
-     * SEEN rather than NEW, because you have plainly seen a row you once favorited.
+     * The feed's favorite became the pin every other tab has (V33): the same ☆ pin, stored in
+     * `pinned_at`, and the toggle undoes itself.
      */
     @Test
-    fun `the favorite toggle posts the opposite state`() {
-        assertTrue(
-            rowFragment(deal(state = DealState.NEW)).contains("/deal/7/state?value=FAVORITE"),
-            "an unmarked row must offer to favorite",
-        )
-        assertTrue(
-            rowFragment(deal(state = DealState.FAVORITE)).contains("/deal/7/state?value=SEEN"),
-            "a favorited row must offer to un-favorite",
-        )
+    fun `the pin toggle posts the opposite action`() {
+        assertTrue(rowFragment(deal()).contains("/deal/7/pin\""), "an unpinned row must offer to pin")
+        assertTrue(rowFragment(deal()).contains("☆ pin"))
+        val pinned = rowFragment(deal(pinned = true))
+        assertTrue(pinned.contains("/deal/7/unpin\""), "a pinned row must offer to unpin")
+        assertTrue(pinned.contains("★ pinned"))
+        assertFalse(pinned.contains("favorite"), "no trace of the old name")
+    }
+
+    /** Hiding a row you chose to keep is a contradiction, so the button is not offered -- unpin first. */
+    @Test
+    fun `hide is withheld from a pinned row`() {
+        assertTrue(rowFragment(deal()).contains("value=DISMISSED"), "an unpinned row keeps Hide")
+        assertFalse(rowFragment(deal(pinned = true)).contains("value=DISMISSED"))
     }
 
     /**
-     * Hide and favorite write the same single-valued column, so DISMISSED would overwrite
-     * FAVORITE. Rather than warn about that, the button is not offered — un-favorite first.
+     * On /pinned the row leaves the page, so unpinning there posts to a route that answers empty.
+     * Swapping in a rendered row would leave it claiming to be pinned on the Pinned page — the same
+     * trap POST /tracked/{id}/hide exists to avoid.
      */
     @Test
-    fun `hide is withheld from a favorited row`() {
-        assertTrue(
-            rowFragment(deal(state = DealState.NEW)).contains("value=DISMISSED"),
-            "an unmarked row keeps Hide",
-        )
-        assertFalse(
-            rowFragment(deal(state = DealState.FAVORITE)).contains("value=DISMISSED"),
-            "hiding a favorite would silently un-favorite it, so it must not be offered",
-        )
+    fun `unpinning from the Pinned screen posts to the removing route`() {
+        val html = rowFragment(deal(pinned = true), screen = FeedScreen.PINNED)
+        assertTrue(html.contains("/pinned/7/remove"), "must post to the route that removes the row")
+        assertFalse(html.contains("/deal/7/unpin"), "the in-place swap would leave a stale row")
     }
 
     /**
-     * On /favorites the row leaves the page, so un-favoriting there posts to a route that answers
-     * empty. Swapping in a rendered row would leave it claiming to be a favorite on the favorites
-     * page — the same trap POST /tracked/{id}/hide exists to avoid.
-     */
-    @Test
-    fun `un-favoriting from the favorites screen posts to the removing route`() {
-        val html = rowFragment(deal(state = DealState.FAVORITE), screen = FeedScreen.FAVORITES)
-        assertTrue(html.contains("/favorites/7/remove"), "must post to the route that removes the row")
-        assertFalse(html.contains("state?value=SEEN"), "the in-place swap would leave a stale row")
-    }
-
-    /**
-     * A retired favorite is kept rather than hidden, so the row has to say the offer ended — the
+     * A retired pin is kept rather than hidden, so the row has to say the offer ended — the
      * price beside it is the last one recorded, not a current one.
      */
     @Test
     fun `a retired row is marked expired`() {
         assertTrue(
-            rowFragment(deal(state = DealState.FAVORITE, isActive = false)).contains("expired"),
+            rowFragment(deal(pinned = true, isActive = false)).contains("expired"),
             "a retired row must say so rather than presenting a stale price as live",
         )
         assertFalse(
-            rowFragment(deal(state = DealState.FAVORITE)).contains("chip-expired"),
+            rowFragment(deal(pinned = true)).contains("chip-expired"),
             "a live row must not be marked expired",
         )
     }

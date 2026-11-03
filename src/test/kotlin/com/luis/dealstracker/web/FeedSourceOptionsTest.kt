@@ -35,13 +35,10 @@ class FeedSourceOptionsTest {
         assertEquals(listOf("exito", "slickdeals"), feedSourceOptions(app, FeedScreen.FEED, current = null))
     }
 
-    /** A favorite stays wherever it came from, so Amazon and groceries are choosable there. */
+    /** Tracked and grocery pins are listed on their own tabs, so Pinned offers what the feed offers. */
     @Test
-    fun `favorites offers every enabled source`() {
-        assertEquals(
-            listOf("amazon", "amazon-watches", "exito", "exito-grocery", "pricesmart-americas-grocery", "slickdeals"),
-            feedSourceOptions(app, FeedScreen.FAVORITES, current = ""),
-        )
+    fun `Pinned offers the feed's sources`() {
+        assertEquals(listOf("exito", "slickdeals"), feedSourceOptions(app, FeedScreen.PINNED, current = ""))
     }
 
     /** An old link to a since-disabled source still shows what it selects, rather than silently "all". */

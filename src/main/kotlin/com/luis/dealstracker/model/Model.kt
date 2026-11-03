@@ -27,13 +27,12 @@ fun formatMoney(amount: BigDecimal, currency: String): String = when (currency) 
 }
 
 /**
- * Where a deal stands with Luis. Single-valued, which is the constraint that shapes the UI:
- * [FAVORITE] and [DISMISSED] cannot both hold, so the feed does not offer Hide on a favorited
- * row rather than letting a click silently un-favorite it.
+ * Where a deal stands with Luis.
  *
- * [FAVORITE] was called SAVED until V14 — see that migration for why the name moved.
+ * Keeping a row is not a state: it is `pinned_at`, the same on every tab. FAVORITE (SAVED before V14)
+ * was the feed's own copy of that gesture until V33 folded it into the pin.
  */
-enum class DealState { NEW, SEEN, DISMISSED, FAVORITE }
+enum class DealState { NEW, SEEN, DISMISSED }
 
 /**
  * Who can pay a card-only price. See `V17__card_price` and `V20__cmr_card_scope`.

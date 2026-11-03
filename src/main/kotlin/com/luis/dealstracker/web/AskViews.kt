@@ -27,7 +27,7 @@ import kotlinx.serialization.json.put
  * tables are already as wide as the page and a rail would squeeze every column for a feature used
  * occasionally.
  *
- * [screen] names the screen to the server (`feed`, `favorites`, `tracked`, `watch:<id>`). The
+ * [screen] names the screen to the server (`feed`, `pinned`, `tracked`, `watch:<id>`). The
  * filters are NOT rendered in here: the script reads `location.search` at submit time, so a panel
  * always asks about the page as it currently stands — including after htmx has changed nothing in
  * the URL — and there is no second copy of the filter state to fall out of step.

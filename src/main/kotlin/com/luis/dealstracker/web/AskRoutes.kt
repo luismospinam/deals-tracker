@@ -45,7 +45,7 @@ import kotlinx.serialization.json.put
 /**
  * `POST /ask` — one question about the screen the panel sits on.
  *
- * The form carries `screen` (feed, favorites, tracked or watch), `qs` (that page's own query
+ * The form carries `screen` (feed, pinned, tracked or watch), `qs` (that page's own query
  * string, verbatim), an optional `conversation` id, and the `question`. The rows are rebuilt from
  * `screen` + `qs` with the very functions the page used, so the answer is about what is on screen.
  *
@@ -225,7 +225,7 @@ private const val MAX_QUESTION = 2_000
 /**
  * The rows a screen shows, rebuilt from its own query string.
  *
- * Every branch calls the same function its page calls — [feedFilterFrom], [favoritesFilter],
+ * Every branch calls the same function its page calls — [feedFilterFrom], [pinnedFeedFilter],
  * [trackedShown], `watches.candidates` + [matchingComparator] — which is what makes "the rows on
  * screen" a fact rather than an approximation. Null for a screen this does not know.
  */
@@ -241,7 +241,7 @@ internal fun askContextFor(
     groceries: GroceryRepository? = null,
 ): AskContext? = when {
     screen == "feed" -> feedContext("deal feed", feedScreenFilter(params, app), maxRows, repo)
-    screen == "favorites" -> feedContext("favorites", favoritesFilter(params), maxRows, repo)
+    screen == "pinned" -> feedContext("pinned", pinnedFeedFilter(params, app), maxRows, repo)
     screen == "tracked" -> {
         val sources = trackingSources(app)
         val manualAsins = manualItems.trackedAsins()
@@ -323,7 +323,7 @@ internal fun askContextFor(
 }
 
 /**
- * The feed and favorites share one query, in the page's own order, so the first [maxRows] sent are
+ * The feed and Pinned share one query, in the page's own order, so the first [maxRows] sent are
  * the first [maxRows] shown. The omitted count is the real total, not "at least one more".
  */
 private fun feedContext(name: String, filter: FeedFilter, maxRows: Int, repo: DealRepository): AskContext {

@@ -113,6 +113,8 @@ object DealsExport {
         // item's own currency, so it is not d.currency here.
         Col("Ship fee (USD)", "Costo de envío (USD)", 13) { c, d, s -> d.coShippingCost?.let { c.setNum(it.toDouble(), s.money("USD")) } },
         Col("State", "Estado", 11) { c, d, _ -> c.setCellValue(d.state.name) },
+        // What FAVORITE in State used to say, before V33 made it a pin.
+        Col("Pinned", "Fijada", 9) { c, d, _ -> c.setCellValue(d.pinnedAt != null) },
         Col("Promoted", "Destacada", 10) { c, d, _ -> c.setCellValue(d.promoted) },
         // Posted by the source, versus when we first saw it. Distinct facts: Slickdeals'
         // paginated search reaches back over a year, and VTEX publishes no posting date
@@ -294,7 +296,7 @@ internal fun FeedFilter.describe(lang: Lang = Lang.EN): List<Pair<String, String
     add(lang.tr("Colombia shipping", "Envío a Colombia") to (coShipping.takeIf { it.isNotEmpty() }?.joinToString(", ") { it.name } ?: lang.tr("any", "cualquiera")))
     add(lang.tr("Watched items", "Items vigilados") to if (hideWatched) lang.tr("hidden", "ocultos") else lang.tr("shown", "visibles"))
     add(lang.tr("Not shipping to Colombia", "Sin envío a Colombia") to if (hideNoShip) lang.tr("hidden", "ocultos") else lang.tr("shown", "visibles"))
-    add(lang.tr("State", "Estado") to states.joinToString(", ") { it.name })
+    add(lang.tr("State", "Estado") to if (states.isEmpty()) lang.tr("any", "cualquiera") else states.joinToString(", ") { it.name })
     add(
         lang.tr("Only", "Solo") to when {
             onlyPromoted -> lang.tr("promoted", "destacadas")
@@ -307,16 +309,16 @@ internal fun FeedFilter.describe(lang: Lang = Lang.EN): List<Pair<String, String
     // Applied by DealRepository.criteria() on every query, with no form control to relax
     // it. Without saying so, an export missing a deal Luis remembers looks like a bug.
     //
-    // The favorites export is the one caller that relaxes it, and that has to be stated rather
+    // The Pinned export is the one caller that relaxes it, and that has to be stated rather
     // than left as a stale absolute: a file whose rows include dead offers while its own info
     // sheet promises "active deals only" is worse than one that says nothing, because it would be
     // read as evidence the offers are live.
     add(
         lang.tr("Always applied", "Siempre aplicado") to if (includeInactive) {
             lang.tr(
-                "favorites only -- retired deals (unseen for staleAfterHours) ARE included, and their " +
+                "pinned only -- retired deals (unseen for staleAfterHours) ARE included, and their " +
                     "price is the last one recorded rather than a current one",
-                "solo favoritas -- las ofertas retiradas (sin verse durante staleAfterHours) SÍ se incluyen, y su " +
+                "solo fijadas -- las ofertas retiradas (sin verse durante staleAfterHours) SÍ se incluyen, y su " +
                     "precio es el último registrado, no uno actual",
             )
         } else {
