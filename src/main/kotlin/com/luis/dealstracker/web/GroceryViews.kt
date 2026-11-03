@@ -103,7 +103,9 @@ internal fun chainNames(stores: Map<String, GroceryStore>): Map<String, String> 
  */
 internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStore>): List<GroceryRow> {
     val order = stores.keys.withIndex().associate { (i, id) -> id to i }
-    val labelled = rows.map { it.copy(store = stores[it.deal.source]?.label ?: storeName(it.deal.source)) }
+    val labelled = rows.map {
+        it.copy(store = stores[it.deal.source]?.label ?: storeName(it.deal.source), chain = stores[it.deal.source]?.chain ?: it.deal.source)
+    }
     return labelled
         .groupBy { Triple(stores[it.deal.source]?.chain ?: it.deal.source, it.deal.merchant, it.deal.sourceDealId) }
         .values
@@ -140,25 +142,72 @@ internal fun withRivals(rows: List<GroceryRow>, prices: List<ShelfPrice>, stores
             .filter { chainOf(it.source) != chain && it.currency == row.deal.currency }
             .minWithOrNull(compareBy<ShelfPrice> { it.price }.thenBy { order[it.source] ?: Int.MAX_VALUE })
             ?: return@map row
-        row.copy(rival = ChainRival(stores[best.source]?.label ?: storeName(best.source), best.price, best.currency, best.dealId))
+        row.copy(
+            rival = ChainRival(
+                stores[best.source]?.label ?: storeName(best.source), chainOf(best.source), best.price, best.currency, best.dealId,
+            ),
+        )
     }
 }
 
 /**
- * [rows] with a rival on each row of the page [controls] shows, and only those: All items can hold
- * ~15,000 rows, and a barcode lookup for rows nobody is looking at would be wasted.
+ * Whether [controls] needs a rival on every row in view rather than the page's: sorting or filtering by
+ * the other chain's price ranks rows that are not on screen yet, and Pinned's shopping plan totals
+ * the whole list.
  */
-internal fun withPageRivals(
+internal fun needsAllRivals(controls: GroceryControls): Boolean =
+    controls.sort == GrocerySort.RIVAL || controls.cheaperElsewhere || controls.view == GroceryView.PINNED
+
+/**
+ * [rows] with a rival on each row [controls] needs one for: the page on screen, or every row in view
+ * when [needsAllRivals]. Page-only by default because All items can hold ~15,000 rows -- a 0.3s lookup
+ * for rows nobody is looking at.
+ */
+internal fun withRivalsFor(
     rows: List<GroceryRow>,
     controls: GroceryControls,
     stores: Map<String, GroceryStore>,
     lookup: (keys: Collection<String>) -> List<ShelfPrice>,
 ): List<GroceryRow> {
-    val page = groceryPageRows(groceryShown(rows, controls), controls.page)
-    val keys = page.mapNotNull { it.deal.matchKey }
+    val target = if (needsAllRivals(controls)) groceryInView(rows, controls.view) else groceryPageRows(groceryShown(rows, controls), controls.page)
+    val keys = target.mapNotNull { it.deal.matchKey }
     if (keys.isEmpty()) return rows
-    val withRival = withRivals(page, lookup(keys), stores).filter { it.rival != null }.associateBy { it.deal.id }
+    val withRival = withRivals(target, lookup(keys), stores).filter { it.rival != null }.associateBy { it.deal.id }
     return rows.map { withRival[it.deal.id] ?: it }
+}
+
+/**
+ * Where to buy this row today, and at what price: its own store or the other chain's, whichever is
+ * cheaper, ties to its own. Off its own shelf, the rival is the only option; with neither, null.
+ */
+internal fun GroceryRow.bestBuy(): Pair<String, BigDecimal>? {
+    val own = if (onShelf) chain to deal.price else null
+    val other = rival?.let { it.chain to it.price }
+    return listOfNotNull(own, other).minByOrNull { it.second }
+}
+
+/** One chain's share of the shopping plan. */
+internal data class PlanStop(val chain: String, val items: Int, val total: BigDecimal)
+
+/**
+ * Pinned, split by where each item is cheapest today: what one trip per chain would cost.
+ *
+ * [saving] is what that split saves over buying each on-shelf item at its own row's store; an item off
+ * its own shelf saves nothing, since there was no price there to save against. [unavailable] counts
+ * items with no shelf price anywhere.
+ */
+internal data class ShoppingPlan(val stops: List<PlanStop>, val saving: BigDecimal, val unavailable: Int, val currency: String)
+
+internal fun shoppingPlan(rows: List<GroceryRow>): ShoppingPlan? {
+    val currency = rows.firstOrNull()?.deal?.currency ?: return null
+    val same = rows.filter { it.deal.currency == currency }
+    val bought = same.mapNotNull { row -> row.bestBuy()?.let { row to it } }
+    val stops = bought.groupBy({ it.second.first }, { it.second.second })
+        .map { (chain, prices) -> PlanStop(chain, prices.size, prices.fold(BigDecimal.ZERO, BigDecimal::add)) }
+        .sortedWith(compareByDescending<PlanStop> { it.items }.thenBy { it.chain })
+    val saving = bought.filter { (row, buy) -> row.onShelf && buy.first != row.chain }
+        .fold(BigDecimal.ZERO) { acc, (row, buy) -> acc + (row.deal.price - buy.second) }
+    return ShoppingPlan(stops, saving, same.size - bought.size, currency)
 }
 
 /**
@@ -195,6 +244,12 @@ internal enum class GrocerySort(val key: String, val label: String) {
     CARD("card", "Card"),
     PRICE("price", "Price"),
 
+    /**
+     * Most cheaper at the other chain first, by [GroceryRow.rivalGap]: the rows worth buying elsewhere.
+     * Rows with no rival last.
+     */
+    RIVAL("rival", "vs other chain"),
+
     /** Default on All items, where there is no deal to rank by. */
     NAME("name", "Item");
 
@@ -224,6 +279,14 @@ internal data class GroceryControls(
     val cartable: Boolean = false,
     /** 1-based page of the table. Clamped on use, so a stale bookmark lands on the last page. */
     val page: Int = 1,
+    /** Only rows another chain sells cheaper today. Any view. */
+    val cheaperElsewhere: Boolean = false,
+    /**
+     * Pinned only: just the items whose [bestBuy] is at this chain -- the shopping list for one trip,
+     * picked from the shopping plan. Unlike [chains], it goes by where the item is cheapest, not by
+     * which store the row is from.
+     */
+    val buyAt: String? = null,
 ) {
     fun url(
         view: GroceryView = this.view,
@@ -232,6 +295,8 @@ internal data class GroceryControls(
         search: String? = this.search,
         chains: Set<String> = this.chains,
         cartable: Boolean = this.cartable,
+        cheaperElsewhere: Boolean = this.cheaperElsewhere,
+        buyAt: String? = this.buyAt,
         // Not carried over: changing the view, filter, search or sort starts again at page 1.
         page: Int = 1,
     ): String {
@@ -245,6 +310,8 @@ internal data class GroceryControls(
             if (view != GroceryView.PINNED) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
             if (sort != null && sort != GrocerySort.of(null, view)) add("sort=${sort.key}")
             if (cartable && view == GroceryView.PINNED) add("cart=1")
+            if (cheaperElsewhere) add("elsewhere=1")
+            if (buyAt != null && view == GroceryView.PINNED) add("buy=" + buyAt.encodeURLParameter())
             if (page > 1) add("page=$page")
         }
         return if (params.isEmpty()) "/groceries" else "/groceries?" + params.joinToString("&")
@@ -261,6 +328,8 @@ internal data class GroceryControls(
                 chains = params["store"]?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
                 cartable = params["cart"] == "1" && view == GroceryView.PINNED,
                 page = params["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                cheaperElsewhere = params["elsewhere"] == "1",
+                buyAt = params["buy"]?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && view == GroceryView.PINNED },
             )
         }
     }
@@ -275,13 +344,18 @@ internal data class GroceryControls(
  * Pinned is the one view that keeps rows off the shelf. A staple Laureles stopped stocking is still
  * on the shopping list, and vanishing would read as "the pin was lost" rather than "out of stock".
  */
-internal fun groceryShown(rows: List<GroceryRow>, controls: GroceryControls): List<GroceryRow> {
-    val inView = when (controls.view) {
-        GroceryView.DEALS -> rows.filter { it.onShelf && it.isDeal }
-        GroceryView.ALL -> rows.filter { it.onShelf }
-        GroceryView.PINNED -> rows.filter { it.pinnedAt != null && (!controls.cartable || cartCopy(it) != null) }
-    }
-    return inView.sortedWith(groceryComparator(controls.sort))
+internal fun groceryShown(rows: List<GroceryRow>, controls: GroceryControls): List<GroceryRow> =
+    groceryInView(rows, controls.view)
+        .filter { controls.view != GroceryView.PINNED || !controls.cartable || cartCopy(it) != null }
+        .filter { !controls.cheaperElsewhere || (it.rivalGap?.signum() ?: 0) < 0 }
+        .filter { r -> controls.buyAt == null || r.bestBuy()?.first == controls.buyAt }
+        .sortedWith(groceryComparator(controls.sort))
+
+/** The rows a view holds before the page's own filters: what the shopping plan and rival lookup read. */
+internal fun groceryInView(rows: List<GroceryRow>, view: GroceryView): List<GroceryRow> = when (view) {
+    GroceryView.DEALS -> rows.filter { it.onShelf && it.isDeal }
+    GroceryView.ALL -> rows.filter { it.onShelf }
+    GroceryView.PINNED -> rows.filter { it.pinnedAt != null }
 }
 
 /** Every ordering puts "unknown" last rather than reading it as zero, as the other tabs do. */
@@ -298,6 +372,7 @@ internal fun groceryComparator(sort: GrocerySort): Comparator<GroceryRow> = when
     GrocerySort.STORE -> compareByDescending<GroceryRow> { it.deal.storeDiscountPercent ?: -1 }
         .thenBy { it.deal.title }
     GrocerySort.PRICE -> compareBy<GroceryRow> { it.deal.price }.thenBy { it.deal.title }
+    GrocerySort.RIVAL -> compareBy<GroceryRow> { it.rivalGap == null }.thenBy { it.rivalGap }.thenBy { it.deal.title }
     GrocerySort.NAME -> compareBy<GroceryRow> { it.deal.title.lowercase() }.thenBy { it.deal.source }
 }
 
@@ -427,12 +502,23 @@ private fun MAIN.groceryBody(
                 put("view", controls.view.key)
                 if (controls.groups.isNotEmpty()) put("group", controls.groups.sorted().joinToString(","))
                 if (controls.chains.isNotEmpty()) put("store", controls.chains.sorted().joinToString(","))
+                if (controls.cheaperElsewhere) put("elsewhere", "1")
             },
         )
     }
 
     // Store above aisle: which shop you are going to is the first decision, the aisle the second.
     storeTags(chainCounts, controls)
+    val chainLabels = chainCounts.associate { it.first to it.second }
+    if (controls.view == GroceryView.PINNED) {
+        shoppingPlan(groceryInView(rows, GroceryView.PINNED))?.let { planBlock(it, chainLabels, controls) }
+    }
+    elsewhereToggle(
+        // Known only when every row in view was looked up; otherwise just the page was, and a count of
+        // one page would read as the total.
+        if (needsAllRivals(controls)) groceryInView(rows, controls.view).count { (it.rivalGap?.signum() ?: 0) < 0 } else null,
+        controls,
+    )
     // Not on Pinned, which is the whole list whatever aisle is picked.
     if (controls.view != GroceryView.PINNED) groupTags(groupCounts, controls)
 
@@ -457,6 +543,12 @@ private fun MAIN.groceryBody(
 
     if (shown.isEmpty()) {
         div("empty") {
+            // A filter of this page's own emptied it, not the view: say so, rather than "nothing pinned".
+            if (controls.cheaperElsewhere || controls.buyAt != null) {
+                +tr("No items match. ", "Ningún producto coincide. ")
+                a(href = controls.url(cheaperElsewhere = false, buyAt = null)) { +tr("Clear the filter", "Quitar el filtro") }
+                return@div
+            }
             when (controls.view) {
                 GroceryView.DEALS -> {
                     +tr(
@@ -572,7 +664,8 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
     // meaningful once there is history, but it is offered on every view, as its header is.
     sortTags(
         listOf(
-            tr("Item", "Producto") to GrocerySort.NAME, tr("Price", "Precio") to GrocerySort.PRICE,
+            tr("Item", "Producto") to GrocerySort.NAME, tr("Other chain", "Otra cadena") to GrocerySort.RIVAL,
+            tr("Price", "Precio") to GrocerySort.PRICE,
             tr("Card saving", "Ahorro con tarjeta") to GrocerySort.CARD, tr("Unit price", "Precio unitario") to GrocerySort.UNIT,
             tr("Store %", "% tienda") to GrocerySort.STORE, tr("vs usual", "vs habitual") to GrocerySort.BELOW,
         ).map { (label, sort) -> SortOption(label, controls.url(sort = sort), controls.sort == sort) },
@@ -583,7 +676,15 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
             tr {
                 th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                 sortableTh(tr("Item", "Producto"), GrocerySort.NAME, controls, "col-deal")
-                th(scope = ThScope.col, classes = "col-size") { +tr("Store", "Tienda") }
+                sortableTh(
+                    tr("Store", "Tienda"), GrocerySort.RIVAL, controls, "col-size",
+                    tr(
+                        "The store the price is from, and the same barcode at the other chain beneath. Sorts by how much " +
+                            "cheaper the other chain is.",
+                        "La tienda del precio, y el mismo código de barras en la otra cadena debajo. Ordena por cuánto " +
+                            "más barata es la otra cadena.",
+                    ),
+                )
                 // Two sorts in one header: by the shelf price, or by how much a card saves on it today.
                 th(scope = ThScope.col, classes = "col-price") {
                     title = tr(
@@ -837,6 +938,61 @@ private fun FlowContent.rivalLine(rival: ChainRival, gap: BigDecimal?) {
         }
         +"${rival.store.substringBefore(' ')} ${formatMoney(rival.price, rival.currency)}"
         gap?.takeIf { it.signum() != 0 }?.let { span("gap") { +(if (cheaper) " −${it.negate().toPlainString()}%" else " +${it.toPlainString()}%") } }
+    }
+}
+
+/** "Only items cheaper at another chain", on every view. */
+private fun FlowContent.elsewhereToggle(count: Int?, controls: GroceryControls) {
+    div("noship-toggle") {
+        label {
+            title = tr(
+                "Rows whose barcode another chain sells for less today, in stock",
+                "Productos cuyo código de barras otra cadena vende más barato hoy, con existencias",
+            )
+            input(type = InputType.checkBox) {
+                checked = controls.cheaperElsewhere
+                attributes["onchange"] =
+                    "location.href=this.checked?'${controls.url(cheaperElsewhere = true)}':'${controls.url(cheaperElsewhere = false)}'"
+            }
+            +tr(" only items cheaper at another chain", " solo productos más baratos en otra cadena")
+            count?.let { span("typetag-n") { +it.toString() } }
+        }
+    }
+}
+
+/**
+ * Pinned's shopping plan: one stop per chain, each the items cheapest there today and their total, and
+ * a link that narrows the list to that stop. The saving says why the split is worth the second trip.
+ */
+private fun FlowContent.planBlock(plan: ShoppingPlan, labels: Map<String, String>, controls: GroceryControls) {
+    if (plan.stops.isEmpty()) return
+    div("shop-plan") {
+        span("shop-plan-h") { +tr("Cheapest split", "Reparto más barato") }
+        plan.stops.forEach { stop ->
+            val on = controls.buyAt == stop.chain
+            a(href = controls.url(buyAt = if (on) null else stop.chain), classes = if (on) "plan-stop on" else "plan-stop") {
+                if (on) attributes["aria-current"] = "true"
+                title = if (on) tr("Show every pinned item again", "Mostrar de nuevo todos los fijados")
+                else tr("Only the items cheapest at this chain today", "Solo los productos más baratos hoy en esta cadena")
+                span("plan-chain") { +(labels[stop.chain] ?: stop.chain.replaceFirstChar { it.uppercase() }) }
+                +" "
+                +tr("${stop.items} item(s)", "${stop.items} producto(s)")
+                +" · "
+                span("plan-total") { +formatMoney(stop.total, plan.currency) }
+            }
+        }
+        if (plan.saving.signum() > 0) {
+            span("plan-note") {
+                title = tr(
+                    "Against buying each item at the store its row shows, where it is on the shelf",
+                    "Frente a comprar cada producto en la tienda de su fila, donde está en góndola",
+                )
+                +tr("saves ${formatMoney(plan.saving, plan.currency)}", "ahorra ${formatMoney(plan.saving, plan.currency)}")
+            }
+        }
+        if (plan.unavailable > 0) {
+            span("plan-note muted") { +tr("${plan.unavailable} not on any shelf", "${plan.unavailable} sin existencias en ninguna") }
+        }
     }
 }
 

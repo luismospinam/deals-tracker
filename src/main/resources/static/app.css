@@ -1637,6 +1637,34 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 .store-rival:hover { text-decoration: underline; }
 .store-rival.cheaper { color: var(--d-mid); font-weight: 600; }
 
+/* Pinned's cheapest split: one chip per chain, each a filter to that trip's list. */
+.shop-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.shop-plan-h { font-weight: 600; margin-right: 4px; }
+.plan-stop {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.plan-stop:hover { border-color: var(--accent); }
+.plan-stop.on { border-color: var(--accent-line); background: var(--accent-wash); color: var(--accent); }
+.plan-chain { font-weight: 600; }
+.plan-total { font-family: var(--mono); }
+.plan-note { font-size: var(--fs-sm); color: var(--good); }
+.plan-note.muted { color: var(--text-faint); }
+
 .grocery-search { gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
 .grocery-search input[type="search"] { min-width: 22rem; }
 .grocery-search .typetag { align-self: center; }

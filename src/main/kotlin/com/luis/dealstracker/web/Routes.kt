@@ -429,7 +429,7 @@ fun Application.routes(
                 }
                 // Rivals come from every grocery store, not just the filtered ones: "Exito only" still
                 // wants to know what Carulla charges.
-                val merged = withPageRivals(mergeStores(groceries.rows(filter), stores), controls, stores) { keys ->
+                val merged = withRivalsFor(mergeStores(groceries.rows(filter), stores), controls, stores) { keys ->
                     groceries.shelfPrices(keys, allSources)
                 }
                 Triple(merged, groceries.groups(sources), groceries.pinnedCount(sources))

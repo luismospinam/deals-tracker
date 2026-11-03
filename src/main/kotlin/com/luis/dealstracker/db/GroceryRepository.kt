@@ -32,6 +32,8 @@ data class GroceryRow(
     val onShelf: Boolean,
     /** The physical store, e.g. "Exito Colombia" -- the provider's `storeLabel`. */
     val store: String = "",
+    /** The store's chain, e.g. "exito" -- the provider's `chain`. Set with [store] by `mergeStores`. */
+    val chain: String = "",
     /**
      * The same product at the chain's other stores, when this row is the cheapest of several.
      * See `mergeStores` in GroceryViews.
@@ -83,7 +85,7 @@ data class GroceryRow(
 }
 
 /** A product at another chain, for the Store column: "Carulla $10,080". */
-data class ChainRival(val store: String, val price: BigDecimal, val currency: String, val dealId: Long)
+data class ChainRival(val store: String, val chain: String, val price: BigDecimal, val currency: String, val dealId: Long)
 
 /** One store's on-shelf price for a barcode, as [GroceryRepository.shelfPrices] reads it. */
 data class ShelfPrice(val dealId: Long, val source: String, val matchKey: String, val price: BigDecimal, val currency: String)
