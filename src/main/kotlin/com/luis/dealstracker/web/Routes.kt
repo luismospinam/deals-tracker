@@ -71,6 +71,8 @@ fun Application.routes(
     dailyChanges: com.luis.dealstracker.db.DailyChangeRepository,
     exitoCart: com.luis.dealstracker.exito.ExitoCart,
     settings: SettingsRepository = SettingsRepository(com.luis.dealstracker.db.Db.dataSource),
+    /** Backups and source health, for the Config tab. Null in a UI-only copy without the jobs. */
+    ops: com.luis.dealstracker.ops.OpsJobs? = null,
 ) {
     // Read on every use: the Config tab changes it while the app runs (LiveConfig).
     val app: AppConfig by kotlin.properties.ReadOnlyProperty { _, _ -> LiveConfig.currentOr(bootApp) }
@@ -79,7 +81,7 @@ fun Application.routes(
         kotlinx.coroutines.withContext(com.luis.dealstracker.i18n.I18n.element(call.lang)) { proceed() }
     }
     routing {
-        configRoutes(settings, repo)
+        configRoutes(settings, repo, ops, scope)
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
         languageRoute()
 

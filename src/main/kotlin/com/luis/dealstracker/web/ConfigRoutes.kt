@@ -14,7 +14,18 @@ import com.luis.dealstracker.ingest.nextWindowSlot
 import com.luis.dealstracker.ingest.runWindows
 import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.HeldCards
+import com.luis.dealstracker.ops.BackupFile
+import com.luis.dealstracker.ops.HealthStatus
+import com.luis.dealstracker.ops.OpsJobs
+import com.luis.dealstracker.ops.SourceHealth
+import com.luis.dealstracker.ops.brokeLine
+import com.luis.dealstracker.ops.formatBytes
+import com.luis.dealstracker.ops.listBackups
 import io.ktor.http.encodeURLParameter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import io.ktor.server.application.call
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respondRedirect
@@ -69,10 +80,28 @@ internal data class ConfigModel(
     /** What the last save did, or why it was refused. */
     val notice: String? = null,
     val error: String? = null,
+    /** Each source's health, by id; empty where the jobs are not running. */
+    val health: Map<String, SourceHealth> = emptyMap(),
+    val backup: BackupView? = null,
+)
+
+/** The Backups section: where the dumps go, what is there, and how the last attempt went. */
+internal data class BackupView(
+    val dir: String,
+    val files: List<BackupFile>,
+    val lastAt: Instant?,
+    val lastError: String?,
+    val failedAt: Instant?,
+    val running: Boolean,
 )
 
 /** The Config tab: GET /config and the three forms it posts. */
-internal fun Route.configRoutes(settings: SettingsRepository, repo: DealRepository) {
+internal fun Route.configRoutes(
+    settings: SettingsRepository,
+    repo: DealRepository,
+    ops: OpsJobs? = null,
+    scope: CoroutineScope? = null,
+) {
     val programs = CardProgramRepository(com.luis.dealstracker.db.Db.dataSource)
 
     fun reload() {
@@ -95,6 +124,18 @@ internal fun Route.configRoutes(settings: SettingsRepository, repo: DealReposito
             prunedAt = settings.get(SettingsRepository.HISTORY_PRUNED_AT)?.let { runCatching { Instant.parse(it) }.getOrNull() },
             notice = call.request.queryParameters["saved"]?.let { savedNotice(it) },
             error = call.request.queryParameters["error"],
+            health = withContext(Dispatchers.IO) { ops?.health().orEmpty().associateBy { it.id } },
+            backup = ops?.let { o ->
+                fun at(key: String) = settings.get(key)?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                BackupView(
+                    dir = o.backupDir().absolutePath,
+                    files = listBackups(o.backupDir()),
+                    lastAt = at(SettingsRepository.BACKUP_LAST_AT),
+                    lastError = settings.get(SettingsRepository.BACKUP_LAST_ERROR),
+                    failedAt = at(SettingsRepository.BACKUP_FAILED_AT),
+                    running = o.backupRunning,
+                )
+            },
         )
         call.respondPage { page(tr("Config", "Configuración")) { configPage(model) } }
     }
@@ -121,6 +162,12 @@ internal fun Route.configRoutes(settings: SettingsRepository, repo: DealReposito
         call.respondRedirect("/config?saved=settings#schedules")
     }
 
+    // Runs in the background: the dump takes a few seconds, and the page shows "running" meanwhile.
+    post("/config/backup") {
+        if (ops != null && scope != null) scope.launch(Dispatchers.IO) { ops.backupNow()?.let(::println) }
+        call.respondRedirect("/config?saved=backup#backups")
+    }
+
     post("/config/sources") {
         val file = LiveConfig.file ?: return@post call.respondRedirect("/")
         val on = call.receiveParameters().getAll("source").orEmpty().toSet()
@@ -134,6 +181,7 @@ internal fun Route.configRoutes(settings: SettingsRepository, repo: DealReposito
 
 private fun savedNotice(what: String): String = when (what) {
     "cards" -> tr("Cards saved. Every tab now prices with them.", "Tarjetas guardadas. Todas las pestañas usan ahora esos precios.")
+    "backup" -> tr("Backup started. Reload in a few seconds to see it listed.", "Respaldo iniciado. Recarga en unos segundos para verlo en la lista.")
     "sources" -> tr("Sources saved. A paused source is skipped from the next poll.", "Fuentes guardadas. Una fuente en pausa se omite desde la próxima consulta.")
     else -> tr("Saved. Jobs pick it up on their next tick.", "Guardado. Las tareas lo toman en su siguiente ciclo.")
 }
@@ -181,6 +229,12 @@ private fun fieldText(key: String): Pair<String, String> = when (key) {
     "pruneHistoryAfterDays" -> tr("Thin history older than (days)", "Adelgazar historial de más de (días)") to
         tr("Unchanged readings past this age are thinned; changes and pinned rows are kept. 0 turns it off.", "Las lecturas sin cambios más viejas se adelgazan; los cambios y los fijados se conservan. 0 lo apaga.")
     "pruneHistoryEveryDays" -> tr("Thin history every (days)", "Adelgazar historial cada (días)") to ""
+    "backupTimes" -> tr("Back up the database at", "Respaldar la base de datos a las") to
+        tr("A time slept through runs when the Mac wakes. \"off\" turns backups off.", "Si el Mac dormía a esa hora, corre al despertar. \"off\" apaga los respaldos.")
+    "backupKeep" -> tr("Backups to keep", "Respaldos a conservar") to
+        tr("The oldest is deleted once a newer one has been checked.", "El más viejo se borra cuando uno nuevo ya fue verificado.")
+    "healthFailAfterRuns" -> tr("Alert after N empty runs", "Alertar tras N corridas vacías") to
+        tr("Runs in a row with no results or an error before a source is reported broken. Scheduled crawls use 2.", "Corridas seguidas sin resultados o con error antes de reportar una fuente como caída. Los rastreos programados usan 2.")
     "askModel" -> tr("Ask Claude model", "Modelo de Preguntar a Claude") to "haiku, sonnet, opus"
     "askEffort" -> tr("Ask Claude effort", "Esfuerzo de Preguntar a Claude") to "low, medium, high"
     "askMaxBudgetUsd" -> tr("Ask Claude budget per question (US$)", "Presupuesto por pregunta (US$)") to ""
@@ -201,6 +255,7 @@ internal fun MAIN.configPage(m: ConfigModel) {
     cardsSection(m)
     schedulesSection(m)
     sourcesSection(m)
+    backupsSection(m)
     notificationsSection(m)
 }
 
@@ -369,6 +424,8 @@ private fun jobStatus(key: String, m: ConfigModel): String {
             ?: tr("off", "apagado")
         "pruneHistoryAfterDays" -> if (d.pruneHistoryAfterDays == 0) tr("off", "apagado")
         else m.prunedAt?.let { tr("last ${relativeAgo(it)}", "último ${relativeAgo(it)}") } ?: tr("not run yet", "aún no ha corrido")
+        "backupTimes" -> nextTimeOfDay(d.backupTimes, m.now, m.zone)?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }
+            ?: tr("off", "apagado")
         "pruneHistoryEveryDays" -> m.prunedAt?.plus(java.time.Duration.ofDays(d.pruneHistoryEveryDays.toLong()))
             ?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }.orEmpty()
         else -> ""
@@ -379,6 +436,8 @@ private fun FlowContent.sourcesSection(m: ConfigModel) {
     section("config-section") {
         attributes["id"] = "sources"
         h3 { +tr("Sources", "Fuentes") }
+        // The anchor the health alerts' banner opens.
+        span { attributes["id"] = "health" }
         p("hint") {
             +tr(
                 "Untick to pause a source: it is skipped from the next poll and its rows stay. Sources off in sources.yaml stay off here; BLOCKERS.md says why.",
@@ -393,6 +452,7 @@ private fun FlowContent.sourcesSection(m: ConfigModel) {
                         th(scope = ThScope.col) { +tr("Source", "Fuente") }
                         th(scope = ThScope.col) { +tr("Type", "Tipo") }
                         th(scope = ThScope.col) { +tr("Last successful run", "Última corrida exitosa") }
+                        th(scope = ThScope.col) { +tr("Health", "Estado") }
                     }
                 }
                 tbody {
@@ -412,6 +472,7 @@ private fun FlowContent.sourcesSection(m: ConfigModel) {
                             }
                             td { code { +p.type } }
                             td { +(m.lastRuns[p.id]?.let(::relativeAgo) ?: "—") }
+                            td { m.health[p.id]?.let { healthCell(it) } ?: +"—" }
                         }
                     }
                 }
@@ -438,6 +499,10 @@ private fun FlowContent.notificationsSection(m: ConfigModel) {
                     Triple(tr("Pinned groceries on sale", "Mercado fijado en oferta"), "DISCORD_GROCERIES_WEBHOOK_URL", m.file.discordGroceriesWebhook),
                     Triple(tr("Pinned tracked items on sale", "Seguimiento fijado en oferta"), "DISCORD_TRACKED_WEBHOOK_URL", m.file.discordTrackedWebhook),
                     Triple(tr("Watch digest", "Resumen de búsquedas"), "DISCORD_WATCHES_WEBHOOK_URL", m.file.discordWatchesWebhook),
+                    Triple(
+                        tr("Source health and backup alerts (else the watch digest's channel)", "Alertas de fuentes y respaldos (si no, el canal del resumen)"),
+                        "DISCORD_HEALTH_WEBHOOK_URL", m.file.discordHealthWebhook,
+                    ),
                 ).forEach { (what, env, url) ->
                     tr {
                         td { +what }
@@ -445,6 +510,83 @@ private fun FlowContent.notificationsSection(m: ConfigModel) {
                         td { if (url.isNullOrBlank()) span("co-no") { +tr("not set", "sin configurar") } else span("co-yes") { +tr("set", "configurado") } }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** A source's health on the Sources table: a chip, and why when it is not fine. */
+internal fun FlowContent.healthCell(h: SourceHealth) {
+    val (css, label) = when (h.status) {
+        HealthStatus.OK -> "co-yes" to tr("ok", "ok")
+        HealthStatus.DEGRADED -> "co-unk" to tr("last run empty", "última corrida vacía")
+        HealthStatus.FAILING -> "co-no" to tr("not working", "sin funcionar")
+        HealthStatus.OVERDUE -> "co-no" to tr("overdue", "atrasada")
+        HealthStatus.PAUSED -> "dim" to tr("paused", "en pausa")
+        HealthStatus.OFF -> "dim" to tr("off", "apagada")
+        HealthStatus.NEW -> "dim" to tr("not run yet", "aún no corre")
+    }
+    span(css) { +label }
+    if (h.status.unhealthy || h.status == HealthStatus.DEGRADED) {
+        div("dim") { +brokeLine(h, ::tr, ::relativeAgo).substringAfter(": ") }
+    }
+}
+
+private fun FlowContent.backupsSection(m: ConfigModel) {
+    val b = m.backup ?: return
+    section("config-section") {
+        attributes["id"] = "backups"
+        h3 { +tr("Backups", "Respaldos") }
+        p("hint") {
+            +tr("Dumps go to ", "Los respaldos van a ")
+            code { +b.dir }
+            +tr(
+                ". Times and how many to keep are under Schedules. To restore one, see README → Backups.",
+                ". La hora y cuántos conservar están en Horarios. Para restaurar uno, mira README → Backups.",
+            )
+        }
+        val last = b.files.firstOrNull()
+        p {
+            when {
+                b.running -> span("co-unk") { +tr("Backing up now…", "Respaldando ahora…") }
+                last != null -> {
+                    span("co-yes") { +tr("Last backup", "Último respaldo") }
+                    +" ${relativeAgo(b.lastAt ?: last.takenAt)} · ${last.name} · ${formatBytes(last.bytes)}"
+                }
+                else -> span("co-unk") { +tr("No backup yet", "Aún no hay respaldos") }
+            }
+        }
+        b.lastError?.let { err ->
+            p("config-error") {
+                attributes["role"] = "alert"
+                +tr("The last attempt failed", "El último intento falló")
+                b.failedAt?.let { +" (${relativeAgo(it)})" }
+                +": $err"
+            }
+        }
+        if (b.files.isNotEmpty()) {
+            table("config-table") {
+                caption("sr-only") { +tr("Backup files", "Archivos de respaldo") }
+                thead {
+                    tr {
+                        th(scope = ThScope.col) { +tr("File", "Archivo") }
+                        th(scope = ThScope.col) { +tr("Size", "Tamaño") }
+                    }
+                }
+                tbody {
+                    b.files.forEach { f ->
+                        tr {
+                            td { code { +f.name } }
+                            td("num") { +formatBytes(f.bytes) }
+                        }
+                    }
+                }
+            }
+        }
+        form(action = "/config/backup", method = FormMethod.post) {
+            button(type = ButtonType.submit, classes = "primary") {
+                if (b.running) attributes["disabled"] = "disabled"
+                +tr("Back up now", "Respaldar ahora")
             }
         }
     }

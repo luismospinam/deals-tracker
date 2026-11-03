@@ -169,6 +169,46 @@ A value that no longer parses is ignored rather than fatal, so a bad row cannot 
 Amazon pacing (delays, wall waits) is deliberately not here: it was found empirically, and its history
 lives in the comments of `sources.yaml`.
 
+## Backups
+
+The database is dumped every night at `defaults.backupTimes` (03:00) to **`backups/nightly/`** in the
+project folder -- `/Users/luismiguelospina/Documents/projects/deals-tracker/backups/nightly/` on this
+Mac, as `deals-YYYY-MM-DD-HHMM.dump`. The 14 newest are kept (`backupKeep`, ~60 MB each). The project
+sits in `~/Documents`, which iCloud syncs here, so each dump also leaves the machine. `backups/` is
+gitignored. Set `backupDir` in `sources.yaml` to an absolute path to put them elsewhere.
+
+`pg_dump -Fc` runs inside the Postgres container (`docker exec deals-tracker-db ...`), so it always
+matches the server's version and needs no password on a command line. Each dump is written as
+`.partial`, read back with `pg_restore --list`, and only then renamed. A dump cut short never counts
+as a good one and never pushes a good one out of the 14. A night the Mac slept through runs when it
+wakes. A failure alerts once (desktop and Discord), is retried hourly, and shows on the Config tab,
+which also has **Back up now**.
+
+To restore one (this replaces the current data; stop the app first):
+
+    pkill -f 'com.luis.dealstracker.AppKt'
+    docker exec -i deals-tracker-db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' \
+        < backups/nightly/deals-2026-11-03-0300.dump
+
+To look inside one without touching the live database, restore into a scratch database instead
+(`createdb` a `deals_check` in the container and pass `-d deals_check`).
+
+## Source health
+
+Every 5 minutes `ops.SourceHealth` reads each source's latest runs from `fetch_runs` and flags one
+that stopped working. The adapters catch their own errors, so a store that blocks us or changes its
+page shows up as runs that **return nothing**, not as errors. One empty run is routine (Amazon has
+them); **3 in a row** (`healthFailAfterRuns`) is broken, and 2 for the scheduled grocery crawls,
+which run only two or three times a day. A run left unfinished for over 3 hours since this boot
+counts as hung. One left unfinished by a restart does not count. A source not tried for twice its
+schedule plus an hour is **overdue**, but only while the poller is visibly running, so a Mac that
+slept blames no source.
+
+A source that breaks alerts once, with a desktop banner and a Discord post
+(`DISCORD_HEALTH_WEBHOOK_URL`, or the watch digest's channel). It alerts once more when it works
+again. The alerted set is kept in `app_settings`, so a restart does not repeat an alert. The Config
+tab's Sources table shows each source's state and why.
+
 ## UI
 
 Styles live in `src/main/resources/static/app.css`, served via Ktor `staticResources` —

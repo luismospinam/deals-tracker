@@ -1426,6 +1426,41 @@ class DealRepository(
             }
         }
 
+    /** The latest [perSource] runs of every source, newest first: what the source-health check reads. */
+    fun runsPerSource(perSource: Int = 12): Map<String, List<com.luis.dealstracker.ops.RunRow>> =
+        ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT source, started_at, finished_at, item_count, error FROM (
+                    SELECT *, row_number() OVER (PARTITION BY source ORDER BY started_at DESC) AS rn FROM fetch_runs
+                     WHERE started_at > now() - interval '30 days'
+                ) r WHERE rn <= ? ORDER BY source, started_at DESC
+                """.trimIndent(),
+            ).use { st ->
+                st.setInt(1, perSource)
+                st.executeQuery().use { rs ->
+                    val out = linkedMapOf<String, MutableList<com.luis.dealstracker.ops.RunRow>>()
+                    while (rs.next()) {
+                        out.getOrPut(rs.getString("source")) { mutableListOf() } += com.luis.dealstracker.ops.RunRow(
+                            startedAt = rs.getTimestamp("started_at").toInstant(),
+                            finishedAt = rs.getTimestamp("finished_at")?.toInstant(),
+                            items = rs.getInt("item_count"),
+                            error = rs.getString("error"),
+                        )
+                    }
+                    out
+                }
+            }
+        }
+
+    /** When any source last finished a run: whether the poller is alive at all. */
+    fun lastFinishedRun(): Instant? =
+        ds.connection.use { conn ->
+            conn.prepareStatement("SELECT max(finished_at) FROM fetch_runs").use { st ->
+                st.executeQuery().use { rs -> if (rs.next()) rs.getTimestamp(1)?.toInstant() else null }
+            }
+        }
+
     fun recentRuns(limit: Int = 20): List<Map<String, Any?>> =
         ds.connection.use { conn ->
             conn.prepareStatement(

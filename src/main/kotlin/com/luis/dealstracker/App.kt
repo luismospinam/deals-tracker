@@ -149,6 +149,15 @@ fun main(args: Array<String>) {
     // to remember to put it back. Resolved here rather than at the server, because a
     // notification needs the same value to link back to a watch.
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
+    val ops = com.luis.dealstracker.ops.OpsJobs(
+        projectDir, repo, SettingsRepository(Db.dataSource), ::live,
+        alert = { title, body ->
+            com.luis.dealstracker.notify.Notifier.notify(title, body, openUrl = "http://localhost:$port/config#health", group = "ops")
+            (live().discordHealthWebhook ?: live().discordWatchesWebhook)?.let {
+                com.luis.dealstracker.notify.DiscordWebhook(it).send(title, com.luis.dealstracker.notify.fitDescription(body.lines()), "Deals Tracker · /config", color = 0xE67E22)
+            }
+        },
+    )
     val watchService = WatchService(
         watches, baseUrl = "http://localhost:$port", fx = rates::current,
         digest = { live().defaults.watchDigestTimes.isNotEmpty() },
@@ -409,6 +418,20 @@ fun main(args: Array<String>) {
         }
     }
 
+    // The app watching itself: the nightly database dump, and an alert when a source stops returning
+    // anything. Both on the 5-minute tick, with their state in app_settings (see ops.OpsJobs).
+    if (pollerEnabled) scope.launch {
+        // Let the first poll cycle land before judging any source.
+        delay(10 * 60_000L)
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching { ops.backupIfDue()?.let(::println) }.onFailure { println("[backup] failed: ${it.message}") }
+                runCatching { ops.checkHealth()?.let(::println) }.onFailure { println("[health] failed: ${it.message}") }
+            }
+            delay(SCHEDULE_TICK_MILLIS)
+        }
+    }
+
     // The scheduled grocery crawls, on their own short tick. Separate from the hourly loop above so a
     // 40-minute run window cannot fall between two hourly polls, and so a 6-minute crawl never delays
     // the rest of the cycle. `runScheduled` does nothing unless a window's chosen minute has passed.
@@ -517,7 +540,7 @@ fun main(args: Array<String>) {
 
     println("[web] http://localhost:$port")
     embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops)
     }.start(wait = true)
 }
 

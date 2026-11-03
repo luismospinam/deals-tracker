@@ -75,6 +75,16 @@ class SettingsRepository(private val ds: DataSource) {
          */
         const val HELD_CARDS = "held_cards"
 
+        /** The last good database dump: when, and its file name. See `ops.DatabaseBackup`. */
+        const val BACKUP_LAST_AT = "backup_last_at"
+        const val BACKUP_LAST_FILE = "backup_last_file"
+        /** Why the last attempt failed, cleared by the next good one. Its time is [BACKUP_FAILED_AT]. */
+        const val BACKUP_LAST_ERROR = "backup_last_error"
+        const val BACKUP_FAILED_AT = "backup_failed_at"
+
+        /** The sources an "unhealthy" alert went out for and no "recovered" yet, comma-separated. */
+        const val HEALTH_ALERTED = "health_alerted"
+
         /**
          * [HELD_CARDS] as the scopes those cards can pay. Holding the store card also pays every
          * MASTERCARD offer, since Tarjeta Éxito y Carulla is a Mastercard; the reverse is not true.

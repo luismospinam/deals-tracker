@@ -159,6 +159,26 @@ data class Defaults(
     val pruneHistoryEveryDays: Int = 7,
 
     /**
+     * Local times of day the database is dumped (`ops.DatabaseBackup`). A time slept through runs once
+     * when the Mac wakes. Empty turns backups off.
+     */
+    val backupTimes: List<String> = listOf("03:00"),
+    /** How many dumps to keep; the oldest go once a newer one has been checked. ~60 MB each in 2026-11. */
+    val backupKeep: Int = 14,
+    /**
+     * Where the dumps go: relative to the project, or absolute. The project sits in ~/Documents, which
+     * iCloud syncs on this Mac, so the default also leaves a copy off the machine. `backups/` is gitignored.
+     */
+    val backupDir: String = "backups/nightly",
+    /** The Postgres container `pg_dump` runs in, as docker-compose.yml names it. */
+    val backupContainer: String = "deals-tracker-db",
+    /**
+     * Runs in a row that must come back empty or failed before a source is reported broken. Scheduled
+     * crawls (two or three a day) use 2 whatever this says. See `ops.SourceHealth`.
+     */
+    val healthFailAfterRuns: Int = 3,
+
+    /**
      * Local times of day the pinned-items-on-sale posts go to Discord. 08:00 is the morning read; 19:00
      * sits after the last grocery crawl window ends (18:45). Move the second if a window in sources.yaml
      * moves. See docs/pinned-notifications.md.
@@ -279,13 +299,15 @@ class AppConfig(
     val discordTrackedWebhook: String? = null,
     /** The daily watch digest's channel; null posts it to the desktop only. From `.env`. */
     val discordWatchesWebhook: String? = null,
+    /** Source-health and backup alerts; null falls back to [discordWatchesWebhook]. From `.env`. */
+    val discordHealthWebhook: String? = null,
 ) {
     val enabledProviders: List<ProviderConfig> get() = providers.filter { it.enabled }
 
     /** This config with other defaults and providers, secrets carried over. Used by `ConfigOverrides`. */
     fun copy(defaults: Defaults = this.defaults, providers: List<ProviderConfig> = this.providers) = AppConfig(
         defaults, providers, db, mlClientId, mlClientSecret,
-        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook,
+        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook, discordHealthWebhook,
     )
 
     /** Effective discount floor for a provider, falling back to the global default. */
@@ -333,6 +355,7 @@ class AppConfig(
                 discordGroceriesWebhook = setting("DISCORD_GROCERIES_WEBHOOK_URL", "").ifBlank { null },
                 discordTrackedWebhook = setting("DISCORD_TRACKED_WEBHOOK_URL", "").ifBlank { null },
                 discordWatchesWebhook = setting("DISCORD_WATCHES_WEBHOOK_URL", "").ifBlank { null },
+                discordHealthWebhook = setting("DISCORD_HEALTH_WEBHOOK_URL", "").ifBlank { null },
             )
         }
 
