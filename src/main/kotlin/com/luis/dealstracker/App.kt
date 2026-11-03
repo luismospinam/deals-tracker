@@ -149,6 +149,8 @@ fun main(args: Array<String>) {
     // to remember to put it back. Resolved here rather than at the server, because a
     // notification needs the same value to link back to a watch.
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
+    val promoRepo = com.luis.dealstracker.promo.PromoRepository(Db.dataSource)
+    runCatching { promoRepo.refresh() }.onFailure { println("[promo] load failed: ${it.message}") }
     val ops = com.luis.dealstracker.ops.OpsJobs(
         projectDir, repo, SettingsRepository(Db.dataSource), ::live,
         alert = { title, body ->
@@ -427,6 +429,32 @@ fun main(args: Array<String>) {
             withContext(Dispatchers.IO) {
                 runCatching { ops.backupIfDue()?.let(::println) }.onFailure { println("[backup] failed: ${it.message}") }
                 runCatching { ops.checkHealth()?.let(::println) }.onFailure { println("[health] failed: ${it.message}") }
+            }
+            delay(SCHEDULE_TICK_MILLIS)
+        }
+    }
+
+    // Payment-promo reminders (V37): a banner and a Discord post on the promo day and the day before,
+    // listing the pinned and tracked items that qualify. Remembered in app_settings like the digest.
+    if (pollerEnabled) scope.launch {
+        val promoNotifier = com.luis.dealstracker.promo.PromoNotifier(
+            Db.dataSource, promoRepo, SettingsRepository(Db.dataSource), baseUrl = "http://localhost:$port",
+            send = { title, lines ->
+                val banner = com.luis.dealstracker.notify.Notifier.notify(
+                    title, lines.first(), openUrl = "http://localhost:$port/config#promos", group = "promo",
+                )
+                val hook = live().discordPromosWebhook ?: live().discordWatchesWebhook
+                val posted = hook?.let {
+                    com.luis.dealstracker.notify.DiscordWebhook(it).send(title, com.luis.dealstracker.notify.fitDescription(lines), "Deals Tracker · /config", color = 0xF1C40F)
+                } ?: false
+                banner || posted
+            },
+        )
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    com.luis.dealstracker.i18n.I18n.with(com.luis.dealstracker.i18n.AppLanguage.current) { promoNotifier.runDue() }.forEach(::println)
+                }.onFailure { println("[promo] failed: ${it.message}") }
             }
             delay(SCHEDULE_TICK_MILLIS)
         }

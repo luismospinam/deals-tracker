@@ -6,6 +6,10 @@ import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.HeldCards
 import com.luis.dealstracker.model.bestHeldOffer
 import com.luis.dealstracker.model.usableOffer
+import com.luis.dealstracker.promo.ActivePromos
+import com.luis.dealstracker.promo.Promo
+import com.luis.dealstracker.promo.offerText
+import com.luis.dealstracker.promo.today
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
@@ -29,7 +33,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "73"
+private const val CSS_VERSION = "75"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -281,6 +285,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             span("sub tagline") { +tr("local price monitor", "monitor local de precios") }
             languageSwitch()
         }
+        promoBanner(ActivePromos.current, today())
         main { block() }
         // Where action buttons that change nothing on the page report back (the Exito cart button).
         div { id = "toast"; attributes["aria-live"] = "polite" }
@@ -955,6 +960,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
             // What the right card pays today, under the price anyone pays. Display only: Off,
             // the score and the sort all stay on the cash price.
             cardChips(deal.allCardOffers, deal.currency)
+            promoChips(deal.source, deal.price, deal.currency, today())
         }
 
         td(classes = "col-disc") {
@@ -1432,10 +1438,13 @@ fun MAIN.dealDetail(
     // is none today -- "it was 2,179,900 with CMR last month" is what tells you whether to wait.
     val offers = deal.allCardOffers.ifEmpty { listOfNotNull(history.maxByOrNull { it.observedAt }?.card) }
     val note = cardLowNote(deal, usableOffer(offers, HeldCards.current), HeldCards.current)
-    if (offers.isNotEmpty() || note != null) {
+    val promoDay = today()
+    val promoHere = promosFor(ActivePromos.current, deal.source, deal.price, deal.currency, promoDay)
+    if (offers.isNotEmpty() || note != null || promoHere.isNotEmpty()) {
         div("detail-card") {
             cardChips(offers, deal.currency)
             note?.let { span("sub") { +it } }
+            promoChips(deal.source, deal.price, deal.currency, promoDay)
         }
     }
 
@@ -1763,3 +1772,87 @@ internal fun kotlinx.html.A.thumbLinkHidden() {
     attributes["aria-hidden"] = "true"
     attributes["tabindex"] = "-1"
 }
+
+/**
+ * The payment promos a row qualifies for: on the promo day ("today"), or the day before ("tomorrow"),
+ * so a purchase can wait a day for it. Each with the price after the discount.
+ */
+internal fun promosFor(promos: List<Promo>, source: String, price: java.math.BigDecimal, currency: String, day: java.time.LocalDate): List<Pair<Promo, Boolean>> =
+    promos.filter { it.enabled && it.qualifies(source, price, currency) }.mapNotNull { p ->
+        when {
+            p.isOn(day) -> p to true
+            p.isOn(day.plusDays(1)) -> p to false
+            else -> null
+        }
+    }
+
+/** "BANCOLMARTES today → US$89.99" under a qualifying row's price. */
+internal fun FlowContent.promoChips(source: String, price: java.math.BigDecimal, currency: String, day: java.time.LocalDate, promos: List<Promo> = ActivePromos.current) {
+    promosFor(promos, source, price, currency, day).forEach { (p, isToday) ->
+        div("promo-price") {
+            title = "${p.name}: ${p.offerText()}"
+            val label = p.code ?: p.name
+            +(if (isToday) tr("$label today", "$label hoy") else tr("$label tomorrow", "$label mañana"))
+            +" → "
+            span("promo-amt") { +formatMoney(p.priceWith(price), currency) }
+        }
+    }
+}
+
+/** A strip under the masthead on a promo day and the day before, on every page. */
+internal fun FlowContent.promoBanner(promos: List<Promo>, day: java.time.LocalDate) {
+    val due = promos.filter { it.enabled }.mapNotNull { p ->
+        when {
+            p.isOn(day) -> p to true
+            p.remindDayBefore && p.isOn(day.plusDays(1)) -> p to false
+            else -> null
+        }
+    }
+    if (due.isEmpty()) return
+    div("promo-banner") {
+        id = "promo-banner"
+        attributes["role"] = "status"
+        // What was dismissed: the day and which promos, so the promo day itself shows again after a
+        // "tomorrow" strip was hidden the evening before, even inside the snooze window.
+        attributes["data-key"] = "$day:" + due.joinToString(",") { (p, isToday) -> "${p.id}${if (isToday) "d" else "b"}" }
+        div("promo-lines") {
+            due.forEach { (p, isToday) ->
+                div {
+                    strong { +(if (isToday) tr("Today", "Hoy") else tr("Tomorrow", "Mañana")) }
+                    +" · ${p.name}: ${p.offerText()}. "
+                    if (p.sourcePrefix != null) {
+                        +tr("Qualifying rows show the price after it.", "Las filas que califican muestran el precio con descuento.")
+                    }
+                }
+            }
+        }
+        button(classes = "promo-dismiss") {
+            type = ButtonType.button
+            attributes["onclick"] = "promoDismiss()"
+            attributes["title"] = tr("Hide for 2 hours", "Ocultar por 2 horas")
+            +tr("Hide for 2h", "Ocultar 2 h")
+        }
+    }
+    // Right after the strip, so a snoozed one is gone before the page paints. Per browser, in localStorage:
+    // the snooze is a convenience, and the price chips on the rows stay either way.
+    script { unsafe { +PROMO_DISMISS_JS } }
+}
+
+internal const val PROMO_SNOOZE_MS = 2 * 60 * 60 * 1000L
+
+private val PROMO_DISMISS_JS = """
+(function () {
+  var b = document.getElementById('promo-banner');
+  if (!b) return;
+  try {
+    var s = JSON.parse(localStorage.getItem('promoSnooze') || 'null');
+    if (s && s.key === b.dataset.key && s.until > Date.now()) b.remove();
+  } catch (e) {}
+})();
+function promoDismiss() {
+  var b = document.getElementById('promo-banner');
+  if (!b) return;
+  try { localStorage.setItem('promoSnooze', JSON.stringify({ key: b.dataset.key, until: Date.now() + $PROMO_SNOOZE_MS })); } catch (e) {}
+  b.remove();
+}
+"""

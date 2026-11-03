@@ -7,14 +7,18 @@ import com.luis.dealstracker.config.ProviderConfig
 import com.luis.dealstracker.ops.BackupFile
 import com.luis.dealstracker.ops.HealthStatus
 import com.luis.dealstracker.ops.SourceHealth
+import com.luis.dealstracker.promo.Promo
+import java.math.BigDecimal
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.html.main
 import kotlinx.html.stream.createHTML
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** The Config tab's Backups and source health. */
+/** The Config tab's Backups, source health and promo reminders. */
 class ConfigOpsViewsTest {
     private val t = Instant.parse("2026-11-03T20:00:00Z")
     private val file = AppConfig(
@@ -26,12 +30,13 @@ class ConfigOpsViewsTest {
     private fun render(
         health: Map<String, SourceHealth> = emptyMap(),
         backup: BackupView? = null,
+        promos: List<Promo> = emptyList(),
     ) = createHTML().main {
         configPage(
             ConfigModel(
                 file = file, live = file, overrides = emptyMap(), cards = emptyList(), picked = emptySet(),
                 unnamedCardReadings = 0, lastRuns = emptyMap(), prunedAt = null, now = t, zone = ZoneOffset.UTC,
-                health = health, backup = backup,
+                health = health, backup = backup, promos = promos,
             ),
         )
     }
@@ -69,5 +74,20 @@ class ConfigOpsViewsTest {
         assertTrue(html.contains("not working") && html.contains("3 runs in a row returned nothing"), html)
         assertTrue(html.contains("id=\"health\""), "the alert banner's link lands here")
         assertTrue(html.contains("DISCORD_HEALTH_WEBHOOK_URL"))
+    }
+
+    @Test
+    fun `promo reminders are listed with their next date, and can be added`() {
+        val bancol = Promo(
+            1, "Bancolombia first Tuesday", "BANCOLMARTES", "Bancolombia", "amazon", 1, DayOfWeek.TUESDAY,
+            BigDecimal("60"), BigDecimal("10"), "USD",
+        )
+        val html = render(promos = listOf(bancol))
+        assertTrue(html.contains("first Tuesday of the month"))
+        assertTrue(html.contains("2026-11-03"), "today is the first Tuesday")
+        assertTrue(html.contains("action=\"/config/promos/1/disable\"") && html.contains("action=\"/config/promos/1/delete\""))
+        assertTrue(html.contains("action=\"/config/promos\""))
+        assertTrue(html.contains("DISCORD_PROMOS_WEBHOOK_URL"), "its channel is reported with the others")
+        assertFalse(render().contains("/config/promos/1/"))
     }
 }

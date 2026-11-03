@@ -85,6 +85,9 @@ class SettingsRepository(private val ds: DataSource) {
         /** The sources an "unhealthy" alert went out for and no "recovered" yet, comma-separated. */
         const val HEALTH_ALERTED = "health_alerted"
 
+        /** `promo_sent.<id>`: the last reminder sent for a promo, as "<promo date>:<DAY|DAY_BEFORE>". */
+        const val PROMO_SENT_PREFIX = "promo_sent."
+
         /**
          * [HELD_CARDS] as the scopes those cards can pay. Holding the store card also pays every
          * MASTERCARD offer, since Tarjeta Éxito y Carulla is a Mastercard; the reverse is not true.

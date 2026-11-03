@@ -2200,3 +2200,18 @@ a.open-cart:hover { background: #ff8a3a; text-decoration: none; }
   .config-table td { border-bottom: none; padding: 3px 0; }
   .config-table tr { border-bottom: 1px solid var(--line-soft); padding: 8px 0; }
 }
+
+/* Payment-promo reminders (BANCOLMARTES): the strip under the masthead on the day and the day before,
+ * and the price after the code under a qualifying row. Gold, apart from the card chips' colours. */
+.promo-banner { background: rgba(241, 196, 15, 0.12); border-bottom: 1px solid rgba(241, 196, 15, 0.45); color: var(--text); padding: 8px 16px; font-size: var(--fs-sm); display: flex; align-items: flex-start; gap: 12px; }
+.promo-banner .promo-lines { flex: 1; min-width: 0; }
+.promo-dismiss { flex: none; background: transparent; border: 1px solid rgba(241, 196, 15, 0.45); color: var(--text-dim); font-family: var(--mono); font-size: var(--fs-xs); padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.promo-dismiss:hover { color: var(--text); border-color: #f1c40f; }
+.promo-banner strong { color: #f1c40f; }
+.promo-price { font-family: var(--mono); font-size: var(--fs-xs); color: #f1c40f; margin-top: 4px; white-space: nowrap; }
+.promo-price .promo-amt { font-weight: 600; }
+.promo-form { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; margin-top: 8px; }
+.promo-form h3 { width: 100%; margin: 0; font-size: var(--fs-sm); }
+.promo-form label { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-xs); color: var(--text-dim); }
+.promo-form input[type=text] { width: 150px; }
+form.inline { display: inline; margin-right: 6px; }

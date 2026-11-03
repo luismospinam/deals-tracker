@@ -21,6 +21,11 @@ import com.luis.dealstracker.ops.SourceHealth
 import com.luis.dealstracker.ops.brokeLine
 import com.luis.dealstracker.ops.formatBytes
 import com.luis.dealstracker.ops.listBackups
+import com.luis.dealstracker.promo.Promo
+import com.luis.dealstracker.promo.PromoRepository
+import com.luis.dealstracker.promo.offerText
+import com.luis.dealstracker.promo.parsePromoForm
+import com.luis.dealstracker.promo.ruleText
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +54,9 @@ import kotlinx.html.h3
 import kotlinx.html.input
 import kotlinx.html.label
 import kotlinx.html.p
+import kotlinx.html.option
 import kotlinx.html.section
+import kotlinx.html.select
 import kotlinx.html.span
 import kotlinx.html.table
 import kotlinx.html.tbody
@@ -83,6 +90,7 @@ internal data class ConfigModel(
     /** Each source's health, by id; empty where the jobs are not running. */
     val health: Map<String, SourceHealth> = emptyMap(),
     val backup: BackupView? = null,
+    val promos: List<Promo> = emptyList(),
 )
 
 /** The Backups section: where the dumps go, what is there, and how the last attempt went. */
@@ -103,6 +111,7 @@ internal fun Route.configRoutes(
     scope: CoroutineScope? = null,
 ) {
     val programs = CardProgramRepository(com.luis.dealstracker.db.Db.dataSource)
+    val promoRepo = PromoRepository(com.luis.dealstracker.db.Db.dataSource)
 
     fun reload() {
         LiveConfig.file?.let { LiveConfig.set(it, settings.withPrefix(ConfigOverrides.PREFIX)) }
@@ -125,6 +134,7 @@ internal fun Route.configRoutes(
             notice = call.request.queryParameters["saved"]?.let { savedNotice(it) },
             error = call.request.queryParameters["error"],
             health = withContext(Dispatchers.IO) { ops?.health().orEmpty().associateBy { it.id } },
+            promos = promoRepo.refresh(),
             backup = ops?.let { o ->
                 fun at(key: String) = settings.get(key)?.let { runCatching { Instant.parse(it) }.getOrNull() }
                 BackupView(
@@ -168,6 +178,25 @@ internal fun Route.configRoutes(
         call.respondRedirect("/config?saved=backup#backups")
     }
 
+    post("/config/promos") {
+        val params = call.receiveParameters()
+        parsePromoForm(params.names().associateWith { params[it].orEmpty() }).fold(
+            onSuccess = { promoRepo.insert(it); promoRepo.refresh(); call.respondRedirect("/config?saved=promos#promos") },
+            onFailure = { call.respondRedirect("/config?error=${(it.message ?: "invalid").encodeURLParameter()}#promos") },
+        )
+    }
+
+    post("/config/promos/{id}/{action}") {
+        val id = call.parameters["id"]?.toLongOrNull() ?: return@post call.respondRedirect("/config#promos")
+        when (call.parameters["action"]) {
+            "enable" -> promoRepo.setEnabled(id, true)
+            "disable" -> promoRepo.setEnabled(id, false)
+            "delete" -> promoRepo.delete(id)
+        }
+        promoRepo.refresh()
+        call.respondRedirect("/config?saved=promos#promos")
+    }
+
     post("/config/sources") {
         val file = LiveConfig.file ?: return@post call.respondRedirect("/")
         val on = call.receiveParameters().getAll("source").orEmpty().toSet()
@@ -181,6 +210,7 @@ internal fun Route.configRoutes(
 
 private fun savedNotice(what: String): String = when (what) {
     "cards" -> tr("Cards saved. Every tab now prices with them.", "Tarjetas guardadas. Todas las pestañas usan ahora esos precios.")
+    "promos" -> tr("Promo reminders saved.", "Recordatorios de promociones guardados.")
     "backup" -> tr("Backup started. Reload in a few seconds to see it listed.", "Respaldo iniciado. Recarga en unos segundos para verlo en la lista.")
     "sources" -> tr("Sources saved. A paused source is skipped from the next poll.", "Fuentes guardadas. Una fuente en pausa se omite desde la próxima consulta.")
     else -> tr("Saved. Jobs pick it up on their next tick.", "Guardado. Las tareas lo toman en su siguiente ciclo.")
@@ -254,6 +284,7 @@ internal fun MAIN.configPage(m: ConfigModel) {
 
     cardsSection(m)
     schedulesSection(m)
+    promosSection(m)
     sourcesSection(m)
     backupsSection(m)
     notificationsSection(m)
@@ -503,6 +534,10 @@ private fun FlowContent.notificationsSection(m: ConfigModel) {
                         tr("Source health and backup alerts (else the watch digest's channel)", "Alertas de fuentes y respaldos (si no, el canal del resumen)"),
                         "DISCORD_HEALTH_WEBHOOK_URL", m.file.discordHealthWebhook,
                     ),
+                    Triple(
+                        tr("Promo reminders (else the watch digest's channel)", "Recordatorios de promociones (si no, el canal del resumen)"),
+                        "DISCORD_PROMOS_WEBHOOK_URL", m.file.discordPromosWebhook,
+                    ),
                 ).forEach { (what, env, url) ->
                     tr {
                         td { +what }
@@ -588,6 +623,107 @@ private fun FlowContent.backupsSection(m: ConfigModel) {
                 if (b.running) attributes["disabled"] = "disabled"
                 +tr("Back up now", "Respaldar ahora")
             }
+        }
+    }
+}
+
+private fun FlowContent.promosSection(m: ConfigModel) {
+    section("config-section") {
+        attributes["id"] = "promos"
+        h3 { +tr("Promo reminders", "Recordatorios de promociones") }
+        p("hint") {
+            +tr(
+                "Bank and payment codes that recur on a fixed day, which no crawl can see. On the day and the day before: a strip on every page, " +
+                    "the price after the discount on qualifying rows, a desktop banner, and a Discord post listing your pinned and tracked items that qualify.",
+                "Códigos de bancos y medios de pago que se repiten un día fijo, y que ningún rastreo ve. El día y el anterior: una franja en cada página, " +
+                    "el precio con descuento en las filas que califican, un aviso de escritorio y un post en Discord con tus fijados y seguimientos que califican.",
+            )
+        }
+        if (m.promos.isNotEmpty()) {
+            table("config-table") {
+                caption("sr-only") { +tr("Promo reminders", "Recordatorios de promociones") }
+                thead {
+                    tr {
+                        th(scope = ThScope.col) { +tr("Promo", "Promoción") }
+                        th(scope = ThScope.col) { +tr("When", "Cuándo") }
+                        th(scope = ThScope.col) { +tr("Next", "Próxima") }
+                        th(scope = ThScope.col) { +"" }
+                    }
+                }
+                tbody {
+                    m.promos.forEach { p ->
+                        tr(if (p.enabled) null else "dim") {
+                            td {
+                                +p.name
+                                div("dim") {
+                                    +p.offerText()
+                                    p.sourcePrefix?.let { +tr(" · on $it", " · en $it") }
+                                }
+                            }
+                            td {
+                                +p.ruleText()
+                                div("dim") {
+                                    +tr("reminder ${p.notifyAt}", "recordatorio ${p.notifyAt}")
+                                    if (p.remindDayBefore) +tr(", and the day before", ", y el día anterior")
+                                }
+                            }
+                            td { +if (p.enabled) p.nextOn(m.now.atZone(m.zone).toLocalDate()).toString() else tr("off", "apagada") }
+                            td {
+                                form(action = "/config/promos/${p.id}/${if (p.enabled) "disable" else "enable"}", method = FormMethod.post, classes = "inline") {
+                                    button(type = ButtonType.submit) { +if (p.enabled) tr("Turn off", "Apagar") else tr("Turn on", "Encender") }
+                                }
+                                form(action = "/config/promos/${p.id}/delete", method = FormMethod.post, classes = "inline") {
+                                    button(type = ButtonType.submit) { +tr("Delete", "Borrar") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        form(action = "/config/promos", method = FormMethod.post, classes = "promo-form") {
+            h3 { +tr("Add one", "Agregar") }
+            fun field(name: String, label: String, ph: String, value: String? = null) {
+                label {
+                    +label
+                    input(InputType.text, name = name) { placeholder = ph; value?.let { this.value = it } }
+                }
+            }
+            field("name", tr("Name", "Nombre"), "Bancolombia first Tuesday")
+            field("code", tr("Code", "Código"), "BANCOLMARTES")
+            field("payment", tr("Pay with", "Pagar con"), "Bancolombia")
+            field("sourcePrefix", tr("Store (source id or prefix)", "Tienda (id de fuente o prefijo)"), "amazon")
+            label {
+                +tr("Week", "Semana")
+                select {
+                    name = "nth"
+                    listOf(1 to tr("first", "primer"), 2 to tr("second", "segundo"), 3 to tr("third", "tercer"), 4 to tr("fourth", "cuarto"), -1 to tr("last", "último"))
+                        .forEach { (v, t) -> option { value = v.toString(); +t } }
+                }
+            }
+            label {
+                +tr("Day", "Día")
+                select {
+                    name = "weekday"
+                    java.time.DayOfWeek.entries.forEach { d ->
+                        option {
+                            value = d.value.toString()
+                            if (d == java.time.DayOfWeek.TUESDAY) selected = true
+                            +d.getDisplayName(java.time.format.TextStyle.FULL, if (com.luis.dealstracker.i18n.I18n.lang == com.luis.dealstracker.i18n.Lang.ES) java.util.Locale.forLanguageTag("es") else java.util.Locale.ENGLISH)
+                        }
+                    }
+                }
+            }
+            field("discount", tr("Discount (amount)", "Descuento (valor)"), "10")
+            field("minAmount", tr("Minimum purchase", "Compra mínima"), "60")
+            field("currency", tr("Currency", "Moneda"), "USD", "USD")
+            field("notifyAt", tr("Remind at", "Recordar a las"), "08:00", "08:00")
+            label {
+                checkBoxInput(name = "remindDayBefore") { checked = true }
+                +tr(" also the day before", " también el día anterior")
+            }
+            field("notes", tr("Notes", "Notas"), tr("e.g. once per card per month", "p. ej. una vez por tarjeta al mes"))
+            button(type = ButtonType.submit, classes = "primary") { +tr("Add reminder", "Agregar recordatorio") }
         }
     }
 }

@@ -301,13 +301,15 @@ class AppConfig(
     val discordWatchesWebhook: String? = null,
     /** Source-health and backup alerts; null falls back to [discordWatchesWebhook]. From `.env`. */
     val discordHealthWebhook: String? = null,
+    /** Payment-promo reminders (BANCOLMARTES); null falls back to [discordWatchesWebhook]. From `.env`. */
+    val discordPromosWebhook: String? = null,
 ) {
     val enabledProviders: List<ProviderConfig> get() = providers.filter { it.enabled }
 
     /** This config with other defaults and providers, secrets carried over. Used by `ConfigOverrides`. */
     fun copy(defaults: Defaults = this.defaults, providers: List<ProviderConfig> = this.providers) = AppConfig(
         defaults, providers, db, mlClientId, mlClientSecret,
-        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook, discordHealthWebhook,
+        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook, discordHealthWebhook, discordPromosWebhook,
     )
 
     /** Effective discount floor for a provider, falling back to the global default. */
@@ -356,6 +358,7 @@ class AppConfig(
                 discordTrackedWebhook = setting("DISCORD_TRACKED_WEBHOOK_URL", "").ifBlank { null },
                 discordWatchesWebhook = setting("DISCORD_WATCHES_WEBHOOK_URL", "").ifBlank { null },
                 discordHealthWebhook = setting("DISCORD_HEALTH_WEBHOOK_URL", "").ifBlank { null },
+                discordPromosWebhook = setting("DISCORD_PROMOS_WEBHOOK_URL", "").ifBlank { null },
             )
         }
 

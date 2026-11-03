@@ -209,6 +209,21 @@ A source that breaks alerts once, with a desktop banner and a Discord post
 again. The alerted set is kept in `app_settings`, so a restart does not repeat an alert. The Config
 tab's Sources table shows each source's state and why.
 
+## Promo reminders
+
+Bank and payment codes that recur on a fixed day, like **BANCOLMARTES** (the first Tuesday of the
+month: US$10 off Amazon from US$60 paying with Bancolombia), are applied at checkout, so no crawl
+sees them. They live in `promo_reminders` (V37, seeded with BANCOLMARTES) and are managed on the
+Config tab. On the promo day and the day before:
+- a strip under the masthead on every page;
+- under each qualifying row's price (right store prefix, currency, minimum), the price after the
+  code ("BANCOLMARTES today → US$89.99");
+- at the reminder time (08:00), a desktop banner and a Discord post (`DISCORD_PROMOS_WEBHOOK_URL`,
+  or the watch digest's channel) listing your pinned and tracked items that qualify, with their
+  price after the discount.
+
+Each reminder is sent once, remembered as `promo_sent.<id>` in `app_settings`.
+
 ## UI
 
 Styles live in `src/main/resources/static/app.css`, served via Ktor `staticResources` —
