@@ -390,7 +390,7 @@ Falabella and Homecenter charge less when you pay with the group's CMR card, and
 **Price · card** header sorts by the biggest card saving. Éxito and Carulla's "Mastercard −20%"
 rides the same column, so /groceries and a watch page word it identically.
 
-- **The rules never read it, and both halves of that matter.** An alert has to rest on the price
+- **The cash rules never read it, and both halves of that matter.** An alert has to rest on the price
   anyone can pay, since holding the card is not a given. And the data could not support the
   comparison anyway: a Homecenter category listing publishes a CMR price on **6 of 288 rows**
   (measured 2026-09-29 across all seven configured categories) against **37 of 56** on a
@@ -409,8 +409,38 @@ rides the same column, so /groceries and a watch page word it identically.
   as a `multiPurposeIcon` blurb and is a condition on a whole basket, so it produces nothing.
 - **`CMR` is its own `CardScope`**, not `STORE_CARD` (`V20`): that label names Tarjeta Éxito y
   Carulla, which cannot pay a Homecenter price.
-- **Not on the feed, the deal page or the Excel export.** `Deal` carries no card fields, so those
-  screens are unchanged; the watch page and /groceries read the observation directly.
+- **On the feed, the deal page and the Excel export too** (`V34`). The latest reading's card price and
+  the lowest card price ever are kept on `deals` by the same trigger as `obs_min_price`, so the feed
+  shows the chip under the cash price without reading the history table. The deal page adds the
+  lowest card price, and says so when there is no card price today — "no card price today · lowest
+  with card $2,179,900" is what tells you whether to wait. The export gets **Card price**, **Card**
+  and **Lowest card price** columns. Off, the score and every sort stay on the cash price.
+- **`CARD_LOW`: the one rule that does read it, and only for cards you hold.** Tick them under
+  **My cards** on the Config tab (`app_settings.held_cards`). A watch then also fires when a held
+  card's price is under everything the watch could have been bought for before — cash, or with
+  those cards — worded "new low with CMR" in the banner, the digest and Discord. Holding the store
+  card also covers Mastercard offers (it is one); the reverse is not true. It stays quiet when the
+  cash price is itself a new low (the cash alert already names the listing), on a listing converted
+  from another currency, and with no history, like the cash rule. The 2%-coverage objection above
+  is why it is opt-in rather than folded into `LOWEST_IN_WINDOW`: it can only ever see the stores
+  that publish a price for your card.
+- **"My cards" applies on every tab.** With cards picked, each card chip — feed, Tracked, Pinned,
+  the deal page, Groceries, watch pages — shows the best price *your* card pays, ticked (`✓ CMR
+  only …`), and fades the best offer of a card you don't hold rather than hiding it. The "Price ·
+  card" sorts, the deal page's "lowest with your cards" and the export's Card price columns follow
+  the same choice. With nothing picked, every screen behaves as it did before the setting existed.
+- **Every offer is kept, not just the cheapest** (`V35`). `price_observations.card_offers` holds the
+  best offer per card on each reading; `card_price` stays the cheapest of them, so older readers are
+  unchanged. Without this, Exito's 423 L Electrolux (1,899,000 with a bank's BIN table, 1,999,000
+  with Addi) recorded only the first, and an Addi holder saw a price they cannot pay. An Easy
+  teaser good on both cards ("COD Y TMC") is now an offer for each, where it used to be TMC alone.
+- **The cards on offer come from the crawls** (`card_programs`, one row per card and store, kept by
+  the observation trigger). Exito's price tables name payment ids that used to be filed as an
+  anonymous "Card": 2/209 are **Visa**, 4/210 Mastercard, 102 **Addi** (also Easy's `SW T. INT ADDI`
+  teasers). Old readings were renamed where one card promotion explains them (`V35`), except Exito
+  price-table readings that also carried an unnamed BIN table, which went back to "Card" (`V36`):
+  a price table publishes no percentage, so nothing says which of the two the stored price was. A
+  bank's BIN list is still not mapped to a bank, so those offers stay "Card" and never count as yours.
 
 Easy runs two card programmes of its own, and the Milán toilet `1505557` is **299,900 cash and
 269,900 with Tarjeta Más Cencosud** — captured as `TMC only −10% → $269,900`. Two things about

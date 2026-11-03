@@ -97,7 +97,7 @@ class CardOfferTest {
             BigDecimal.ONE, BigDecimal("10000"),
         )
         assertEquals(CardScope.STORE_CARD, best?.scope)
-        assertEquals(CardScope.OTHER, cardOfferOf(offer(cardTeaser("2", "10")), BigDecimal.ONE, BigDecimal("10000"))?.scope)
+        assertEquals(CardScope.OTHER, cardOfferOf(offer(cardTeaser("999", "10")), BigDecimal.ONE, BigDecimal("10000"))?.scope)
     }
 
     @Test
@@ -150,5 +150,40 @@ class CardOfferTest {
             teasers = listOf(tableTeaser(VtexParam("RestrictionsBins", "555845"), "500000.00")),
         )
         assertNull(cardOfferOf(o, BigDecimal.ONE, BigDecimal("2399925.00")))
+    }
+
+    /** V35: every offer survives, best per card, so a card that is not the cheapest still has its price. */
+    @Test
+    fun `every card's offer is kept, cheapest first, and the ids name the card`() {
+        val o = VtexOffer(
+            Price = BigDecimal("2399925"), ListPrice = BigDecimal("3199900"), PriceWithoutDiscount = BigDecimal("3199900"),
+            teasers = listOf(
+                tableTeaser(VtexParam("RestrictionsBins", "555845,570423"), "1300900.00"),
+                tableTeaser(VtexParam("PaymentMethodId", "102"), "1200900.00"),
+                tableTeaser(VtexParam("PaymentMethodId", "2,209"), "1250900.00"),
+                tableTeaser(VtexParam("PaymentMethodId", "4,210"), "1100900.00"),
+                // A second Addi table, worse: only the best per card is kept.
+                tableTeaser(VtexParam("PaymentMethodId", "102"), "1000900.00"),
+            ),
+        )
+        val offers = com.luis.dealstracker.sources.vtex.cardOffersOf(o, BigDecimal.ONE, BigDecimal("2399925.00"))
+        assertEquals(
+            listOf(CardScope.OTHER to "1899000.00", CardScope.VISA to "1949000.00", CardScope.ADDI to "1999000.00", CardScope.MASTERCARD to "2099000.00"),
+            offers.map { it.scope to it.price.toPlainString() },
+        )
+        assertEquals(offers.first(), cardOfferOf(o, BigDecimal.ONE, BigDecimal("2399925.00")), "the history's single card price is still the cheapest")
+    }
+
+    @Test
+    fun `payment ids name the card`() {
+        val scope: (Set<String>) -> CardScope = { com.luis.dealstracker.sources.vtex.scopeOfPaymentIds(it) }
+        assertEquals(CardScope.MASTERCARD, scope(setOf("4", "501")), "any Mastercard, the store card included")
+        assertEquals(CardScope.MASTERCARD, scope(setOf("4", "210")))
+        assertEquals(CardScope.STORE_CARD, scope(setOf("501")))
+        assertEquals(CardScope.VISA, scope(setOf("2", "209")))
+        assertEquals(CardScope.VISA, scope(setOf("2")))
+        assertEquals(CardScope.ADDI, scope(setOf("102")))
+        assertEquals(CardScope.OTHER, scope(setOf("2", "102")), "two programmes in one teaser is not one card")
+        assertEquals(CardScope.OTHER, scope(setOf("999")))
     }
 }

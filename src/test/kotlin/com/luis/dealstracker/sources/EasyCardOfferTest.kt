@@ -84,6 +84,14 @@ class EasyCardOfferTest {
         assertEquals(BigDecimal("1699900.00"), card.price)
     }
 
+    /** V35: a "COD Y TMC" teaser is an offer for each card, so a Codensa holder sees it too. */
+    @Test
+    fun `a teaser good on both of Easy's cards is an offer for each`() {
+        val offers = deal("1448501").cardOffers
+        assertEquals(setOf(CardScope.TMC, CardScope.CODENSA), offers.map { it.scope }.toSet())
+        assertTrue(offers.all { it.price == BigDecimal("1699900.00") })
+    }
+
     /**
      * The deliberate omission, and the one most likely to be "fixed" later. A BIN-restricted
      * percentage teaser is frequently ALREADY APPLIED in the shelf price — Combo Tairona is 411,920

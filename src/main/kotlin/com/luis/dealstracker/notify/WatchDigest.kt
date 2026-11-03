@@ -38,10 +38,10 @@ fun digestBanner(items: List<PendingNotification>, lang: Lang): Pair<String, Str
     )
     val top = ranked.first()
     val gap = top.alert.gapPercent?.let { "−${it.stripTrailingZeros().toPlainString()}% " }.orEmpty()
-    val why = if (top.alert.reason == MatchReason.CROSS_SITE_SPREAD) {
-        lang.tr("under a rival", "bajo un rival")
-    } else {
-        lang.tr("under the floor", "bajo el mínimo")
+    val why = when (top.alert.reason) {
+        MatchReason.CROSS_SITE_SPREAD -> lang.tr("under a rival", "bajo un rival")
+        MatchReason.CARD_LOW -> cardWhy(top.alert, lang, "under the floor", "bajo el mínimo")
+        MatchReason.LOWEST_IN_WINDOW -> lang.tr("under the floor", "bajo el mínimo")
     }
     val message = buildString {
         append(top.watchName).append(": ").append(gap).append(why)
@@ -53,6 +53,15 @@ fun digestBanner(items: List<PendingNotification>, lang: Lang): Pair<String, Str
 }
 
 /**
+ * A CARD_LOW alert's reason, naming the card: its price is only real to someone holding it, so the
+ * line must never read like a cash low.
+ */
+private fun cardWhy(alert: com.luis.dealstracker.model.WatchAlert, lang: Lang, en: String, es: String): String {
+    val card = alert.card?.label ?: lang.tr("card", "tarjeta")
+    return lang.tr("$en with $card", "$es con $card")
+}
+
+/**
  * The digest's Discord post: every alert, one line each, biggest gap first, each linked to the retailer.
  * A post has room the banner does not, so nothing is left as "+N more" unless Discord's limit cuts it.
  */
@@ -61,7 +70,11 @@ fun digestDiscordLines(items: List<PendingNotification>, lang: Lang): List<Strin
         val gap = p.alert.gapPercent?.let { "**−${it.stripTrailingZeros().toPlainString()}%**" } ?: "**—**"
         val title = WatchService.squashRepeats(p.title).take(80).replace("[", "(").replace("]", ")")
         val item = p.url?.let { "[$title]($it)" } ?: title
-        val why = if (p.alert.reason == MatchReason.CROSS_SITE_SPREAD) lang.tr("under a rival", "bajo un rival") else lang.tr("new low", "nuevo mínimo")
+        val why = when (p.alert.reason) {
+            MatchReason.CROSS_SITE_SPREAD -> lang.tr("under a rival", "bajo un rival")
+            MatchReason.CARD_LOW -> cardWhy(p.alert, lang, "new low", "nuevo mínimo")
+            MatchReason.LOWEST_IN_WINDOW -> lang.tr("new low", "nuevo mínimo")
+        }
         "$gap ${p.watchName} · $item — ${formatMoney(p.alert.price, p.currency)} ${lang.tr("at", "en")} ${p.source} ($why)"
     }
 

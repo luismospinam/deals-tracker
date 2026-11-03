@@ -49,7 +49,33 @@ enum class CardScope(val label: String) {
     /** Tarjeta Más Cencosud, at Easy. Also covers a teaser good on both TMC and Codensa. */
     TMC("TMC"),
     CODENSA("Codensa"),
+    /** Any Visa, as Exito's `visa_aliado_*` price tables name it (payment ids 2 and 209). See V35. */
+    VISA("Visa"),
+    /** Addi, the buy-now-pay-later service, at Exito and Easy (payment id 102). Not a card, but paid the same way. */
+    ADDI("Addi"),
     OTHER("Card");
+}
+
+/** The best offer among [offers] that one of [held] pays, or null when none does. */
+fun bestHeldOffer(offers: List<CardOffer>, held: Set<CardScope>): CardOffer? =
+    offers.filter { it.scope in held }.minByOrNull { it.price }
+
+/**
+ * The card offer that counts for the operator: the best one a held card pays, or -- with no cards
+ * picked at all -- the best overall, which is what every screen showed before "My cards" existed.
+ * Null when they hold cards but none of [offers]' -- a price they cannot pay is not theirs to sort by.
+ */
+fun usableOffer(offers: List<CardOffer>, held: Set<CardScope>): CardOffer? =
+    if (held.isEmpty()) offers.minByOrNull { it.price } else bestHeldOffer(offers, held)
+
+/**
+ * The cards the operator holds, as the scopes they pay (`SettingsRepository.heldCards`): one global
+ * value, because every tab shows card prices and they must all agree on whose. Loaded at boot and set
+ * by the "My cards" page; a single-user app, so process-wide state is the honest model of it.
+ */
+object HeldCards {
+    @Volatile
+    var current: Set<CardScope> = emptySet()
 }
 
 /**
@@ -150,6 +176,12 @@ data class RawDeal(
     val groceryGroup: String? = null,
     /** A card-only price, where the store runs one on this item today. See [CardOffer]. */
     val cardOffer: CardOffer? = null,
+    /**
+     * Every card offer on this reading, the best per card (V35). [cardOffer] is the cheapest of them,
+     * kept as the history's single card price; this list is what lets each operator see the price
+     * their own card pays when it is not the cheapest. Empty means "only [cardOffer]".
+     */
+    val cardOffers: List<CardOffer> = emptyList(),
     /**
      * Every promotion the store attached to this offer, by its own name. Recorded for analysis, not
      * used for pricing -- see `V18__promotions`.
@@ -262,7 +294,21 @@ data class Deal(
     val pinnedAt: Instant? = null,
     /** When the Colombia shipping verdict was last read from the page; null if never. */
     val coShippingCheckedAt: Instant? = null,
+    /**
+     * The latest reading's card-only price, kept on the deal by V34's trigger. Display only: no deal
+     * rule reads it, since holding that particular card is not a given (see `V17__card_price`).
+     */
+    val card: CardOffer? = null,
+    /** The lowest card-only price ever recorded for this deal, or null if it never carried one. */
+    val minCardPriceEver: BigDecimal? = null,
+    /** Every card offer on the latest reading, best per card (V35). Falls back to [card] when empty. */
+    val cardOffers: List<CardOffer> = emptyList(),
+    /** The lowest price recorded per card (V35), for "lowest with your card". */
+    val cardLows: Map<CardScope, BigDecimal> = emptyMap(),
 ) {
+    /** [cardOffers], or [card] alone for a row built before V35 or in a test. */
+    val allCardOffers: List<CardOffer> get() = cardOffers.ifEmpty { listOfNotNull(card) }
+
     val discountPercent: BigDecimal?
         get() {
             val list = listPrice ?: return null

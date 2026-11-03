@@ -1684,6 +1684,20 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 }
 .card-price.store-only { color: var(--accent); }
 
+/* The deal page: today's card price and the lowest one recorded, on one line under the price. */
+.detail-card { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: -4px 0 12px; }
+.detail-card .card-price { margin-top: 0; }
+
+/* /watches: "Cards I hold", one line of checkboxes that turns on the card-price alerts. */
+.held-cards { margin: 0 0 16px; }
+.held-cards fieldset {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin: 0;
+}
+.held-cards legend { font-size: var(--fs-sm); color: var(--text-dim); padding: 0 4px; }
+.held-cards label { display: inline-flex; align-items: center; gap: 4px; }
+.held-cards .hint { margin: 4px 0 0; }
+
 /* The phone-only Sort row (see `sortTags` in Views.kt). The table headers sort on desktop. */
 .sorttags { display: none; }
 
@@ -2161,3 +2175,9 @@ a.open-cart:hover { background: #ff8a3a; text-decoration: none; }
   font-variant-numeric: tabular-nums;
 }
 .spark-x { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--text-dim); margin-top: 4px; }
+
+/* "My cards": the price a card you hold pays is ticked and full-strength; one you don't hold is faded,
+ * still readable, because it may be a card worth getting. */
+.card-price.held { font-weight: 600; }
+.card-price.not-held { opacity: 0.55; }
+

@@ -3,6 +3,9 @@ package com.luis.dealstracker.web
 import com.luis.dealstracker.db.SyncStatus
 import com.luis.dealstracker.model.CardOffer
 import com.luis.dealstracker.model.CardScope
+import com.luis.dealstracker.model.HeldCards
+import com.luis.dealstracker.model.bestHeldOffer
+import com.luis.dealstracker.model.usableOffer
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
@@ -113,12 +116,18 @@ internal fun FlowContent.sortTags(options: List<SortOption>) {
  * Mastercards will not get them: the store's own card is a Mastercard, but not every Mastercard is
  * the store's card.
  */
-internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
-    // Every scope but MASTERCARD names one issuer's card, for the same reason STORE_CARD does:
+internal fun FlowContent.cardChip(card: CardOffer, currency: String, mark: CardMark = CardMark.NONE) {
+    // Every scope but the two networks names one issuer's card, for the same reason STORE_CARD does:
     // holding some other card gets you the cash price.
-    val storeOnly = card.scope != CardScope.MASTERCARD && card.scope != CardScope.OTHER
+    val storeOnly = card.scope !in setOf(CardScope.MASTERCARD, CardScope.VISA, CardScope.OTHER)
     val pct = card.percent.stripTrailingZeros().toPlainString()
-    div(if (storeOnly) "card-price store-only" else "card-price") {
+    val classes = listOfNotNull("card-price", "store-only".takeIf { storeOnly }, mark.css).joinToString(" ")
+    div(classes) {
+        val held = when (mark) {
+            CardMark.HELD -> tr(" You hold this card.", " Tienes esta tarjeta.")
+            CardMark.NOT_HELD -> tr(" You don't hold this card (My cards).", " No tienes esta tarjeta (Mis tarjetas).")
+            CardMark.NONE -> ""
+        }
         title = when (card.scope) {
             CardScope.MASTERCARD -> tr(
                 "With any Mastercard, including Tarjeta Éxito y Carulla / Carulla Mastercard. " +
@@ -154,11 +163,19 @@ internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
                 "Solo con una tarjeta Codensa (Easy), no con la Tarjeta Más Cencosud. " +
                     "$pct% por debajo del precio que paga cualquiera hoy.",
             )
+            CardScope.VISA -> tr(
+                "With any Visa card. $pct% off the price before any shelf promotion — card promotions change daily.",
+                "Con cualquier tarjeta Visa. $pct% de descuento sobre el precio antes de cualquier promoción — las promociones con tarjeta cambian a diario.",
+            )
+            CardScope.ADDI -> tr(
+                "Only paying with Addi (buy now, pay later), not with a card. Promotions change daily.",
+                "Solo pagando con Addi (compra ahora, paga después), no con tarjeta. Las promociones cambian a diario.",
+            )
             CardScope.OTHER -> tr(
                 "With a specific payment method this app does not recognise yet. Card promotions change daily.",
                 "Con un medio de pago específico que esta app aún no reconoce. Las promociones con tarjeta cambian a diario.",
             )
-        }
+        } + held
         // The scope's own label is English in the model ("Card" for OTHER); translated here, at render.
         val scopeLabel = when (card.scope) {
             CardScope.MASTERCARD -> card.scope.label
@@ -167,10 +184,35 @@ internal fun FlowContent.cardChip(card: CardOffer, currency: String) {
             CardScope.CMR -> tr("CMR only", "Solo CMR")
             CardScope.TMC -> tr("TMC only", "Solo TMC")
             CardScope.CODENSA -> tr("Codensa only", "Solo Codensa")
+            CardScope.VISA -> card.scope.label
+            CardScope.ADDI -> tr("Addi only", "Solo Addi")
             CardScope.OTHER -> tr(card.scope.label, "Tarjeta")
         }
+        if (mark == CardMark.HELD) +"✓ "
         +"$scopeLabel −$pct% → ${formatMoney(card.price, currency)}"
     }
+}
+
+/** How a card chip relates to the operator's own cards ("My cards"). */
+internal enum class CardMark(val css: String?) {
+    /** No cards picked: every offer is shown as it was before the setting existed. */
+    NONE(null),
+    HELD("held"),
+    NOT_HELD("not-held"),
+}
+
+/**
+ * The card chip every tab shows for a row's [offers], judged against the operator's cards:
+ * the best offer one of them pays, ticked; failing that, the best offer anyone could pay, faded, so a
+ * price they cannot get never reads as theirs but is not hidden either -- it may be a card worth having.
+ * With no cards picked, the best offer, unmarked, as before.
+ */
+internal fun FlowContent.cardChips(offers: List<CardOffer>, currency: String, held: Set<CardScope> = HeldCards.current) {
+    if (offers.isEmpty()) return
+    if (held.isEmpty()) return cardChip(offers.minBy { it.price }, currency)
+    val mine = bestHeldOffer(offers, held)
+    if (mine != null) cardChip(mine, currency, CardMark.HELD)
+    else cardChip(offers.minBy { it.price }, currency, CardMark.NOT_HELD)
 }
 
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
@@ -908,6 +950,9 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
             cardLabel(tr("Price", "Precio"))
             div("price") { +formatMoney(deal.price, deal.currency) }
             deal.listPrice?.let { div("was") { +formatMoney(it, deal.currency) } }
+            // What the right card pays today, under the price anyone pays. Display only: Off,
+            // the score and the sort all stay on the cash price.
+            cardChips(deal.allCardOffers, deal.currency)
         }
 
         td(classes = "col-disc") {
@@ -1371,8 +1416,16 @@ fun MAIN.dealDetail(
         }
     }
     // The card-only price from the latest reading, if it carried one: the shelf price above is what
-    // anyone pays, this is what the right card pays.
-    history.maxByOrNull { it.observedAt }?.card?.let { cardChip(it, deal.currency) }
+    // anyone pays, this is what the right card pays. The lowest card price follows even when there
+    // is none today -- "it was 2,179,900 with CMR last month" is what tells you whether to wait.
+    val offers = deal.allCardOffers.ifEmpty { listOfNotNull(history.maxByOrNull { it.observedAt }?.card) }
+    val note = cardLowNote(deal, usableOffer(offers, HeldCards.current), HeldCards.current)
+    if (offers.isNotEmpty() || note != null) {
+        div("detail-card") {
+            cardChips(offers, deal.currency)
+            note?.let { span("sub") { +it } }
+        }
+    }
 
     elsewhereTable(deal, elsewhere)
 
@@ -1399,11 +1452,31 @@ fun MAIN.dealDetail(
                         td { +relativeAgo(obs.observedAt) }
                         td { +formatMoney(obs.price, obs.currency) }
                         td { +(obs.listPrice?.let { formatMoney(it, obs.currency) } ?: "—") }
-                        td { obs.card?.let { cardChip(it, obs.currency) } ?: +"—" }
+                        td { obs.card?.let { cardChips(listOf(it), obs.currency) } ?: +"—" }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * The deal page's line beside the card chip: where today's card price sits against the lowest one
+ * recorded, or, with no card price today, what the lowest was. Null when it never carried one.
+ */
+internal fun cardLowNote(deal: Deal, today: CardOffer?, held: Set<CardScope> = emptySet()): String? {
+    // With cards picked, only their lows count: "lowest with card" must be a price they could have paid.
+    val low = if (held.isEmpty()) deal.minCardPriceEver
+    else deal.cardLows.filterKeys { it in held }.values.minOrNull()
+    low ?: return null
+    val m = formatMoney(low, deal.currency)
+    val yours = held.isNotEmpty()
+    return when {
+        today == null -> if (yours) tr("no price with your cards today · lowest with your cards $m", "sin precio con tus tarjetas hoy · mínimo con tus tarjetas $m")
+        else tr("no card price today · lowest with card $m", "sin precio con tarjeta hoy · mínimo con tarjeta $m")
+        today.price <= low -> if (yours) tr("lowest price with your cards recorded", "el menor precio con tus tarjetas registrado")
+        else tr("lowest card price recorded", "el menor precio con tarjeta registrado")
+        else -> if (yours) tr("lowest with your cards $m", "mínimo con tus tarjetas $m") else tr("lowest with card $m", "mínimo con tarjeta $m")
     }
 }
 

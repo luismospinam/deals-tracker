@@ -134,6 +134,24 @@ class DealsExportTest {
         }
     }
 
+    /** Its own columns, never folded into Price: the card price is only what that card pays. */
+    @Test
+    fun `the card price, its card and the lowest card price get columns of their own`() {
+        val withCard = deal().copy(
+            card = com.luis.dealstracker.model.CardOffer(BigDecimal("1799900"), BigDecimal("5"), com.luis.dealstracker.model.CardScope.CMR),
+            minCardPriceEver = BigDecimal("1699900"),
+        )
+        read(DealsExport.build(listOf(withCard, deal(id = 2)), meta(), zone)).use { book ->
+            val sheet = book.getSheet("Deals")
+            assertEquals(1_899_900.0, sheet.getRow(1).number("Price"))
+            assertEquals(1_799_900.0, sheet.getRow(1).number("Card price"))
+            assertEquals("CMR", sheet.getRow(1).text("Card"))
+            assertEquals(1_699_900.0, sheet.getRow(1).number("Lowest card price"))
+            assertNull(sheet.getRow(2).number("Card price"), "blank, not zero, without a card price")
+            assertNull(sheet.getRow(2).number("Lowest card price"))
+        }
+    }
+
     /**
      * The UI's rule, carried into the spreadsheet: an empty cell means *unknown*, not zero.
      * Slickdeals publishes no list price and Éxito no community score; a 0 in either column

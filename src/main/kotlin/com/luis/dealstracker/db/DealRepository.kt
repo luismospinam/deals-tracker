@@ -321,8 +321,8 @@ class DealRepository(
      */
     fun recordObservation(conn: Connection, dealId: Long, raw: RawDeal): Long =
         conn.prepareStatement(
-            "INSERT INTO price_observations (deal_id, price, list_price, currency, card_price, card_percent, card_scope, stock_qty) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            "INSERT INTO price_observations (deal_id, price, list_price, currency, card_price, card_percent, card_scope, stock_qty, card_offers) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb) RETURNING id",
         ).use { st ->
             st.setLong(1, dealId)
             st.setBigDecimal(2, raw.price)
@@ -333,6 +333,8 @@ class DealRepository(
             st.setBigDecimal(6, raw.cardOffer?.percent)
             st.setString(7, raw.cardOffer?.scope?.name)
             raw.stockQty?.let { st.setInt(8, it.coerceAtLeast(0)) } ?: st.setNull(8, java.sql.Types.INTEGER)
+            // Every offer, best per card (V35). The trigger falls back to the single one above when null.
+            st.setString(9, raw.cardOffers.takeIf { it.isNotEmpty() }?.let(::cardOffersJson))
             st.executeQuery().use { rs -> rs.next(); rs.getLong(1) }
         }
 
@@ -1510,4 +1512,62 @@ internal fun ResultSet.toDeal() = Deal(
     relevance = getDouble("relevance"),
     pinnedAt = getTimestamp("pinned_at")?.toInstant(),
     coShippingCheckedAt = getTimestamp("co_shipping_checked_at")?.toInstant(),
+    // From the deal's own columns (V34), not an observation: every caller selects `d.*`.
+    card = cardOfferOf(getBigDecimal("card_price"), getBigDecimal("card_percent"), getString("card_scope")),
+    minCardPriceEver = getBigDecimal("obs_min_card_price"),
+    cardOffers = parseCardOffers(getString("card_offers")),
+    cardLows = parseCardLows(getString("card_lows")),
 )
+
+/** `[{"scope":"VISA","price":1899000,"percent":40.65}]`, the shape of `card_offers` (V35). */
+internal fun cardOffersJson(offers: List<com.luis.dealstracker.model.CardOffer>): String =
+    kotlinx.serialization.json.buildJsonArray {
+        offers.forEach { o ->
+            add(
+                kotlinx.serialization.json.buildJsonObject {
+                    put("scope", kotlinx.serialization.json.JsonPrimitive(o.scope.name))
+                    put("price", kotlinx.serialization.json.JsonPrimitive(o.price))
+                    put("percent", kotlinx.serialization.json.JsonPrimitive(o.percent))
+                },
+            )
+        }
+    }.toString()
+
+/** Reads `card_offers` back, cheapest first; an entry this build cannot read is skipped, never fatal. */
+internal fun parseCardOffers(json: String?): List<com.luis.dealstracker.model.CardOffer> {
+    if (json.isNullOrBlank()) return emptyList()
+    val array = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(json) as? kotlinx.serialization.json.JsonArray }
+        .getOrNull() ?: return emptyList()
+    return array.mapNotNull { el ->
+        val o = el as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+        fun text(k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeUnless { it is kotlinx.serialization.json.JsonNull }?.content
+        cardOfferOf(text("price")?.toBigDecimalOrNull(), text("percent")?.toBigDecimalOrNull(), text("scope"))
+    }.sortedBy { it.price }
+}
+
+/** Reads `card_lows` ({"CMR": 2179900}); a card name this build does not know is dropped. */
+internal fun parseCardLows(json: String?): Map<com.luis.dealstracker.model.CardScope, BigDecimal> {
+    if (json.isNullOrBlank()) return emptyMap()
+    val obj = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(json) as? kotlinx.serialization.json.JsonObject }
+        .getOrNull() ?: return emptyMap()
+    return obj.mapNotNull { (k, v) ->
+        val scope = runCatching { com.luis.dealstracker.model.CardScope.valueOf(k) }.getOrNull() ?: return@mapNotNull null
+        val price = (v as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBigDecimalOrNull() ?: return@mapNotNull null
+        scope to price
+    }.toMap()
+}
+
+/**
+ * A stored card price as a [com.luis.dealstracker.model.CardOffer]. card_price being present is the
+ * gate; an unrecognised scope degrades to OTHER ("Card") rather than throwing, so a value written by a
+ * newer build still renders on an older one.
+ */
+internal fun cardOfferOf(price: BigDecimal?, percent: BigDecimal?, scope: String?): com.luis.dealstracker.model.CardOffer? =
+    price?.let {
+        com.luis.dealstracker.model.CardOffer(
+            price = it,
+            percent = percent ?: BigDecimal.ZERO,
+            scope = runCatching { com.luis.dealstracker.model.CardScope.valueOf(scope!!) }
+                .getOrDefault(com.luis.dealstracker.model.CardScope.OTHER),
+        )
+    }

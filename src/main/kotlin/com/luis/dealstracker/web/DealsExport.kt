@@ -1,5 +1,8 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.model.HeldCards
+import com.luis.dealstracker.model.usableOffer
+import com.luis.dealstracker.model.formatMoney
 import com.luis.dealstracker.db.FeedFilter
 import com.luis.dealstracker.i18n.Lang
 import com.luis.dealstracker.i18n.tr
@@ -94,6 +97,18 @@ object DealsExport {
         // Colombian retailers), so the code has to travel with them to stay meaningful.
         Col("Currency", "Moneda", 9) { c, d, _ -> c.setCellValue(d.currency) },
         Col("List price", "Precio de lista", 14) { c, d, s -> d.listPrice?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
+        // Today's card-only price and which card pays it -- a separate column, never folded into
+        // Price, which stays what anyone pays.
+        // The offer a card you hold pays (any card, with none picked on the Config tab), and every offer.
+        Col("Card price", "Precio con tarjeta", 14) { c, d, s ->
+            usableOffer(d.allCardOffers, HeldCards.current)?.let { c.setNum(it.price.toDouble(), s.money(d.currency)) }
+        },
+        Col("Card", "Tarjeta", 12) { c, d, _ -> usableOffer(d.allCardOffers, HeldCards.current)?.let { c.setCellValue(it.scope.name) } },
+        Col("All card offers", "Todas las ofertas con tarjeta", 30) { c, d, _ ->
+            d.allCardOffers.takeIf { it.isNotEmpty() }?.let { offers ->
+                c.setCellValue(offers.joinToString("; ") { "${it.scope.name} ${formatMoney(it.price, d.currency)}" })
+            }
+        },
         // Written as a true fraction under a percent format: 0.25 displayed as "25.0%".
         // Writing 25.0 instead would render as 2500% and break any average over the column.
         Col("Discount", "Descuento", 10) { c, d, s ->
@@ -101,6 +116,11 @@ object DealsExport {
         },
         Col("Community score", "Puntaje de la comunidad", 10) { c, d, s -> d.communityScore?.let { c.setNum(it.toDouble(), s.integer) } },
         Col("Lowest recorded", "Mínimo registrado", 14) { c, d, s -> d.minPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
+        Col("Lowest card price", "Mínimo con tarjeta", 14) { c, d, s ->
+            val held = HeldCards.current
+            val low = if (held.isEmpty()) d.minCardPriceEver else d.cardLows.filterKeys { it in held }.values.minOrNull()
+            low?.let { c.setNum(it.toDouble(), s.money(d.currency)) }
+        },
         Col("Highest recorded", "Máximo registrado", 14) { c, d, s -> d.maxPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
         Col("Drop from peak", "Baja desde el máximo", 14) { c, d, s -> d.dropFromPeak?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
         Col("At lowest ever", "En su mínimo histórico", 12) { c, d, _ -> c.setCellValue(d.isAtLowestEver) },

@@ -169,7 +169,7 @@ class WatchRepository(private val ds: DataSource) {
      * observation (`observed_at < po.observed_at`), because a floor containing the price
      * under test is one that price can never beat. See [WatchCandidate.priorFloor].
      */
-    fun candidates(watch: Watch, fx: FxRate): List<WatchCandidate> {
+    fun candidates(watch: Watch, fx: FxRate, heldCards: Set<CardScope> = emptySet()): List<WatchCandidate> {
         val where = mutableListOf("d.is_active")
         val params = mutableListOf<Any>()
 
@@ -258,9 +258,9 @@ class WatchRepository(private val ds: DataSource) {
         }
 
         val sql = """
-            SELECT d.id, d.source, d.title, d.url, d.image_url, d.currency, d.match_key, d.model_key,
+            SELECT d.id, d.source, d.title, d.url, d.image_url, d.currency, d.match_key, d.model_key, d.card_offers,
                    po.price, po.card_price, po.card_percent, po.card_scope,
-                   prior.floor AS prior_floor, prior.card_floor
+                   prior.floor AS prior_floor, prior.card_floor, prior.held_card_floor
             FROM deals d
             JOIN LATERAL (
                 -- The card columns ride along on the latest observation, the same way
@@ -273,12 +273,22 @@ class WatchRepository(private val ds: DataSource) {
             LEFT JOIN LATERAL (
                 -- MIN over the same window and the same "before the reading under test" cut as the
                 -- cash floor, so the two columns are answering the same question about different
-                -- prices. No extra parameter: `days => ?` is still the only one in this lateral.
-                SELECT MIN(price) AS floor, MIN(card_price) AS card_floor
-                FROM price_observations
-                WHERE deal_id = d.id
-                  AND observed_at >= now() - make_interval(days => ?)
-                  AND observed_at < po.observed_at
+                -- prices. held_card_floor is the cheapest price any card the operator holds paid --
+                -- across every offer on each reading (V35), not only its cheapest -- and only
+                -- WatchEvaluator.cardLow reads it. Its array is bound twice, ahead of the window.
+                SELECT MIN(o.price) AS floor, MIN(o.card_price) AS card_floor, MIN(h.p) AS held_card_floor
+                FROM price_observations o
+                LEFT JOIN LATERAL (
+                    SELECT MIN(x.p) AS p FROM (
+                        SELECT (e->>'price')::numeric AS p FROM jsonb_array_elements(o.card_offers) e
+                         WHERE e->>'scope' = ANY (?::text[])
+                        UNION ALL
+                        SELECT o.card_price WHERE o.card_scope = ANY (?::text[])
+                    ) x
+                ) h ON TRUE
+                WHERE o.deal_id = d.id
+                  AND o.observed_at >= now() - make_interval(days => ?)
+                  AND o.observed_at < po.observed_at
             ) prior ON TRUE
             -- Dearest this listing has actually been, which is what minPrice is judged
             -- against. Deliberately MAX(price) and NOT list_price: a retailer's "before"
@@ -302,13 +312,16 @@ class WatchRepository(private val ds: DataSource) {
 
         return ds.connection.use { conn ->
             conn.prepareStatement(sql).use { st ->
-                // The window parameter is first: it sits in the LEFT JOIN LATERAL, which the
-                // planner places ahead of every WHERE predicate. The two conversion factors
-                // follow, in the order of the `fx` lateral's CASE.
-                st.setInt(1, watch.lookbackDays)
-                st.setBigDecimal(2, fx.convert(BigDecimal.ONE, "COP", watch.currency, scale = 8))
-                st.setBigDecimal(3, fx.convert(BigDecimal.ONE, "USD", watch.currency, scale = 8))
-                bind(conn, st, params, offset = 3)
+                // The held cards and the window come first: they sit in the LEFT JOIN LATERAL,
+                // which the planner places ahead of every WHERE predicate. The two conversion
+                // factors follow, in the order of the `fx` lateral's CASE.
+                val held = conn.createArrayOf("text", heldCards.map { it.name }.toTypedArray())
+                st.setArray(1, held)
+                st.setArray(2, held)
+                st.setInt(3, watch.lookbackDays)
+                st.setBigDecimal(4, fx.convert(BigDecimal.ONE, "COP", watch.currency, scale = 8))
+                st.setBigDecimal(5, fx.convert(BigDecimal.ONE, "USD", watch.currency, scale = 8))
+                bind(conn, st, params, offset = 5)
                 st.executeQuery().use { rs ->
                     buildList {
                         while (rs.next()) {
@@ -344,6 +357,8 @@ class WatchRepository(private val ds: DataSource) {
                                         )
                                     },
                                     cardFloor = rs.getBigDecimal("card_floor"),
+                                    heldCardFloor = rs.getBigDecimal("held_card_floor"),
+                                    cardOffers = parseCardOffers(rs.getString("card_offers")),
                                     imageUrl = rs.getString("image_url"),
                                 ),
                             )
@@ -392,12 +407,13 @@ class WatchRepository(private val ds: DataSource) {
         if (alerts.isEmpty()) return emptyList()
 
         val sql = """
-            INSERT INTO watch_matches (watch_id, deal_id, reason, price_at_match, evidence, gap_percent)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO watch_matches (watch_id, deal_id, reason, price_at_match, evidence, gap_percent, card_scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (watch_id, deal_id, reason) DO UPDATE SET
                 price_at_match = EXCLUDED.price_at_match,
                 evidence       = EXCLUDED.evidence,
                 gap_percent    = EXCLUDED.gap_percent,
+                card_scope     = EXCLUDED.card_scope,
                 matched_at     = now()
             RETURNING id, notified_at, notified_price
         """.trimIndent()
@@ -414,6 +430,7 @@ class WatchRepository(private val ds: DataSource) {
                         st.setBigDecimal(4, alert.price)
                         st.setString(5, alert.evidence)
                         st.setBigDecimal(6, alert.gapPercent)
+                        st.setString(7, alert.card?.name)
                         st.executeQuery().use { rs ->
                             rs.next()
                             val matchId = rs.getLong("id")
@@ -492,7 +509,7 @@ class WatchRepository(private val ds: DataSource) {
     fun digestRows(sentSince: Instant? = null): List<DigestRow> = ds.connection.use { conn ->
         val sql = """
             SELECT m.id, m.watch_id, w.name AS watch_name, m.deal_id, m.reason, m.price_at_match, m.evidence,
-                   m.gap_percent, m.notified_at, d.title, d.source, d.currency, d.url,
+                   m.gap_percent, m.card_scope, m.notified_at, d.title, d.source, d.currency, d.url,
                    (m.notified_at IS NULL OR (m.notified_price IS NOT NULL AND m.price_at_match < m.notified_price)) AS waiting
             FROM watch_matches m
             JOIN watches w ON w.id = m.watch_id
@@ -517,6 +534,7 @@ class WatchRepository(private val ds: DataSource) {
                                     price = rs.getBigDecimal("price_at_match"),
                                     evidence = rs.getString("evidence").orEmpty(),
                                     gapPercent = rs.getBigDecimal("gap_percent"),
+                                    card = rs.getString("card_scope")?.let { runCatching { CardScope.valueOf(it) }.getOrNull() },
                                 ),
                                 title = rs.getString("title"),
                                 source = rs.getString("source"),

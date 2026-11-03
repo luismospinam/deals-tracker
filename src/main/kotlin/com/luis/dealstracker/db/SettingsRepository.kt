@@ -47,6 +47,28 @@ class SettingsRepository(private val ds: DataSource) {
         /** The last watch-digest slot sent, so a restart neither repeats nor skips one. */
         const val WATCH_DIGEST_SLOT = "watch_digest_slot"
 
+        /**
+         * The card programmes the operator holds, comma-separated `CardScope` names ("CMR,STORE_CARD").
+         * Turns on the CARD_LOW watch rule for those cards; unset or empty, it never fires.
+         */
+        const val HELD_CARDS = "held_cards"
+
+        /**
+         * [HELD_CARDS] as the scopes those cards can pay. Holding the store card also pays every
+         * MASTERCARD offer, since Tarjeta Éxito y Carulla is a Mastercard; the reverse is not true.
+         * Unknown names are dropped, so a value written by a newer build cannot break an older one.
+         */
+        fun heldCards(value: String?): Set<com.luis.dealstracker.model.CardScope> {
+            val held = pickedCards(value)
+            return if (com.luis.dealstracker.model.CardScope.STORE_CARD in held) held + com.luis.dealstracker.model.CardScope.MASTERCARD else held
+        }
+
+        /** [HELD_CARDS] exactly as ticked, for the form: no implied scopes added. */
+        fun pickedCards(value: String?): Set<com.luis.dealstracker.model.CardScope> =
+            value.orEmpty().split(',').mapNotNull { name ->
+                runCatching { com.luis.dealstracker.model.CardScope.valueOf(name.trim()) }.getOrNull()
+            }.toSet()
+
         /** The pasted exito.com `VtexIdclientAutCookie_exitocol` cookie the cart button acts as. Blank when cleared. */
         const val EXITO_COOKIE = "exito_cookie"
 

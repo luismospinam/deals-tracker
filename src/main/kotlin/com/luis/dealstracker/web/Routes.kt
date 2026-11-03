@@ -10,6 +10,7 @@ import com.luis.dealstracker.db.GroceryRepository
 import com.luis.dealstracker.db.WatchDraft
 import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
+import com.luis.dealstracker.model.HeldCards
 import com.luis.dealstracker.ingest.Categorizer
 import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.ingest.IngestService
@@ -734,6 +735,7 @@ fun Application.routes(
                     watchesPage(
                         all, counts, sourceNames(repo, app), categorizer.categoryNames, digest, app.defaults.watchDigestTimes,
                         digestAll = call.request.queryParameters["digest"] == "all",
+                        heldCards = HeldCards.current,
                     )
                 }
             }

@@ -367,7 +367,9 @@ internal fun groceryComparator(sort: GrocerySort): Comparator<GroceryRow> = when
         .thenBy { it.unitPrice }
         .thenBy { it.deal.title }
     GrocerySort.CARD -> compareByDescending<GroceryRow> { r ->
-        r.card?.let { BigDecimal.ONE - it.price.divide(r.deal.price, 6, java.math.RoundingMode.HALF_UP) } ?: BigDecimal("-1")
+        // The saving a card the operator holds gives (any card, with none picked): "My cards".
+        com.luis.dealstracker.model.usableOffer(r.cardOffers, com.luis.dealstracker.model.HeldCards.current)
+            ?.let { BigDecimal.ONE - it.price.divide(r.deal.price, 6, java.math.RoundingMode.HALF_UP) } ?: BigDecimal("-1")
     }.thenBy { it.deal.title }
     GrocerySort.STORE -> compareByDescending<GroceryRow> { it.deal.storeDiscountPercent ?: -1 }
         .thenBy { it.deal.title }
@@ -845,7 +847,7 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
         td(classes = "col-price") {
             cardLabel(tr("Price", "Precio"))
             div("price") { +formatMoney(deal.price, deal.currency) }
-            row.card?.let { card -> cardChip(card, deal.currency) }
+            cardChips(row.cardOffers, deal.currency)
         }
         td(classes = "col-price") {
             cardLabel(tr("Unit price", "Precio unitario"))

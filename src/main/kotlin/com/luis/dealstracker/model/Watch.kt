@@ -10,6 +10,13 @@ enum class MatchReason {
 
     /** Materially cheaper here than the same product at another retailer. */
     CROSS_SITE_SPREAD,
+
+    /**
+     * A new low at the price a card the operator holds pays -- opt-in, through the cards picked on
+     * /watches. See `WatchEvaluator.cardLow` for why it is a rule of its own and not a change to
+     * [LOWEST_IN_WINDOW].
+     */
+    CARD_LOW,
 }
 
 /**
@@ -152,9 +159,20 @@ data class WatchCandidate(
      * than inventing a distinction the data does not support.
      */
     val cardFloor: BigDecimal? = null,
+    /**
+     * [cardFloor] restricted to the cards the operator holds: the cheapest price this listing could
+     * have been bought at, with those cards, inside the window and before the current reading. Null
+     * when no card is held or none of them ever priced it. Read only by `WatchEvaluator.cardLow`.
+     */
+    val heldCardFloor: BigDecimal? = null,
+    /** Every card offer today (V35), best per card. [cardOffer] is the cheapest of them. */
+    val cardOffers: List<CardOffer> = emptyList(),
     /** The retailer's product image, for the thumbnail column. Null when the source has none. */
     val imageUrl: String? = null,
 ) {
+    /** [cardOffers], or [cardOffer] alone where the listing carries no list. */
+    val allCardOffers: List<CardOffer> get() = cardOffers.ifEmpty { listOfNotNull(cardOffer) }
+
     /** `US$399.99 ≈ $1,305,756` for a converted row, the plain price otherwise. */
     fun priceLabel(): String =
         if (quotedPrice != null && quotedCurrency != null) {
@@ -185,6 +203,8 @@ data class WatchAlert(
      * alert, the watch's prior floor for a new low. What the daily digest ranks by.
      */
     val gapPercent: BigDecimal? = null,
+    /** The card [price] is paid with, on a [MatchReason.CARD_LOW] alert; null on the cash rules. */
+    val card: CardScope? = null,
 )
 
 /** A ledger row, used to decide whether an alert is actually news. */

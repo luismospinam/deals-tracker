@@ -50,6 +50,9 @@ data class GroceryRow(
 ) {
     val unitPrice: BigDecimal? get() = unitPrice(deal.price, size)
 
+    /** Every card offer today (V35), or [card] alone where the deal carries none. */
+    val cardOffers: List<CardOffer> get() = deal.cardOffers.ifEmpty { listOfNotNull(card) }
+
     /**
      * How much more the [rival] charges, in percent of this row's price: negative when the other chain is
      * cheaper. Null without a rival or a price to compare against.

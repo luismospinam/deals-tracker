@@ -374,7 +374,7 @@ class VtexSource : DealSource {
             val price: BigDecimal,
             val listPrice: BigDecimal?,
             val qty: Int,
-            val card: com.luis.dealstracker.model.CardOffer? = null,
+            val cards: List<com.luis.dealstracker.model.CardOffer> = emptyList(),
             val promotions: List<com.luis.dealstracker.model.PromotionTag> = emptyList(),
         )
 
@@ -405,7 +405,7 @@ class VtexSource : DealSource {
                     qty = o.AvailableQuantity ?: 0,
                     // The card price of THIS offer, so it travels with the offer chosen below rather
                     // than being read off a different seller's teasers.
-                    card = cardOfferOf(o, multiplier, price),
+                    cards = cardOffersOf(o, multiplier, price),
                     promotions = promotionsOf(o),
                 )
             }
@@ -441,7 +441,8 @@ class VtexSource : DealSource {
                 ?.trim('/')?.split('/')?.joinToString(" > ")?.takeIf { it.isNotBlank() },
             imageUrl = imageUrl,
             available = inStock.isNotEmpty(),
-            cardOffer = best.card,
+            cardOffer = best.cards.firstOrNull(),
+            cardOffers = best.cards,
             promotions = best.promotions,
             stockQty = best.qty,
             specs = product.specs.ifEmpty { specsOf(product.properties) },
@@ -605,6 +606,25 @@ private const val MASTERCARD_ID = "4"
 private const val STORE_CARD_ID = "501"
 
 /**
+ * The ids Exito's `*_aliado_tabladeprecios_*` teasers name, alongside the two above. Measured
+ * 2026-11-03 on exito.com electro: `visa_aliado_...` names 2 and 209, `mastercard_aliado_...` 4 and 210,
+ * `addi_aliado_...` 102 -- and Easy's `SW T. INT ADDI ...` teasers name 102 too. Before V35 every one of
+ * them was recorded as an unknown "Card".
+ */
+private val MASTERCARD_IDS = setOf(MASTERCARD_ID, "210")
+private val VISA_IDS = setOf("2", "209")
+private const val ADDI_ID = "102"
+
+/** Who can pay a teaser restricted to these payment ids. */
+internal fun scopeOfPaymentIds(ids: Set<String>): com.luis.dealstracker.model.CardScope = when {
+    ids.any { it in MASTERCARD_IDS } -> com.luis.dealstracker.model.CardScope.MASTERCARD
+    ids == setOf(STORE_CARD_ID) -> com.luis.dealstracker.model.CardScope.STORE_CARD
+    ids.isNotEmpty() && ids.all { it in VISA_IDS } -> com.luis.dealstracker.model.CardScope.VISA
+    ids == setOf(ADDI_ID) -> com.luis.dealstracker.model.CardScope.ADDI
+    else -> com.luis.dealstracker.model.CardScope.OTHER
+}
+
+/**
  * Easy restricts by card BIN instead of by payment id, and the BINs it uses fall into exactly two
  * disjoint halves plus their union.
  *
@@ -641,31 +661,60 @@ internal fun cardOfferOf(
     offer: VtexOffer,
     multiplier: BigDecimal,
     shelfPrice: BigDecimal,
-): com.luis.dealstracker.model.CardOffer? {
+): com.luis.dealstracker.model.CardOffer? = cardOffersOf(offer, multiplier, shelfPrice).firstOrNull()
+
+/**
+ * Every card offer on [offer], the best per card, cheapest first. [cardOfferOf] is its head: the one
+ * card price the history keeps. The rest are what lets an operator holding Addi see Addi's price when
+ * Visa's is lower (the 423 L Electrolux: 1,899,000 with Visa, 1,999,000 with Addi).
+ */
+internal fun cardOffersOf(
+    offer: VtexOffer,
+    multiplier: BigDecimal,
+    shelfPrice: BigDecimal,
+): List<com.luis.dealstracker.model.CardOffer> {
     val base = listOf(offer.PriceWithoutDiscount, offer.ListPrice, offer.Price)
-        .firstOrNull { it != null && it.signum() > 0 }?.multiply(multiplier) ?: return null
-    return offer.teasers.orEmpty().mapNotNull { teaser ->
-        val conditions = teaser.conditions ?: return@mapNotNull null
-        if ((conditions.minimumQuantity ?: 0) > 0) return@mapNotNull null
+        .firstOrNull { it != null && it.signum() > 0 }?.multiply(multiplier) ?: return emptyList()
+    return offer.teasers.orEmpty().flatMap { teaser ->
+        val conditions = teaser.conditions ?: return@flatMap emptyList()
+        if ((conditions.minimumQuantity ?: 0) > 0) return@flatMap emptyList()
         val params = conditions.parameters
-        if (params.isEmpty()) return@mapNotNull null
+        if (params.isEmpty()) return@flatMap emptyList()
         val values = params.flatMap { it.value.orEmpty().split(',') }
             .map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-        if (values.isEmpty()) return@mapNotNull null
+        if (values.isEmpty()) return@flatMap emptyList()
 
         when {
             // Exito and Carulla: the teaser names a payment method and publishes a percentage,
             // and the price must be computed off the pre-promotion base.
             params.all { it.name == "PaymentMethodId" } ->
-                byPaymentMethod(teaser, values, base, shelfPrice) ?: byPriceTable(teaser, base, shelfPrice)
-            // Easy: the teaser restricts by card BIN and publishes the price to pay outright.
+                listOfNotNull(
+                    byPaymentMethod(teaser, values, base, shelfPrice)
+                        ?: byPriceTable(teaser, base, shelfPrice, scopeOfPaymentIds(values)),
+                )
+            // Easy: the teaser restricts by card BIN and publishes the price to pay outright. One
+            // good on both of Easy's cards ("COD Y TMC") is an offer for each, so a Codensa holder
+            // sees it too; with a single card price per reading it had to be recorded as TMC alone.
             params.all { it.name == "RestrictionsBins" } ->
-                byCardBin(teaser, values, shelfPrice) ?: byPriceTable(teaser, base, shelfPrice)
+                byCardBin(teaser, values, shelfPrice)?.let { card ->
+                    if (card.scope == com.luis.dealstracker.model.CardScope.TMC && values.any { it in CODENSA_BINS }) {
+                        listOf(card, card.copy(scope = com.luis.dealstracker.model.CardScope.CODENSA))
+                    } else {
+                        listOf(card)
+                    }
+                } ?: listOfNotNull(byPriceTable(teaser, base, shelfPrice))
             // A mixed or unknown condition is not a plain card offer -- a SkuIdsList makes it a
             // multi-buy. Dropped rather than guessed at.
-            else -> null
+            else -> emptyList()
         }
-    }.minByOrNull { it.price }
+    }
+        // Best per card; ties keep the store's own teaser order, which is what the single card price
+        // always followed (minByOrNull takes the first of equals).
+        .withIndex()
+        .groupBy { it.value.scope }
+        .map { (_, same) -> same.minWith(compareBy({ it.value.price }, { it.index })) }
+        .sortedWith(compareBy({ it.value.price }, { it.index }))
+        .map { it.value }
 }
 
 /** The Exito/Carulla shape: `PaymentMethodId` + `PercentualDiscount`, off the pre-promotion base. */
@@ -679,11 +728,7 @@ private fun byPaymentMethod(
         ?.firstOrNull { it.name == "PercentualDiscount" }?.value?.trim()?.toBigDecimalOrNull()
         ?.takeIf { it > BigDecimal.ZERO && it < BigDecimal(100) }
         ?: return null
-    val scope = when {
-        MASTERCARD_ID in ids -> com.luis.dealstracker.model.CardScope.MASTERCARD
-        ids == setOf(STORE_CARD_ID) -> com.luis.dealstracker.model.CardScope.STORE_CARD
-        else -> com.luis.dealstracker.model.CardScope.OTHER
-    }
+    val scope = scopeOfPaymentIds(ids)
     val price = base.multiply(BigDecimal.ONE - percent.movePointLeft(2))
         .setScale(0, java.math.RoundingMode.HALF_UP).asMoney()
     return com.luis.dealstracker.model.CardOffer(price, percent.setScale(2, java.math.RoundingMode.HALF_UP), scope)
@@ -747,12 +792,14 @@ private fun byCardBin(
  * round numbers, which is what a price set by hand looks like, so the amount is taken off the base
  * rather than the shelf price. Unlike a BIN percentage, an absolute amount cannot already be baked
  * into the shelf price; a result that does not beat the shelf price is dropped all the same.
- * The scope is [com.luis.dealstracker.model.CardScope.OTHER]: the BIN list is not mapped to a bank.
+ * [scope] comes from the payment ids when the teaser names them (Visa, Mastercard, Addi); a BIN list is
+ * not mapped to a bank, so it stays [com.luis.dealstracker.model.CardScope.OTHER].
  */
 private fun byPriceTable(
     teaser: VtexTeaser,
     base: BigDecimal,
     shelfPrice: BigDecimal,
+    scope: com.luis.dealstracker.model.CardScope = com.luis.dealstracker.model.CardScope.OTHER,
 ): com.luis.dealstracker.model.CardOffer? {
     val discount = teaser.effects?.parameters
         ?.firstOrNull { it.name == "PromotionalPriceTableItemsDiscount" }?.value?.trim()?.toBigDecimalOrNull()
@@ -762,7 +809,7 @@ private fun byPriceTable(
     val percent = base.subtract(price).divide(base, 6, java.math.RoundingMode.HALF_UP)
         .multiply(BigDecimal(100)).setScale(2, java.math.RoundingMode.HALF_UP)
     if (percent.signum() <= 0 || percent >= BigDecimal(100)) return null
-    return com.luis.dealstracker.model.CardOffer(price, percent, com.luis.dealstracker.model.CardScope.OTHER)
+    return com.luis.dealstracker.model.CardOffer(price, percent, scope)
 }
 
 /** Reads a JSON number as BigDecimal from its literal text, bypassing Double entirely. */

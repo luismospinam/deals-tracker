@@ -1,5 +1,6 @@
 package com.luis.dealstracker.ingest
 
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.WatchAlert
@@ -37,10 +38,18 @@ object WatchEvaluator {
      * a smaller *number* than 15,000 but not a cheaper mount — the failure this grouping was
      * written for, when a USD floor of $22.99 silenced a COP watch permanently.
      */
-    fun evaluate(watch: Watch, candidates: List<WatchCandidate>, fx: FxRate): List<WatchAlert> =
+    fun evaluate(
+        watch: Watch,
+        candidates: List<WatchCandidate>,
+        fx: FxRate,
+        heldCards: Set<CardScope> = emptySet(),
+    ): List<WatchAlert> =
         comparable(watch, candidates, fx).groupBy { it.currency }.flatMap { (_, sameCurrency) ->
-            (lowestInWindow(watch, sameCurrency, fx) + crossSiteSpread(watch, sameCurrency, fx))
-                .map { it.inOwnCurrency(sameCurrency) }
+            (
+                lowestInWindow(watch, sameCurrency, fx) +
+                    crossSiteSpread(watch, sameCurrency, fx) +
+                    cardLow(watch, sameCurrency, heldCards)
+                ).map { it.inOwnCurrency(sameCurrency) }
         }
 
     /**
@@ -69,6 +78,8 @@ object WatchEvaluator {
                     ?.let { card.copy(price = it) }
             },
             cardFloor = c.cardFloor?.let { fx.convert(it, c.currency, watch.currency) },
+            heldCardFloor = c.heldCardFloor?.let { fx.convert(it, c.currency, watch.currency) },
+            cardOffers = c.cardOffers.mapNotNull { card -> fx.convert(card.price, c.currency, watch.currency)?.let { card.copy(price = it) } },
         )
     }
 
@@ -207,6 +218,59 @@ object WatchEvaluator {
                     "at ${formatMoney(elsewhere.price, candidate.currency)} (same $shared)" +
                     conversionNote(fx, candidate, elsewhere),
                 gapPercent = spread,
+            )
+        }
+    }
+
+    /**
+     * Fires when a card the operator holds pays less than anything this watch could have been bought
+     * for before -- cash, or with those same cards.
+     *
+     * A rule of its own rather than a change to [lowestInWindow], and opt-in, because the cash rules
+     * have to rest on the price anyone can pay: an alert on a CMR price is noise to someone without
+     * the card. With the card it is the real price, and the one this app used to stay silent about --
+     * Falabella's 528 L Electrolux sat at 2,179,900 with CMR for three days in October while every
+     * cash rule saw 2,329,900.
+     *
+     * The floor counts both kinds of price, so a card price that merely matches what cash already
+     * reached is not news, and nor is a card price beating only the card's own old low while the cash
+     * floor is lower still. Like the cash rule, nothing fires without history.
+     *
+     * Two cases stay silent on purpose:
+     *  - **The cash price itself is a new low.** [lowestInWindow] announces the listing already, and
+     *    two alerts for one listing in one cycle would read as two deals.
+     *  - **A converted listing.** No source quotes a card price outside COP; skipping them keeps the
+     *    alert's price in the listing's own currency, which is what the ledger compares against.
+     */
+    internal fun cardLow(
+        watch: Watch,
+        candidates: List<WatchCandidate>,
+        heldCards: Set<CardScope>,
+    ): List<WatchAlert> {
+        if (heldCards.isEmpty()) return emptyList()
+        val floors = candidates.flatMap { c ->
+            listOfNotNull(c.priorFloor?.let { Triple(it, c, false) }, c.heldCardFloor?.let { Triple(it, c, true) })
+        }
+        val (floor, incumbent, floorIsCard) = floors.minByOrNull { it.first } ?: return emptyList()
+        val cashFloor = candidates.mapNotNull { it.priorFloor }.minOrNull()
+
+        return candidates.mapNotNull { candidate ->
+            val card = com.luis.dealstracker.model.bestHeldOffer(candidate.allCardOffers, heldCards) ?: return@mapNotNull null
+            if (candidate.quotedPrice != null) return@mapNotNull null
+            if (card.price >= floor || card.price >= candidate.price) return@mapNotNull null
+            if (cashFloor != null && candidate.price < cashFloor) return@mapNotNull null
+            val saving = floor.subtract(card.price)
+            val held = if (floorIsCard) "with card" else "cash"
+            WatchAlert(
+                dealId = candidate.dealId,
+                reason = MatchReason.CARD_LOW,
+                price = card.price,
+                evidence = "${card.scope.label} ${formatMoney(card.price, candidate.currency)} beat the " +
+                    "${formatMoney(floor, candidate.currency)} ${watch.lookbackDays}-day floor " +
+                    "($held, ${incumbent.source}) by ${formatMoney(saving, candidate.currency)}; " +
+                    "cash ${formatMoney(candidate.price, candidate.currency)}",
+                gapPercent = saving.divide(floor, 6, RoundingMode.HALF_UP).multiply(HUNDRED).setScale(1, RoundingMode.HALF_UP),
+                card = card.scope,
             )
         }
     }

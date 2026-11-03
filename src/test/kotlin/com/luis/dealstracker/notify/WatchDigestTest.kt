@@ -52,6 +52,17 @@ class WatchDigestTest {
         assertEquals("1 alerta de búsquedas", digestBanner(listOf(item(1, 1, "12.0")), Lang.ES)!!.first)
     }
 
+    /** A card low is only real to someone holding the card, so every line names it. */
+    @Test
+    fun `a card low names its card in the banner and the Discord post`() {
+        val card = item(1, 1, "6.4", price = "2179900", reason = MatchReason.CARD_LOW).let {
+            it.copy(alert = it.alert.copy(card = com.luis.dealstracker.model.CardScope.CMR))
+        }
+        assertTrue(digestBanner(listOf(card), Lang.EN)!!.second.contains("−6.4% under the floor with CMR"))
+        assertTrue(digestDiscordLines(listOf(card), Lang.EN).single().endsWith("(new low with CMR)"), digestDiscordLines(listOf(card), Lang.EN).single())
+        assertTrue(digestDiscordLines(listOf(card), Lang.ES).single().endsWith("(nuevo mínimo con CMR)"))
+    }
+
     @Test
     fun `nothing waiting means no banner`() {
         assertNull(digestBanner(emptyList(), Lang.EN))

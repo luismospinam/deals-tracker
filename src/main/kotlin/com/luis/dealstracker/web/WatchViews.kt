@@ -8,6 +8,7 @@ import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.ingest.WatchEvaluator
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.FxRate
+import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.MatchReason
 import com.luis.dealstracker.model.Watch
 import com.luis.dealstracker.model.WatchCandidate
@@ -17,7 +18,11 @@ import io.ktor.http.Parameters
 import io.ktor.http.encodeURLParameter
 import kotlinx.html.ButtonType
 import kotlinx.html.DIV
+import kotlinx.html.FlowContent
 import kotlinx.html.FormMethod
+import kotlinx.html.checkBoxInput
+import kotlinx.html.fieldSet
+import kotlinx.html.legend
 import kotlinx.html.InputType
 import kotlinx.html.MAIN
 import kotlinx.html.TBODY
@@ -190,7 +195,8 @@ internal fun matchingComparator(sort: WatchSort): Comparator<WatchCandidate> {
         // ranking by it would put a shallow saving above a deeper one. Same computation as
         // GrocerySort.CARD.
         "card" -> compareByDescending { c ->
-            c.cardOffer?.let { BigDecimal.ONE - it.price.divide(c.price, 6, RoundingMode.HALF_UP) }
+            com.luis.dealstracker.model.usableOffer(c.allCardOffers, com.luis.dealstracker.model.HeldCards.current)
+                ?.let { BigDecimal.ONE - it.price.divide(c.price, 6, RoundingMode.HALF_UP) }
                 // Sentinel rather than nullsLast: a real saving is always positive, so -1 keeps
                 // cardless rows last under `desc = false` and they stay last when reversed.
                 ?: BigDecimal("-1")
@@ -344,6 +350,7 @@ fun MAIN.watchesPage(
     digest: List<DigestRow>? = null,
     digestTimes: List<String> = emptyList(),
     digestAll: Boolean = false,
+    heldCards: Set<CardScope> = emptySet(),
 ) {
     h2 { +tr("Watches", "Búsquedas") }
     p("hint") {
@@ -364,6 +371,7 @@ fun MAIN.watchesPage(
         }
     }
     digest?.let { digestSection(it, digestTimes, digestAll) }
+    heldCardsLine(heldCards)
 
     if (watches.isEmpty()) {
         div("empty") {
@@ -401,6 +409,22 @@ fun MAIN.watchesPage(
     }
 
     watchForm(sources, categories)
+}
+
+/**
+ * The cards the CARD_LOW rule uses, and where to change them. The picker itself is on the Config tab,
+ * since holding a card is a fact about the operator that every tab prices with, not a watch setting.
+ */
+internal fun FlowContent.heldCardsLine(held: Set<CardScope>) {
+    p("hint held-cards") {
+        +if (held.isEmpty()) {
+            tr("No cards picked, so alerts use the cash price only. ", "Sin tarjetas elegidas: las alertas usan solo el precio de contado. ")
+        } else {
+            val names = held.sortedBy { it.ordinal }.joinToString(", ") { it.label }
+            tr("Also alerting on new lows with your cards: $names. ", "También avisa de nuevos mínimos con tus tarjetas: $names. ")
+        }
+        a(href = "/config#cards") { +tr("Change in Config", "Cambiar en Configuración") }
+    }
 }
 
 /** Split from [watchRow] so the HTMX fragment and the table body cannot drift apart. */
@@ -890,7 +914,13 @@ fun MAIN.watchDetail(
                         td(classes = "col-sig") {
                             cardLabel(tr("Why", "Motivo"))
                             span(if (match.reason == MatchReason.CROSS_SITE_SPREAD) "chip chip-drop" else "chip chip-low") {
-                                +if (match.reason == MatchReason.CROSS_SITE_SPREAD) tr("undercuts a rival", "más barato que un rival") else tr("new low", "nuevo mínimo")
+                                // The card's name is the evidence's first word; the chip only has to
+                                // say this price needs one.
+                                +when (match.reason) {
+                                    MatchReason.CROSS_SITE_SPREAD -> tr("undercuts a rival", "más barato que un rival")
+                                    MatchReason.CARD_LOW -> tr("new low with card", "nuevo mínimo con tarjeta")
+                                    MatchReason.LOWEST_IN_WINDOW -> tr("new low", "nuevo mínimo")
+                                }
                             }
                             match.evidence?.let { div("dim") { +it } }
                         }
@@ -1085,7 +1115,7 @@ private fun MAIN.matchingTable(
                         // Under the cash price, never instead of it: the number above is what
                         // anyone pays and what the alert rules used, and this one needs a
                         // particular card. Same chip as the Groceries tab.
-                        candidate.cardOffer?.let { cardChip(it, candidate.currency) }
+                        cardChips(candidate.allCardOffers, candidate.currency)
                     }
                     td(classes = "col-price") {
                         cardLabel(tr("Window low", "Mín. de la ventana"))
