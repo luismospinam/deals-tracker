@@ -32,7 +32,7 @@ enum class PromotionReason { DISCOUNT_FLOOR, PRICE_DROP, CURATED_SOURCE, NONE }
 class IngestService(
     private val repo: DealRepository,
     private val registry: SourceRegistry,
-    private val app: AppConfig,
+    app: AppConfig,
     private val http: PoliteHttp,
     private val categorizer: Categorizer = Categorizer(emptyList()),
     /**
@@ -48,7 +48,13 @@ class IngestService(
     private val linkWatchDeals: (Map<Long, Set<Long>>) -> Unit = {},
     /** When a provider last finished without error; see [isDue]. A lambda so tests need no database. */
     private val lastSuccess: (String) -> Instant? = { repo.lastSuccessfulRun(it) },
+    /**
+     * The config in force, read on every use rather than once: the Config tab can pause a source or
+     * move a crawl window while the app runs (`LiveConfig`). Defaults to the boot-time [app].
+     */
+    private val liveApp: () -> AppConfig = { app },
 ) {
+    private val app: AppConfig get() = liveApp()
 
     /**
      * Providers with `runWindows` -- the grocery crawls -- are left to [runScheduled], which is checked

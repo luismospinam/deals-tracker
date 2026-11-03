@@ -10,6 +10,8 @@ import com.luis.dealstracker.db.GroceryRepository
 import com.luis.dealstracker.db.WatchDraft
 import com.luis.dealstracker.db.ManualItemRepository
 import com.luis.dealstracker.db.WatchRepository
+import com.luis.dealstracker.db.SettingsRepository
+import com.luis.dealstracker.config.LiveConfig
 import com.luis.dealstracker.model.HeldCards
 import com.luis.dealstracker.ingest.Categorizer
 import com.luis.dealstracker.ingest.ExchangeRates
@@ -59,7 +61,7 @@ fun Application.routes(
     ingest: IngestService,
     manual: ManualItemService,
     manualItems: ManualItemRepository,
-    app: AppConfig,
+    bootApp: AppConfig,
     categorizer: Categorizer,
     scope: CoroutineScope,
     ask: AskService,
@@ -68,12 +70,16 @@ fun Application.routes(
     disabledSearches: com.luis.dealstracker.db.DisabledSearchRepository,
     dailyChanges: com.luis.dealstracker.db.DailyChangeRepository,
     exitoCart: com.luis.dealstracker.exito.ExitoCart,
+    settings: SettingsRepository = SettingsRepository(com.luis.dealstracker.db.Db.dataSource),
 ) {
+    // Read on every use: the Config tab changes it while the app runs (LiveConfig).
+    val app: AppConfig by kotlin.properties.ReadOnlyProperty { _, _ -> LiveConfig.currentOr(bootApp) }
     // Every request runs in its own language, wherever its coroutine resumes: see I18n.element.
     intercept(io.ktor.server.application.ApplicationCallPipeline.Plugins) {
         kotlinx.coroutines.withContext(com.luis.dealstracker.i18n.I18n.element(call.lang)) { proceed() }
     }
     routing {
+        configRoutes(settings, repo)
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
         languageRoute()
 

@@ -95,8 +95,10 @@ class PinnedAlerts(
     private val manualItems: ManualItemRepository,
     private val settings: SettingsRepository,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    /** The post times in force, read per check so the Config tab can move them without a restart. */
+    private val timesFn: () -> List<String> = { app.defaults.pinnedAlertTimes },
 ) {
-    private val times = parseSlotTimes(app.defaults.pinnedAlertTimes)
+    private val times get() = parseSlotTimes(timesFn())
 
     fun grocerySection(): Section {
         val rows = groceries.rows(GroceryFilter(grocerySources(app), pinnedOnly = true))

@@ -154,4 +154,47 @@ class CardPriceViewsTest {
         assertEquals(84_000, choices.first().readings)
         assertEquals(emptyList(), choices.last().sources, "a held card no store showed stays, so it can be unticked")
     }
+
+    @Test
+    fun `the config page ticks your cards and shows overrides over the file`() {
+        val file = com.luis.dealstracker.config.AppConfig(
+            defaults = com.luis.dealstracker.config.Defaults(watchDigestTimes = listOf("19:00")),
+            providers = listOf(
+                com.luis.dealstracker.config.ProviderConfig("exito-grocery", "vtex-grocery", listOptions = mapOf("runWindows" to listOf("07:00-07:40"))),
+                com.luis.dealstracker.config.ProviderConfig("falabella", "falabella-next"),
+                com.luis.dealstracker.config.ProviderConfig("mercadolibre", "mercadolibre", enabled = false),
+            ),
+            db = com.luis.dealstracker.config.DbConfig("jdbc:x", "u", "p"), mlClientId = null, mlClientSecret = null,
+        )
+        val overrides = mapOf("pollIntervalMinutes" to "30", "enabled.falabella" to "false")
+        val t = Instant.parse("2026-11-03T10:00:00Z")
+        val model = ConfigModel(
+            file = file, live = com.luis.dealstracker.config.ConfigOverrides.apply(file, overrides), overrides = overrides,
+            cards = cardChoices(listOf(CardProgram(CardScope.CMR, "falabella", t, t, 10), CardProgram(CardScope.VISA, "exito", t, t, 5)), setOf(CardScope.CMR)),
+            picked = setOf(CardScope.CMR), unnamedCardReadings = 42, lastRuns = mapOf("falabella" to t), prunedAt = null,
+            now = t, zone = java.time.ZoneOffset.UTC,
+        )
+        val html = createHTML().main { configPage(model) }
+        assertTrue(Regex("""value="CMR"[^>]*checked""").containsMatchIn(html), "CMR is held")
+        assertFalse(Regex("""value="VISA"[^>]*checked""").containsMatchIn(html))
+        assertTrue(html.contains("42 readings carry a card offer this app cannot name"))
+        assertTrue(Regex("""name="pollIntervalMinutes"[^>]*value="30"[^>]*placeholder="60"""").containsMatchIn(html) ||
+            Regex("""value="30"[^>]*name="pollIntervalMinutes"""").containsMatchIn(html), html)
+        assertTrue(html.contains("placeholder=\"07:00-07:40\""), "the file's windows as the placeholder")
+        assertTrue(html.contains("next today 19:00"), "the digest's next run")
+        assertFalse(Regex("""value="falabella"[^>]*checked""").containsMatchIn(html), "paused")
+        assertTrue(Regex("""value="mercadolibre"[^>]*disabled""").containsMatchIn(html), "off in the file cannot be switched on here")
+        assertTrue(html.contains("off in sources.yaml"))
+        assertTrue(html.contains("DISCORD_WATCHES_WEBHOOK_URL") && html.contains("not set"))
+        assertFalse(html.contains("jdbc:x"), "no connection details on the page")
+    }
+
+    @Test
+    fun `next time of day rolls over to tomorrow`() {
+        val zone = java.time.ZoneOffset.UTC
+        val now = Instant.parse("2026-11-03T20:00:00Z")
+        assertEquals(Instant.parse("2026-11-04T08:00:00Z"), nextTimeOfDay(listOf("08:00", "19:00"), now, zone))
+        assertEquals(Instant.parse("2026-11-03T19:00:00Z"), nextTimeOfDay(listOf("19:00"), Instant.parse("2026-11-03T18:59:00Z"), zone))
+        assertNull(nextTimeOfDay(emptyList(), now, zone))
+    }
 }

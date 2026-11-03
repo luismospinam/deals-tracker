@@ -29,7 +29,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "71"
+private const val CSS_VERSION = "73"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -273,6 +273,8 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             // item usually is at my store?") with different columns -- unit price, usual price.
             span("sub") { a(href = "/groceries") { +tr("groceries", "mercado") } }
             span("sub") { a(href = "/watches") { +tr("watches", "búsquedas") } }
+            // Settings that used to need an editor and a restart: cards held, job times, sources paused.
+            span("sub") { a(href = "/config") { +tr("config", "configuración") } }
             // Holds the right rail apart from the nameplate, so the serif sits alone
             // instead of being crowded by the mono labels.
             div("masthead-gap") {}

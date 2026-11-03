@@ -45,7 +45,9 @@ class WatchService(
      * True when `defaults.watchDigestTimes` is set: alerts are recorded here and announced by
      * `WatchDigest` at those times, one banner for all watches, instead of a banner per cycle.
      */
-    private val digest: Boolean = false,
+    private val digest: () -> Boolean = { false },
+    /** The card scopes the operator can pay with, for the opt-in CARD_LOW rule. Empty turns it off. */
+    private val heldCards: () -> Set<com.luis.dealstracker.model.CardScope> = { emptySet() },
 ) {
 
     fun runAll(dryRun: Boolean = false): List<WatchReport> =
@@ -58,8 +60,9 @@ class WatchService(
 
     fun run(watch: Watch, dryRun: Boolean = false): WatchReport {
         val rate = fx()
-        val candidates = watches.candidates(watch, rate)
-        val alerts = WatchEvaluator.evaluate(watch, candidates, rate)
+        val held = heldCards()
+        val candidates = watches.candidates(watch, rate, held)
+        val alerts = WatchEvaluator.evaluate(watch, candidates, rate, held)
 
         if (dryRun) {
             println("[watch:${watch.name}] ${candidates.size} candidate(s); would alert on ${alerts.size}:")
@@ -74,7 +77,7 @@ class WatchService(
 
         val pending = watches.recordAlerts(watch, alerts)
         // Left unnotified for the digest, which reads the ledger rather than this list.
-        val sent = if (digest) emptyList() else announce(watch, pending)
+        val sent = if (digest()) emptyList() else announce(watch, pending)
         watches.markNotified(sent)
 
         val report = WatchReport(watch.name, candidates.size, alerts.size, sent.size)
@@ -112,10 +115,13 @@ class WatchService(
             // routinely turn up a retailer we do not. Naming the rival keeps the claim to
             // what was actually measured.
             append(
-                if (best.alert.reason == MatchReason.CROSS_SITE_SPREAD) {
-                    lang.tr(" · undercuts a rival", " · más barato que un rival")
-                } else {
-                    lang.tr(" · new low", " · nuevo mínimo")
+                when (best.alert.reason) {
+                    MatchReason.CROSS_SITE_SPREAD -> lang.tr(" · undercuts a rival", " · más barato que un rival")
+                    MatchReason.CARD_LOW -> {
+                        val card = best.alert.card?.label ?: "card"
+                        lang.tr(" · new low with $card", " · nuevo mínimo con $card")
+                    }
+                    MatchReason.LOWEST_IN_WINDOW -> lang.tr(" · new low", " · nuevo mínimo")
                 },
             )
             if (others > 0) append(lang.tr(" (+$others more)", " (+$others más)"))

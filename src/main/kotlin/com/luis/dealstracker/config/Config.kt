@@ -282,6 +282,12 @@ class AppConfig(
 ) {
     val enabledProviders: List<ProviderConfig> get() = providers.filter { it.enabled }
 
+    /** This config with other defaults and providers, secrets carried over. Used by `ConfigOverrides`. */
+    fun copy(defaults: Defaults = this.defaults, providers: List<ProviderConfig> = this.providers) = AppConfig(
+        defaults, providers, db, mlClientId, mlClientSecret,
+        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook,
+    )
+
     /** Effective discount floor for a provider, falling back to the global default. */
     fun minDiscount(provider: ProviderConfig): BigDecimal =
         BigDecimal.valueOf(provider.minDiscountPercent ?: defaults.minDiscountPercent)

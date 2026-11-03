@@ -147,6 +147,28 @@ Slickdeals is a special case: it publishes no list price at all, so neither rule
 fire. Because the frontpage is already community-curated, it sets
 `promoteAllNew: true` — otherwise the source would be silently filtered to nothing.
 
+## Config tab
+
+`/config` holds what used to need an editor and a restart. Values are stored as `cfg.*` rows in
+`app_settings` on top of `config/sources.yaml`; each field shows the file's value greyed, and
+clearing it (or saving the file's own value) deletes the row, so a later edit to the file is never
+shadowed by a stale copy. `ConfigOverrides.apply` lays them over the file and `LiveConfig` holds the
+result; the job loops read it on every tick, so a change applies without a restart except where the
+page says "after restart" (the Ask panel, built once at boot).
+
+- **My cards** — every card a crawl has priced, with its stores and reading count. See *Card-only
+  prices* below for what ticking one does.
+- **Schedules and jobs** — poll interval (15–720 min), shipping checks (every N polls, items per
+  run), watch digest and pinned-post times (`off` allowed), history thinning, each scheduled crawl's
+  run windows (validated: no overlaps, none across midnight), with the next run of each.
+- **Sources** — pause a source the file enables; its rows stay. A source the file disables cannot
+  be switched on here: those are off for reasons (`BLOCKERS.md`).
+- **Notifications** — whether each Discord webhook is set. They are secrets, so they stay in `.env`.
+
+A value that no longer parses is ignored rather than fatal, so a bad row cannot stop the app booting.
+Amazon pacing (delays, wall waits) is deliberately not here: it was found empirically, and its history
+lives in the comments of `sources.yaml`.
+
 ## UI
 
 Styles live in `src/main/resources/static/app.css`, served via Ktor `staticResources` —

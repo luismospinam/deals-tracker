@@ -4,6 +4,9 @@ import com.luis.dealstracker.ask.AskService
 import com.luis.dealstracker.ask.ClaudeCli
 import com.luis.dealstracker.ask.SYSTEM_PROMPT
 import com.luis.dealstracker.config.AppConfig
+import com.luis.dealstracker.config.ConfigOverrides
+import com.luis.dealstracker.config.LiveConfig
+import com.luis.dealstracker.model.HeldCards
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.GroceryRepository
 import com.luis.dealstracker.db.HistoryPruner
@@ -65,7 +68,8 @@ fun main(args: Array<String>) {
     val projectDir = File(System.getProperty("user.dir"))
     // Before anything can create a Playwright: see pinPlaywrightDriverDir for why not the system temp.
     com.luis.dealstracker.verify.pinPlaywrightDriverDir(projectDir)
-    val app = AppConfig.load(projectDir)
+    // The file as written. `app`, below, is this with the Config tab's overrides laid over it.
+    val fileApp = AppConfig.load(projectDir)
 
     // Lazy because the registry below needs it before the database is connected: the watches'
     // Amazon adapter reads their searches at fetch time, long after `Db.connect`.
@@ -105,9 +109,9 @@ fun main(args: Array<String>) {
     )
 
     // Fail at boot on a typo'd provider type rather than producing an empty feed.
-    registry.validate(app.providers).forEach { println("[config] $it") }
+    registry.validate(fileApp.providers).forEach { println("[config] $it") }
 
-    Db.connect(app.db)
+    Db.connect(fileApp.db)
     try {
         Db.migrate()
     } catch (e: Exception) {
@@ -117,6 +121,14 @@ fun main(args: Array<String>) {
         )
         throw e
     }
+
+    // The Config tab's overrides (`cfg.*` in app_settings) over sources.yaml. Boot-time readers see them
+    // through `app`; the job loops read `LiveConfig` on every tick, so a schedule change applies at once.
+    val bootSettings = SettingsRepository(Db.dataSource)
+    LiveConfig.set(fileApp, bootSettings.withPrefix(ConfigOverrides.PREFIX))
+    HeldCards.current = SettingsRepository.heldCards(bootSettings.get(SettingsRepository.HELD_CARDS))
+    val app = LiveConfig.currentOr(fileApp)
+    fun live() = LiveConfig.currentOr(app)
 
     val repo = DealRepository(Db.dataSource, app.defaults.feedRotationHours)
     val http = PoliteHttp(app.defaults.userAgent, app.defaults.perHostDelayMillis)
@@ -128,6 +140,7 @@ fun main(args: Array<String>) {
     // adapters go looking for without ingest knowing where watches are stored.
     val ingest = IngestService(
         repo, registry, app, http, categorizer,
+        liveApp = ::live,
         watchTerms = { watches.activeSearchTerms() },
         linkWatchDeals = { watches.linkSourced(it) },
     )
@@ -138,10 +151,12 @@ fun main(args: Array<String>) {
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
     val watchService = WatchService(
         watches, baseUrl = "http://localhost:$port", fx = rates::current,
-        digest = app.defaults.watchDigestTimes.isNotEmpty(),
+        digest = { live().defaults.watchDigestTimes.isNotEmpty() },
+        // Read per run, so ticking a card on the Config tab applies from the next cycle.
+        heldCards = { HeldCards.current },
     )
     val watchDigest = com.luis.dealstracker.notify.WatchDigest(
-        watches, SettingsRepository(Db.dataSource), app.defaults.watchDigestTimes, baseUrl = "http://localhost:$port",
+        watches, SettingsRepository(Db.dataSource), { live().defaults.watchDigestTimes }, baseUrl = "http://localhost:$port",
         discord = app.discordWatchesWebhook?.let { com.luis.dealstracker.notify.DiscordWebhook(it) },
     )
     // Items tracked by pasted URL. Refreshed every poll alongside the searches: an un-refreshed row
@@ -301,8 +316,6 @@ fun main(args: Array<String>) {
     // Hourly poll lives inside the app process rather than a separate cron entry
     // point, so the UI can also trigger a refresh on demand.
     if (pollerEnabled) scope.launch {
-        val intervalMillis = app.defaults.pollIntervalMinutes * 60_000
-        val everyN = app.defaults.coShippingEveryNPolls
         var cycle = 0
         // First cycle is due immediately; every later one is scheduled off wall-clock time.
         var dueAt = System.currentTimeMillis()
@@ -322,6 +335,9 @@ fun main(args: Array<String>) {
             }
             // Measured from the start of the work, so a slow cycle does not push the next
             // one progressively later. An overrun simply makes the next cycle due at once.
+            // Read each cycle, so an interval changed on the Config tab applies from the next one.
+            val intervalMillis = live().defaults.pollIntervalMinutes * 60_000
+            val everyN = live().defaults.coShippingEveryNPolls
             val overdueBy = System.currentTimeMillis() - dueAt
             dueAt = System.currentTimeMillis() + intervalMillis
             if (overdueBy > intervalMillis) {
@@ -363,7 +379,7 @@ fun main(args: Array<String>) {
             // already-stored backlog any less worth verifying.
             cycle++
             if (everyN > 0 && cycle % everyN == 0) {
-                verifyPeriodically(repo, app)
+                verifyPeriodically(repo, live())
             }
         }
     }
@@ -371,16 +387,18 @@ fun main(args: Array<String>) {
     // Weekly thinning of old price history. Due-ness comes from a timestamp in app_settings rather than
     // a timer, so a restart neither skips a week nor runs it again at once, and a Mac that slept through
     // the week catches up on its next tick. Delayed after boot so it never competes with startup.
-    if (pollerEnabled && app.defaults.pruneHistoryAfterDays > 0 && app.defaults.pruneHistoryEveryDays > 0) {
+    if (pollerEnabled) {
         scope.launch {
             val settings = SettingsRepository(Db.dataSource)
             delay(10 * 60_000L)
             while (true) {
                 runCatching {
+                    val d = live().defaults
                     val last = settings.get(SettingsRepository.HISTORY_PRUNED_AT)?.let { Instant.parse(it) }
-                    if (pruneDue(last, Instant.now(), app.defaults.pruneHistoryEveryDays)) {
+                    // 0 days turns pruning off, checked per tick so the Config tab can turn it back on.
+                    if (d.pruneHistoryAfterDays > 0 && pruneDue(last, Instant.now(), d.pruneHistoryEveryDays)) {
                         val report = withContext(Dispatchers.IO) {
-                            HistoryPruner(Db.dataSource).run(app.defaults.pruneHistoryAfterDays, dryRun = false)
+                            HistoryPruner(Db.dataSource).run(d.pruneHistoryAfterDays, dryRun = false)
                         }
                         settings.set(mapOf(SettingsRepository.HISTORY_PRUNED_AT to Instant.now().toString()))
                         println("[prune] ${report.summary()}")
@@ -407,7 +425,8 @@ fun main(args: Array<String>) {
 
     // The watch digest: one banner for every watch's alerts at defaults.watchDigestTimes. Due-ness is
     // remembered in app_settings like the pinned posts', so a restart neither repeats nor skips one.
-    if (pollerEnabled && app.defaults.watchDigestTimes.isNotEmpty()) scope.launch {
+    // Always ticking: with no times set `runDue` sends nothing, and the Config tab can set some at any time.
+    if (pollerEnabled) scope.launch {
         while (true) {
             withContext(Dispatchers.IO) {
                 runCatching { watchDigest.runDue()?.let(::println) }.onFailure { println("[watch-digest] failed: ${it.message}") }
@@ -421,6 +440,7 @@ fun main(args: Array<String>) {
     if (pollerEnabled) scope.launch {
         val alerts = com.luis.dealstracker.notify.PinnedAlerts(
             app, repo, GroceryRepository(Db.dataSource), manualItems, SettingsRepository(Db.dataSource),
+            timesFn = { live().defaults.pinnedAlertTimes },
         )
         while (true) {
             withContext(Dispatchers.IO) {

@@ -13,6 +13,28 @@ class SettingsRepository(private val ds: DataSource) {
             }
         }
 
+    /** Every setting whose key starts with [prefix], keyed without it. */
+    fun withPrefix(prefix: String): Map<String, String> =
+        ds.connection.use { conn ->
+            conn.prepareStatement("SELECT key, value FROM app_settings WHERE starts_with(key, ?)").use { st ->
+                st.setString(1, prefix)
+                st.executeQuery().use { rs ->
+                    buildMap { while (rs.next()) put(rs.getString(1).removePrefix(prefix), rs.getString(2)) }
+                }
+            }
+        }
+
+    /** Removes [keys], so whatever they overrode is in charge again. */
+    fun delete(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        ds.connection.use { conn ->
+            conn.prepareStatement("DELETE FROM app_settings WHERE key = ANY (?)").use { st ->
+                st.setArray(1, conn.createArrayOf("text", keys.toTypedArray()))
+                st.executeUpdate()
+            }
+        }
+    }
+
     fun set(values: Map<String, String>) {
         ds.connection.use { conn ->
             conn.prepareStatement(

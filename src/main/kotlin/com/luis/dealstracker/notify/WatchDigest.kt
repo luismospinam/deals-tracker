@@ -87,14 +87,15 @@ fun digestDiscordLines(items: List<PendingNotification>, lang: Lang): List<Strin
 class WatchDigest(
     private val watches: WatchRepository,
     private val settings: SettingsRepository,
-    times: List<String>,
+    /** The digest times in force, read per check so the Config tab can move them without a restart. */
+    private val times: () -> List<String>,
     private val baseUrl: String,
     private val notifier: NotifyFn = Notifier::notify,
     private val zone: ZoneId = ZoneId.systemDefault(),
     /** `DISCORD_WATCHES_WEBHOOK_URL`; null keeps the digest on the desktop only. */
     private val discord: DiscordWebhook? = null,
 ) {
-    private val slots = parseSlotTimes(times)
+    private val slots get() = parseSlotTimes(times())
 
     /** One scheduler pass: sends the digest if a slot is due. Null when nothing was due. */
     fun runDue(now: Instant = Instant.now()): String? {
