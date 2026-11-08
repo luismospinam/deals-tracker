@@ -77,6 +77,26 @@ class ConfigOpsViewsTest {
     }
 
     @Test
+    fun `the agents section shows recent runs with cost and offers Run now, only where agents run`() {
+        val runs = listOf(
+            com.luis.dealstracker.agent.AgentRun(2, "grocery", "manual", t, t, "ok", BigDecimal("0.214"), null, "Quiet day for staples.", 3),
+            com.luis.dealstracker.agent.AgentRun(1, "grocery", "schedule", t, t, "failed", null, "claude exited 1: not logged in", null),
+        )
+        val html = createHTML().main {
+            configPage(
+                ConfigModel(
+                    file = file, live = file, overrides = emptyMap(), cards = emptyList(), picked = emptySet(),
+                    unnamedCardReadings = 0, lastRuns = emptyMap(), prunedAt = null, now = t, zone = ZoneOffset.UTC, agentRuns = runs,
+                ),
+            )
+        }
+        assertTrue(html.contains("id=\"agents\"") && html.contains("action=\"/config/agents/grocery/run\""))
+        assertTrue(html.contains("US\$0.214") && html.contains("Quiet day for staples.") && html.contains("not logged in"))
+        assertTrue(html.contains("name=\"groceryAgentTimes\"") && html.contains("DISCORD_AGENTS_WEBHOOK_URL"))
+        assertFalse(render().contains("id=\"agents\""), "a copy without the agent shows no section")
+    }
+
+    @Test
     fun `promo reminders are listed with their next date, and can be added`() {
         val bancol = Promo(
             1, "Bancolombia first Tuesday", "BANCOLMARTES", "Bancolombia", "amazon", 1, DayOfWeek.TUESDAY,

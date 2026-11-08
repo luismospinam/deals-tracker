@@ -9,6 +9,7 @@ import com.luis.dealstracker.db.GroceryFilter
 import com.luis.dealstracker.db.GroceryRepository
 import com.luis.dealstracker.db.WatchDraft
 import com.luis.dealstracker.db.ManualItemRepository
+import com.luis.dealstracker.db.TrackedSection
 import com.luis.dealstracker.db.WatchRepository
 import com.luis.dealstracker.db.SettingsRepository
 import com.luis.dealstracker.config.LiveConfig
@@ -18,6 +19,7 @@ import com.luis.dealstracker.ingest.ExchangeRates
 import com.luis.dealstracker.ingest.IngestService
 import com.luis.dealstracker.ingest.ManualItemService
 import com.luis.dealstracker.model.CoShipping
+import com.luis.dealstracker.model.fitsMinScreen
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.DealState
 import com.luis.dealstracker.model.withExcludedTerm
@@ -73,6 +75,11 @@ fun Application.routes(
     settings: SettingsRepository = SettingsRepository(com.luis.dealstracker.db.Db.dataSource),
     /** Backups and source health, for the Config tab. Null in a UI-only copy without the jobs. */
     ops: com.luis.dealstracker.ops.OpsJobs? = null,
+    /** Re-read after a cart-button add, so the purchase is logged at the moment it was made. */
+    purchaseLog: com.luis.dealstracker.agent.PurchaseLog? = null,
+    /** The grocery agent, for Config's Agents section. Null in a copy that does not own the MCP server. */
+    agents: com.luis.dealstracker.agent.AgentJobs? = null,
+    suggestions: com.luis.dealstracker.agent.SuggestionRepository = com.luis.dealstracker.agent.SuggestionRepository(com.luis.dealstracker.db.Db.dataSource),
 ) {
     // Read on every use: the Config tab changes it while the app runs (LiveConfig).
     val app: AppConfig by kotlin.properties.ReadOnlyProperty { _, _ -> LiveConfig.currentOr(bootApp) }
@@ -81,7 +88,7 @@ fun Application.routes(
         kotlinx.coroutines.withContext(com.luis.dealstracker.i18n.I18n.element(call.lang)) { proceed() }
     }
     routing {
-        configRoutes(settings, repo, ops, scope)
+        configRoutes(settings, repo, ops, scope, agents)
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
         languageRoute()
 
@@ -317,7 +324,10 @@ fun Application.routes(
          */
         get("/tracked") {
             val sources = trackingSources(app)
-            val deals = withContext(Dispatchers.IO) { trackedDeals(repo, sources) }
+            val section = TrackedSection.of(call.request.queryParameters["section"])
+            val everything = withContext(Dispatchers.IO) { trackedDeals(repo, sources) }
+            val electronicsAsins = withContext(Dispatchers.IO) { manualItems.asinsIn(TrackedSection.ELECTRONICS) }
+            val deals = inSection(everything, section, electronicsAsins)
             // Unknown labels are ignored rather than rejected, so a hand-edited or stale URL
             // degrades to "no filter" instead of a 400.
             val selected = call.request.queryParameters["type"]
@@ -346,7 +356,17 @@ fun Application.routes(
                     p.list("trackSearches").map { Triple(p.id, it, it !in off) }
                 }
             }
-            val visible = withoutSwitchedOffSearches(deals, searchToggles, manualAsins)
+            // The searches are clothes searches, so switching one off hides nothing elsewhere.
+            val visible = if (section == TrackedSection.CLOTHES) withoutSwitchedOffSearches(deals, searchToggles, manualAsins) else deals
+            // What each section's table shows by default: one per product, the clothes searches'
+            // switches applied, and no item Amazon refuses to ship to Colombia.
+            val sectionCounts = TrackedSection.entries.associateWith { s ->
+                val rows = inSection(everything, s, electronicsAsins)
+                collapseVariants(
+                    if (s == TrackedSection.CLOTHES) withoutSwitchedOffSearches(rows, searchToggles, manualAsins) else rows,
+                    manualAsins,
+                ).rows.count { it.coShipping != CoShipping.NO }
+            }
             // The rows the table will show, so the banner follows every control at once.
             val shownRows = trackedShown(visible, selected, brand, origin, manualAsins, sort, showNoShip, call.request.queryParameters["freeship"] == "1")
             val digestRange = DigestRange.of(call.request.queryParameters["range"])
@@ -373,6 +393,8 @@ fun Application.routes(
                         freeShip = call.request.queryParameters["freeship"] == "1",
                         // A missing or garbled page is page 1; one past the end is clamped to the last.
                         page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1,
+                        section = section,
+                        sectionCounts = sectionCounts,
                     )
                 }
             }
@@ -421,10 +443,13 @@ fun Application.routes(
 
         post("/tracked/add") {
             val params = call.receiveParameters()
+            val section = TrackedSection.of(params["section"])
+            // Back to the section the item went into, where the notice and the new row both are.
+            val back = if (section == TrackedSection.DEFAULT) "/tracked?notice=" else "/tracked?section=${section.key}&notice="
             val url = params["url"]?.trim().orEmpty()
             if (url.isEmpty()) {
                 val msg = call.lang.tr("paste a URL first", "primero pega una URL")
-                return@post call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode(msg, "UTF-8"))
+                return@post call.respondRedirect(back + java.net.URLEncoder.encode(msg, "UTF-8"))
             }
 
             val outcome = manual.add(
@@ -432,9 +457,10 @@ fun Application.routes(
                 brand = params["brand"]?.trim()?.takeIf { it.isNotEmpty() },
                 productType = params["productType"]?.trim()?.takeIf { it.isNotEmpty() },
                 lang = call.lang,
+                section = section,
             )
 
-            call.respondRedirect("/tracked?notice=" + java.net.URLEncoder.encode(outcome.message, "UTF-8"))
+            call.respondRedirect(back + java.net.URLEncoder.encode(outcome.message, "UTF-8"))
         }
 
         /**
@@ -459,15 +485,15 @@ fun Application.routes(
                     .sortedByDescending { it.third }
             }
             val (rows, groups, pinnedCount) = withContext(Dispatchers.IO) {
-                // The Pinned view ignores the aisle filter and search: it is the whole shopping list.
+                // The Pinned view ignores the aisle filter (it is the whole shopping list) but takes a search.
                 val filter = if (controls.view == GroceryView.PINNED) {
-                    GroceryFilter(sources, pinnedOnly = true)
+                    GroceryFilter(sources, search = controls.search, pinnedOnly = true)
                 } else {
                     GroceryFilter(sources, controls.groups.toList(), controls.search)
                 }
                 // Rivals come from every grocery store, not just the filtered ones: "Exito only" still
                 // wants to know what Carulla charges.
-                val merged = withRivalsFor(mergeStores(groceries.rows(filter), stores), controls, stores) { keys ->
+                val merged = withRivalsFor(storeRows(groceries.rows(filter), stores, splitByStore(controls)), controls, stores) { keys ->
                     groceries.shelfPrices(keys, allSources)
                 }
                 Triple(merged, groceries.groups(sources), groceries.pinnedCount(sources))
@@ -482,7 +508,7 @@ fun Application.routes(
             val digest = withContext(Dispatchers.IO) {
                 val moved = dailyChanges.forSources(sources, digestRange)
                 val filter = if (controls.view == GroceryView.PINNED) {
-                    GroceryFilter(sources, pinnedOnly = true, ids = moved.keys)
+                    GroceryFilter(sources, search = controls.search, pinnedOnly = true, ids = moved.keys)
                 } else {
                     GroceryFilter(sources, controls.groups.toList(), controls.search, ids = moved.keys)
                 }
@@ -494,6 +520,7 @@ fun Application.routes(
                     extraKinds = { row, ch -> if (newlyUnderUsual(row, ch)) setOf(DigestKind.NEW_DEAL) else emptySet() },
                 )
             }
+            val suggestionList = withContext(Dispatchers.IO) { runCatching { suggestions.open() }.getOrDefault(emptyList()) }
             call.respondPage {
                 page(tr("Groceries — Deals Tracker", "Mercado — Deals Tracker")) {
                     askPanel(
@@ -504,6 +531,7 @@ fun Application.routes(
                         ),
                     )
                     digestBanner(digest, digestRange)
+                    suggestionsPanel(suggestionList)
                     groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
                 }
             }
@@ -521,14 +549,18 @@ fun Application.routes(
                 else -> return@post call.respondText(tr("unknown action", "acción desconocida"), status = HttpStatusCode.NotFound)
             }
             val fromDetail = call.request.queryParameters["view"] == DETAIL_VIEW
+            val split = call.request.queryParameters["split"] == "1"
             val view = GroceryView.of(call.request.queryParameters["view"])
             val sources = grocerySources(app)
             val row = withContext(Dispatchers.IO) {
                 if (groceries.setPinned(id, pinned, sources).isEmpty()) null
-                // Re-merged, so the swapped row still shows the cheaper store and the other one's price.
+                // Re-merged, so the swapped row still shows the cheaper store and the other one's price; in a
+                // search's one-row-per-store table, this store's row alone, as it was shown.
                 else {
                     val stores = groceryStores(app)
-                    mergeStores(groceries.rows(GroceryFilter(sources, id = id)), stores).firstOrNull()?.let { row ->
+                    val fresh = if (split) labelStores(groceries.rows(GroceryFilter(sources, ids = listOf(id))), stores)
+                    else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), stores)
+                    fresh.firstOrNull()?.let { row ->
                         withRivals(listOf(row), groceries.shelfPrices(listOfNotNull(row.deal.matchKey), sources), stores).first()
                     }
                 }
@@ -537,9 +569,29 @@ fun Application.routes(
                 when {
                     fromDetail -> groceryDetailPinFragment(id, pinned)
                     view == GroceryView.PINNED && !pinned -> ""
-                    else -> groceryRowFragment(row, view)
+                    else -> groceryRowFragment(row, view, split)
                 }
             }
+        }
+
+        // Answers an agent's suggestion in place. Pin also pins the row at every store of its chain,
+        // the same toggle the table's pin button makes.
+        post("/suggestions/{id}/{action}") {
+            val id = call.parameters["id"]?.toLongOrNull()
+                ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
+            val answer = when (call.parameters["action"]) {
+                "pin" -> com.luis.dealstracker.agent.SuggestionAnswer.PIN
+                "dismiss" -> com.luis.dealstracker.agent.SuggestionAnswer.DISMISS
+                else -> com.luis.dealstracker.agent.SuggestionAnswer.ACCEPT
+            }
+            val note = call.receiveParameters()["note"]
+            withContext(Dispatchers.IO) {
+                val dealId = suggestions.answer(id, answer, note)
+                if (answer == com.luis.dealstracker.agent.SuggestionAnswer.PIN && dealId != null) {
+                    groceries.setPinned(dealId, true, grocerySources(app))
+                }
+            }
+            call.respondFragment { suggestionAnswered(call.parameters["action"].orEmpty()) }
         }
 
         // Puts the Exito Laureles copy of a product in the signed-in Exito cart. Answers with a toast
@@ -554,7 +606,14 @@ fun Application.routes(
             } else {
                 exitoCart.add(deal.sourceDealId)
             }
-            call.respondFragment { cartToast(result, deal?.title, exitoCart.cartLink()) }
+            if (result == com.luis.dealstracker.exito.CartResult.SoldOut && deal != null) {
+                withContext(Dispatchers.IO) { groceries.markSoldOut(deal.id) }
+                println("[exito-cart] ${deal.sourceDealId} sold out at Laureles; marked off the shelf until the next crawl")
+            }
+            if (result is com.luis.dealstracker.exito.CartResult.Added && purchaseLog != null) {
+                scope.launch(Dispatchers.IO) { runCatching { purchaseLog.syncExitoCart()?.let(::println) } }
+            }
+            call.respondFragment { cartToast(result, deal?.title, exitoCart.cartLink(), lastSeen = deal?.lastSeenAt) }
         }
 
         // The Open cart link at the top of Groceries; an empty answer removes its slot until there is a cart.
@@ -746,7 +805,6 @@ fun Application.routes(
                 page(tr("Watches", "Búsquedas")) {
                     watchesPage(
                         all, counts, sourceNames(repo, app), categorizer.categoryNames, digest, app.defaults.watchDigestTimes,
-                        digestAll = call.request.queryParameters["digest"] == "all",
                         heldCards = HeldCards.current,
                     )
                 }
@@ -762,9 +820,11 @@ fun Application.routes(
             val fx = rates.current()
             val (candidates, matches, dealsById) = withContext(Dispatchers.IO) {
                 val candidates = watches.candidates(watch, fx)
-                val matches = watches.matches(id)
+                val all = watches.matches(id)
                 // Titles for the alert list. Looked up in one pass rather than per row.
-                val deals = matches.mapNotNull { repo.findById(it.dealId) }.associateBy { it.id }
+                val deals = all.mapNotNull { repo.findById(it.dealId) }.associateBy { it.id }
+                // Alerts that fired before the watch had its smallest screen go with the listings.
+                val matches = all.filter { m -> deals[m.dealId]?.let { fitsMinScreen(watch.minScreenInches, it.title) } ?: true }
                 Triple(candidates, matches, deals)
             }
 
@@ -993,6 +1053,8 @@ internal fun watchDraftFrom(params: Parameters): WatchDraft? {
         requireCoShipping = params["requireCoShipping"] != null,
         maxShippingCost = params["maxShippingCost"]?.takeIf { it.isNotBlank() }
             ?.toBigDecimalOrNull()?.coerceAtLeast(BigDecimal.ZERO),
+        // Clamped into the column's range rather than rejected, like the lookback window.
+        minScreenInches = params["minScreenInches"]?.trim()?.toIntOrNull()?.coerceIn(10, 150),
     )
 }
 

@@ -22,6 +22,13 @@ private const val NEARING_RETIREMENT =
     "? > 0 AND d.last_seen_at < now() - make_interval(hours => GREATEST(? - 24, 0)) " +
         "AND (d.page_valid_at IS NULL OR d.page_valid_at < now() - interval '24 hours')"
 
+/**
+ * A pinned row whose page was last read more than N hours ago: the items being bought get a fresh price
+ * several times a day rather than every `pageRecheckDays`. Takes two `?`: the hours, twice (0 turns it off).
+ */
+internal const val PINNED_RECHECK_DUE =
+    "? > 0 AND d.pinned_at IS NOT NULL AND d.page_checked_at < now() - make_interval(hours => ?)"
+
 data class UpsertResult(
     val dealId: Long,
     val isNew: Boolean,
@@ -1088,6 +1095,7 @@ class DealRepository(
         limit: Int,
         sources: List<String>,
         recheckDays: Int = 0,
+        pinnedRecheckHours: Int = 0,
         baseBackoffHours: Int = 6,
         maxBackoffHours: Int = 168,
         retireAfterHours: Int = 0,
@@ -1102,6 +1110,7 @@ class DealRepository(
                    AND d.source = ANY(?)
                    AND (d.page_checked_at IS NULL
                         OR (? > 0 AND d.page_checked_at < now() - make_interval(days => ?))
+                        OR ($PINNED_RECHECK_DUE)
                         -- Within a day of retirement and not vouched for by its page lately: ask the page.
                         OR ($NEARING_RETIREMENT))
                    AND NOT EXISTS (SELECT 1 FROM manual_items m WHERE m.asin = d.asin)
@@ -1111,7 +1120,10 @@ class DealRepository(
                             hours => LEAST(? * POWER(2, d.page_attempts)::int, ?))
                    )
                  ORDER BY ($NEARING_RETIREMENT) DESC,
-                          (d.page_checked_at IS NULL) DESC, d.page_checked_at ASC NULLS FIRST,
+                          (d.page_checked_at IS NULL) DESC,
+                          -- The items being bought ahead of the 2-day sweep, so a backlog never starves them.
+                          (d.pinned_at IS NOT NULL) DESC,
+                          d.page_checked_at ASC NULLS FIRST,
                           d.first_seen_at DESC, d.id DESC
                  LIMIT ?
                 """.trimIndent(),
@@ -1119,13 +1131,15 @@ class DealRepository(
                 st.setArray(1, conn.createArrayOf("text", sources.toTypedArray()))
                 st.setInt(2, recheckDays)
                 st.setInt(3, recheckDays)
-                st.setInt(4, retireAfterHours)
-                st.setInt(5, retireAfterHours)
-                st.setInt(6, baseBackoffHours)
-                st.setInt(7, maxBackoffHours)
-                st.setInt(8, retireAfterHours)
-                st.setInt(9, retireAfterHours)
-                st.setInt(10, limit)
+                st.setInt(4, pinnedRecheckHours)
+                st.setInt(5, pinnedRecheckHours)
+                st.setInt(6, retireAfterHours)
+                st.setInt(7, retireAfterHours)
+                st.setInt(8, baseBackoffHours)
+                st.setInt(9, maxBackoffHours)
+                st.setInt(10, retireAfterHours)
+                st.setInt(11, retireAfterHours)
+                st.setInt(12, limit)
                 st.executeQuery().use { rs ->
                     buildList { while (rs.next()) add(Triple(rs.getLong("id"), rs.getString("asin"), rs.getString("title"))) }
                 }
@@ -1547,6 +1561,7 @@ internal fun ResultSet.toDeal() = Deal(
     relevance = getDouble("relevance"),
     pinnedAt = getTimestamp("pinned_at")?.toInstant(),
     coShippingCheckedAt = getTimestamp("co_shipping_checked_at")?.toInstant(),
+    pageValidAt = getTimestamp("page_valid_at")?.toInstant(),
     // From the deal's own columns (V34), not an observation: every caller selects `d.*`.
     card = cardOfferOf(getBigDecimal("card_price"), getBigDecimal("card_percent"), getString("card_scope")),
     minCardPriceEver = getBigDecimal("obs_min_card_price"),

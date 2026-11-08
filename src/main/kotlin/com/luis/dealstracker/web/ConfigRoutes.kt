@@ -14,6 +14,10 @@ import com.luis.dealstracker.ingest.nextWindowSlot
 import com.luis.dealstracker.ingest.runWindows
 import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.HeldCards
+import com.luis.dealstracker.agent.AgentJobs
+import com.luis.dealstracker.agent.AgentRun
+import com.luis.dealstracker.agent.AgentRunRepository
+import com.luis.dealstracker.agent.GROCERY_AGENT
 import com.luis.dealstracker.ops.BackupFile
 import com.luis.dealstracker.ops.HealthStatus
 import com.luis.dealstracker.ops.OpsJobs
@@ -91,6 +95,9 @@ internal data class ConfigModel(
     val health: Map<String, SourceHealth> = emptyMap(),
     val backup: BackupView? = null,
     val promos: List<Promo> = emptyList(),
+    /** The grocery agent's recent runs; null where this copy does not run agents. */
+    val agentRuns: List<AgentRun>? = null,
+    val agentRunning: Boolean = false,
 )
 
 /** The Backups section: where the dumps go, what is there, and how the last attempt went. */
@@ -109,7 +116,9 @@ internal fun Route.configRoutes(
     repo: DealRepository,
     ops: OpsJobs? = null,
     scope: CoroutineScope? = null,
+    agents: AgentJobs? = null,
 ) {
+    val agentRunRepo = AgentRunRepository(com.luis.dealstracker.db.Db.dataSource)
     val programs = CardProgramRepository(com.luis.dealstracker.db.Db.dataSource)
     val promoRepo = PromoRepository(com.luis.dealstracker.db.Db.dataSource)
 
@@ -135,6 +144,8 @@ internal fun Route.configRoutes(
             error = call.request.queryParameters["error"],
             health = withContext(Dispatchers.IO) { ops?.health().orEmpty().associateBy { it.id } },
             promos = promoRepo.refresh(),
+            agentRuns = agents?.let { withContext(Dispatchers.IO) { agentRunRepo.recent(GROCERY_AGENT) } },
+            agentRunning = agents?.running == true,
             backup = ops?.let { o ->
                 fun at(key: String) = settings.get(key)?.let { runCatching { Instant.parse(it) }.getOrNull() }
                 BackupView(
@@ -178,6 +189,12 @@ internal fun Route.configRoutes(
         call.respondRedirect("/config?saved=backup#backups")
     }
 
+    // In the background: a run takes a minute or two. The page shows it running meanwhile.
+    post("/config/agents/grocery/run") {
+        if (agents != null && scope != null && !agents.running) scope.launch(Dispatchers.IO) { println(agents.runGrocery("manual")) }
+        call.respondRedirect("/config?saved=agent#agents")
+    }
+
     post("/config/promos") {
         val params = call.receiveParameters()
         parsePromoForm(params.names().associateWith { params[it].orEmpty() }).fold(
@@ -210,6 +227,7 @@ internal fun Route.configRoutes(
 
 private fun savedNotice(what: String): String = when (what) {
     "cards" -> tr("Cards saved. Every tab now prices with them.", "Tarjetas guardadas. Todas las pestañas usan ahora esos precios.")
+    "agent" -> tr("Grocery agent started. Reload in a minute or two to see the run.", "Agente de mercado iniciado. Recarga en uno o dos minutos para ver la corrida.")
     "promos" -> tr("Promo reminders saved.", "Recordatorios de promociones guardados.")
     "backup" -> tr("Backup started. Reload in a few seconds to see it listed.", "Respaldo iniciado. Recarga en unos segundos para verlo en la lista.")
     "sources" -> tr("Sources saved. A paused source is skipped from the next poll.", "Fuentes guardadas. Una fuente en pausa se omite desde la próxima consulta.")
@@ -265,6 +283,13 @@ private fun fieldText(key: String): Pair<String, String> = when (key) {
         tr("The oldest is deleted once a newer one has been checked.", "El más viejo se borra cuando uno nuevo ya fue verificado.")
     "healthFailAfterRuns" -> tr("Alert after N empty runs", "Alertar tras N corridas vacías") to
         tr("Runs in a row with no results or an error before a source is reported broken. Scheduled crawls use 2.", "Corridas seguidas sin resultados o con error antes de reportar una fuente como caída. Los rastreos programados usan 2.")
+    "groceryAgentTimes" -> tr("Grocery agent runs at", "El agente de mercado corre a las") to
+        tr("After the morning crawl, so it reads today's prices. \"off\" turns it off.", "Después del rastreo de la mañana, para leer los precios de hoy. \"off\" lo apaga.")
+    "agentModel" -> tr("Agent model", "Modelo de los agentes") to "haiku, sonnet, opus"
+    "agentEffort" -> tr("Agent effort", "Esfuerzo de los agentes") to "low, medium, high"
+    "agentMaxBudgetUsd" -> tr("Agent budget per run (US$)", "Presupuesto por corrida (US$)") to
+        tr("Counted against your Claude plan; a run stops at this.", "Cuenta contra tu plan de Claude; una corrida se detiene al llegar aquí.")
+    "groceryAgentMaxSuggestions" -> tr("Most suggestions per run", "Máximo de sugerencias por corrida") to ""
     "askModel" -> tr("Ask Claude model", "Modelo de Preguntar a Claude") to "haiku, sonnet, opus"
     "askEffort" -> tr("Ask Claude effort", "Esfuerzo de Preguntar a Claude") to "low, medium, high"
     "askMaxBudgetUsd" -> tr("Ask Claude budget per question (US$)", "Presupuesto por pregunta (US$)") to ""
@@ -286,6 +311,7 @@ internal fun MAIN.configPage(m: ConfigModel) {
     schedulesSection(m)
     promosSection(m)
     sourcesSection(m)
+    agentsSection(m)
     backupsSection(m)
     notificationsSection(m)
 }
@@ -455,6 +481,8 @@ private fun jobStatus(key: String, m: ConfigModel): String {
             ?: tr("off", "apagado")
         "pruneHistoryAfterDays" -> if (d.pruneHistoryAfterDays == 0) tr("off", "apagado")
         else m.prunedAt?.let { tr("last ${relativeAgo(it)}", "último ${relativeAgo(it)}") } ?: tr("not run yet", "aún no ha corrido")
+        "groceryAgentTimes" -> nextTimeOfDay(d.groceryAgentTimes, m.now, m.zone)?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }
+            ?: tr("off", "apagado")
         "backupTimes" -> nextTimeOfDay(d.backupTimes, m.now, m.zone)?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }
             ?: tr("off", "apagado")
         "pruneHistoryEveryDays" -> m.prunedAt?.plus(java.time.Duration.ofDays(d.pruneHistoryEveryDays.toLong()))
@@ -533,6 +561,10 @@ private fun FlowContent.notificationsSection(m: ConfigModel) {
                     Triple(
                         tr("Source health and backup alerts (else the watch digest's channel)", "Alertas de fuentes y respaldos (si no, el canal del resumen)"),
                         "DISCORD_HEALTH_WEBHOOK_URL", m.file.discordHealthWebhook,
+                    ),
+                    Triple(
+                        tr("Grocery agent suggestions (else the groceries channel)", "Sugerencias del agente de mercado (si no, el canal de mercado)"),
+                        "DISCORD_AGENTS_WEBHOOK_URL", m.file.discordAgentsWebhook,
                     ),
                     Triple(
                         tr("Promo reminders (else the watch digest's channel)", "Recordatorios de promociones (si no, el canal del resumen)"),
@@ -724,6 +756,69 @@ private fun FlowContent.promosSection(m: ConfigModel) {
             }
             field("notes", tr("Notes", "Notas"), tr("e.g. once per card per month", "p. ej. una vez por tarjeta al mes"))
             button(type = ButtonType.submit, classes = "primary") { +tr("Add reminder", "Agregar recordatorio") }
+        }
+    }
+}
+
+/** The grocery agent: when it runs, how the last runs went and what they cost, and Run now. */
+internal fun FlowContent.agentsSection(m: ConfigModel) {
+    val runs = m.agentRuns ?: return
+    section("config-section") {
+        attributes["id"] = "agents"
+        h3 { +tr("Agents", "Agentes") }
+        p("hint") {
+            +tr(
+                "The grocery agent reads your groceries, pins and purchases through the read-only MCP server and leaves suggestions on the Groceries tab. " +
+                    "It runs on your Claude Code login, so its cost counts against your plan. Its time, model and budget are under Schedules.",
+                "El agente de mercado lee tu mercado, fijados y compras a través del servidor MCP de solo lectura y deja sugerencias en la pestaña Mercado. " +
+                    "Corre con tu sesión de Claude Code, así que su costo cuenta contra tu plan. Su hora, modelo y presupuesto están en Horarios.",
+            )
+        }
+        p {
+            if (m.agentRunning) span("co-unk") { +tr("Running now…", "Corriendo ahora…") }
+            else runs.firstOrNull()?.let { r ->
+                span(if (r.status == "ok") "co-yes" else "co-no") { +if (r.status == "ok") tr("Last run ok", "Última corrida ok") else tr("Last run failed", "Última corrida falló") }
+                +" ${relativeAgo(r.startedAt)}"
+            } ?: span("dim") { +tr("Not run yet", "Aún no ha corrido") }
+        }
+        if (runs.isNotEmpty()) {
+            table("config-table") {
+                caption("sr-only") { +tr("Recent agent runs", "Corridas recientes") }
+                thead {
+                    tr {
+                        th(scope = ThScope.col) { +tr("Started", "Inicio") }
+                        th(scope = ThScope.col) { +tr("Result", "Resultado") }
+                        th(scope = ThScope.col) { +tr("Suggestions", "Sugerencias") }
+                        th(scope = ThScope.col) { +tr("Cost", "Costo") }
+                    }
+                }
+                tbody {
+                    runs.forEach { r ->
+                        tr {
+                            td {
+                                +relativeAgo(r.startedAt)
+                                if (r.trigger == "manual") span("dim") { +tr(" · by hand", " · a mano") }
+                            }
+                            td {
+                                when (r.status) {
+                                    "ok" -> span("co-yes") { +"ok" }
+                                    "running" -> span("co-unk") { +tr("running", "corriendo") }
+                                    else -> span("co-no") { +tr("failed", "falló") }
+                                }
+                                (r.error ?: r.summary)?.let { div("dim") { +it.take(240) } }
+                            }
+                            td("num") { +r.suggestions.toString() }
+                            td("num") { +(r.costUsd?.let { "US$" + it.setScale(3, java.math.RoundingMode.HALF_UP).toPlainString() } ?: "—") }
+                        }
+                    }
+                }
+            }
+        }
+        form(action = "/config/agents/grocery/run", method = FormMethod.post) {
+            button(type = ButtonType.submit, classes = "primary") {
+                if (m.agentRunning) attributes["disabled"] = "disabled"
+                +tr("Run the grocery agent now", "Correr el agente de mercado ahora")
+            }
         }
     }
 }

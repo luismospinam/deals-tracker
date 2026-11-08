@@ -39,6 +39,12 @@ sealed interface CartResult {
     /** A cookie is saved but Exito no longer honours it (past its `exp`, or logged out elsewhere). */
     data object Expired : CartResult
 
+    /**
+     * Exito's search for the store has no stock of it now: sold out since the last crawl saw it. The
+     * product search runs with `hideUnavailableItems`, so "not found" there means none to sell.
+     */
+    data object SoldOut : CartResult
+
     /** Exito answered, but the item did not end up in the cart: out of stock, or not sold at this store. */
     data class Refused(val reason: String) : CartResult
 
@@ -176,6 +182,29 @@ internal fun interpretAdd(status: Int, body: String?, sku: CartSku): CartResult 
     return CartResult.Refused(message ?: "")
 }
 
+/** One line of a cart as the purchase log reads it. [unitPrice] is in pesos (VTEX sends cents). */
+data class CartLine(val productId: String, val name: String, val quantity: Int, val unitPrice: java.math.BigDecimal?)
+
+/** A cart's id and lines, from an order form. Null when the body is not one. */
+data class CartContents(val cartId: String, val lines: List<CartLine>)
+
+internal fun cartContents(body: String?): CartContents? = try {
+    val form = cartJson.parseToJsonElement(body ?: "").jsonObject
+    val id = form["orderFormId"]?.jsonPrimitive?.contentOrNull ?: throw IllegalArgumentException("no id")
+    val lines = (form["items"] as? JsonArray).orEmpty().map { it.jsonObject }.mapNotNull { line ->
+        val pid = line["productId"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+        val cents = (line["sellingPrice"] ?: line["price"])?.jsonPrimitive?.longOrNull
+        CartLine(
+            pid, line["name"]?.jsonPrimitive?.contentOrNull ?: pid, line["quantity"]?.jsonPrimitive?.intOrNull ?: 1,
+            cents?.let { java.math.BigDecimal.valueOf(it, 2) },
+        )
+    }
+    // The same product can sit on two lines (two sellers); the log counts the product.
+    CartContents(id, lines.groupBy { it.productId }.map { (_, ls) -> ls.first().copy(quantity = ls.sumOf { it.quantity }) })
+} catch (_: Exception) {
+    null
+}
+
 /** Exito's own words for why a line cannot be bought, or a plain default. */
 internal fun unavailableReason(form: JsonObject, sku: CartSku): String =
     (form["messages"] as? JsonArray)?.map { it.jsonObject }
@@ -278,7 +307,7 @@ class ExitoCart(
         if (cookieExpired(token, now())) return CartResult.Expired
         return try {
             val sku = skus[productId] ?: lookup(productId)?.also { skus[productId] = it }
-                ?: return CartResult.Refused("Exito does not list this product at Laureles")
+                ?: return CartResult.SoldOut
             val saved = cartId()
             val login = "$EXITO_COOKIE_NAME=$token"
             val formResult = http.get(
@@ -319,6 +348,25 @@ class ExitoCart(
             result
         } catch (e: Exception) {
             CartResult.Failed(e.message?.take(120) ?: e::class.simpleName.orEmpty())
+        }
+    }
+
+    /**
+     * What the tracker's cart holds now, for the purchase log. Null with no cart yet, no login, an
+     * expired one, or an answer that is not a cart. Read only: unlike [add] it never adopts a new cart.
+     */
+    suspend fun contents(): CartContents? {
+        val token = cookie() ?: return null
+        if (cookieExpired(token, now())) return null
+        val saved = cartId() ?: return null
+        return try {
+            val r = http.get(
+                "$baseUrl/api/checkout/pub/orderForm",
+                mapOf("Cookie" to "$EXITO_COOKIE_NAME=$token; checkout.vtex.com=__ofid=$saved", "Accept" to "application/json"),
+            )
+            if (r.status !in 200..299) null else cartContents(r.body)
+        } catch (_: Exception) {
+            null
         }
     }
 

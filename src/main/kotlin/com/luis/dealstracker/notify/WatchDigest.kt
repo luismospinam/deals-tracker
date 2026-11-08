@@ -25,6 +25,16 @@ fun rankDigest(items: List<PendingNotification>): List<PendingNotification> =
             .thenBy { it.matchId },
     )
 
+/** One watch's share of a digest, ranked as [rankDigest] ranks. */
+data class DigestGroup(val watchId: Long, val watchName: String, val items: List<PendingNotification>)
+
+/**
+ * The digest split by watch, so fridges and TVs do not interleave. A group leads with its biggest
+ * gap, and groups go in the order of their leaders, so the best deal of the day is still on top.
+ */
+fun groupDigest(items: List<PendingNotification>): List<DigestGroup> =
+    rankDigest(items).groupBy { it.watchId }.map { (id, list) -> DigestGroup(id, list.first().watchName, list) }
+
 /**
  * The one banner a digest sends: a count in the title, the biggest gap in the body. A banner has about
  * three lines, so the rest are a count, and the click opens /watches, where all of them are listed.
@@ -62,21 +72,30 @@ private fun cardWhy(alert: com.luis.dealstracker.model.WatchAlert, lang: Lang, e
 }
 
 /**
- * The digest's Discord post: every alert, one line each, biggest gap first, each linked to the retailer.
- * A post has room the banner does not, so nothing is left as "+N more" unless Discord's limit cuts it.
+ * The digest's Discord post: every alert, one line each, grouped by watch as [groupDigest] groups,
+ * each linked to the retailer. A post has room the banner does not, so nothing is left as "+N more"
+ * unless Discord's limit cuts it.
+ *
+ * A group's heading rides on its first line rather than being a line of its own, so [fitDescription]'s
+ * "and N more" still counts alerts, and a heading is never left stranded above a cut.
  */
 fun digestDiscordLines(items: List<PendingNotification>, lang: Lang): List<String> =
-    rankDigest(items).map { p ->
-        val gap = p.alert.gapPercent?.let { "**−${it.stripTrailingZeros().toPlainString()}%**" } ?: "**—**"
-        val title = WatchService.squashRepeats(p.title).take(80).replace("[", "(").replace("]", ")")
-        val item = p.url?.let { "[$title]($it)" } ?: title
-        val why = when (p.alert.reason) {
-            MatchReason.CROSS_SITE_SPREAD -> lang.tr("under a rival", "bajo un rival")
-            MatchReason.CARD_LOW -> cardWhy(p.alert, lang, "new low", "nuevo mínimo")
-            MatchReason.LOWEST_IN_WINDOW -> lang.tr("new low", "nuevo mínimo")
-        }
-        "$gap ${p.watchName} · $item — ${formatMoney(p.alert.price, p.currency)} ${lang.tr("at", "en")} ${p.source} ($why)"
+    groupDigest(items).flatMap { group ->
+        val heading = "__**${group.watchName}**__ (${group.items.size})"
+        group.items.mapIndexed { i, p -> if (i == 0) "$heading\n${digestDiscordLine(p, lang)}" else digestDiscordLine(p, lang) }
     }
+
+private fun digestDiscordLine(p: PendingNotification, lang: Lang): String {
+    val gap = p.alert.gapPercent?.let { "**−${it.stripTrailingZeros().toPlainString()}%**" } ?: "**—**"
+    val title = WatchService.squashRepeats(p.title).take(80).replace("[", "(").replace("]", ")")
+    val item = p.url?.let { "[$title]($it)" } ?: title
+    val why = when (p.alert.reason) {
+        MatchReason.CROSS_SITE_SPREAD -> lang.tr("under a rival", "bajo un rival")
+        MatchReason.CARD_LOW -> cardWhy(p.alert, lang, "new low", "nuevo mínimo")
+        MatchReason.LOWEST_IN_WINDOW -> lang.tr("new low", "nuevo mínimo")
+    }
+    return "$gap $item — ${formatMoney(p.alert.price, p.currency)} ${lang.tr("at", "en")} ${p.source} ($why)"
+}
 
 /**
  * The daily watch-alert digest: one banner at each of `defaults.watchDigestTimes`, in place of a banner

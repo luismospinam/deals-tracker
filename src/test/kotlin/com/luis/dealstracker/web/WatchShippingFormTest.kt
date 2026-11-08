@@ -28,4 +28,18 @@ class WatchShippingFormTest {
         assertNull(draft("maxShippingCost" to listOf("")).maxShippingCost)
         assertEquals(0, BigDecimal.ZERO.compareTo(draft("maxShippingCost" to listOf("-5")).maxShippingCost))
     }
+
+    @Test
+    fun `the smallest screen parses, blank is any size, and out of range is clamped`() {
+        assertEquals(55, draft("minScreenInches" to listOf("55")).minScreenInches)
+        assertNull(draft("minScreenInches" to listOf("")).minScreenInches)
+        assertNull(draft().minScreenInches)
+        assertEquals(150, draft("minScreenInches" to listOf("400")).minScreenInches)
+        assertEquals(10, draft("minScreenInches" to listOf("2")).minScreenInches)
+    }
+
+    @Test
+    fun `the floor reads as a size and up`() {
+        assertEquals("55″ and up", screenFloorLabel(55))
+    }
 }

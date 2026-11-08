@@ -85,6 +85,9 @@ class SettingsRepository(private val ds: DataSource) {
         /** The sources an "unhealthy" alert went out for and no "recovered" yet, comma-separated. */
         const val HEALTH_ALERTED = "health_alerted"
 
+        /** The tracker's Exito cart as last read, `agent.CartSnapshot` JSON, for the purchase log's diff. */
+        const val EXITO_CART_SNAPSHOT = "exito_cart_snapshot"
+
         /** `promo_sent.<id>`: the last reminder sent for a promo, as "<promo date>:<DAY|DAY_BEFORE>". */
         const val PROMO_SENT_PREFIX = "promo_sent."
 

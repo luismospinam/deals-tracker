@@ -229,4 +229,16 @@ class ExitoCartViewsTest {
         assertTrue("open-cart" in shown && link in shown && "_blank" in shown)
         assertTrue("""id="open-cart"""" in shown, "keeps the slot's id so a later swap still finds it")
     }
+
+    /** Tajín 45 g, 2026-11-03: in stock at the 17:20 crawl, sold out at Laureles by the 20:24 add. */
+    @Test
+    fun `a sold-out add says so, with when it last had stock, not that Exito does not list it`() {
+        val at = java.time.LocalDateTime.parse("2026-11-03T17:20").atZone(java.time.ZoneId.systemDefault()).toInstant()
+        val text = cartToast(CartResult.SoldOut, "Salsa Tajin", lastSeen = at)
+        assertTrue("sold out of it right now" in text && "17:20 check" in text && "until the next check" in text, text)
+        assertFalse("does not list" in text)
+        assertTrue("toast-warn" in text, "a fact about stock, not an error in the app")
+        val es = com.luis.dealstracker.i18n.I18n.with(com.luis.dealstracker.i18n.Lang.ES) { cartToast(CartResult.SoldOut, null, lastSeen = at) }
+        assertTrue("no tiene unidades" in es && "17:20" in es, es)
+    }
 }

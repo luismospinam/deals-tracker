@@ -111,10 +111,15 @@ defaults:
   # so it should give up and let the next cycle retry rather than hold a window open.
   coShippingPollWallWaitMillis: 45000
 
-  # Days after which a tracked Amazon row's own page is read again for a page-true price. 3, down
-  # from the code default of 4 (2026-10-26): ~384 page loads a day across ~1,150 rows instead of ~288,
-  # well inside what the cleanup loop (40 every 20 minutes) already handles.
-  pageRecheckDays: 3
+  # Days after which a tracked Amazon row's own page is read again for a page-true price. 2, down
+  # from 3 (2026-11-04): a Puma shoe kept showing its old $46.60 for most of a day after Amazon went back
+  # to $59.99. ~575 page loads a day across ~1,150 rows, inside what the cleanup loop (40 every 20
+  # minutes, up to ~2,880 a day) handles.
+  pageRecheckDays: 2
+
+  # Hours after which a PINNED row's page is read again: what is being bought gets a fresh price four
+  # times a day. ~21 pinned Amazon rows, so ~84 page loads a day on top of the above.
+  pinnedPageRecheckHours: 6
 
   # Days after which a free-shipping verdict (YES) is checked again. 5, down from the code default of 7
   # (2026-10-28): ~260 rechecks a day across ~1,300 YES rows instead of ~186. If the log starts showing

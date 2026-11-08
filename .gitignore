@@ -23,6 +23,8 @@ local.properties
 .exito-profile/
 
 # Runtime state
+# The MCP server's bearer token (agent.McpHttp): anyone holding it can read the database.
+.mcp-token
 logs/
 *.log
 .ml-token.json

@@ -2,7 +2,8 @@ package com.luis.dealstracker.web
 
 import com.luis.dealstracker.db.AlertCounts
 import com.luis.dealstracker.db.DigestRow
-import com.luis.dealstracker.notify.rankDigest
+import com.luis.dealstracker.db.PendingNotification
+import com.luis.dealstracker.notify.groupDigest
 import com.luis.dealstracker.i18n.categoryLabel
 import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.ingest.WatchEvaluator
@@ -349,7 +350,6 @@ fun MAIN.watchesPage(
     categories: List<String>,
     digest: List<DigestRow>? = null,
     digestTimes: List<String> = emptyList(),
-    digestAll: Boolean = false,
     heldCards: Set<CardScope> = emptySet(),
 ) {
     h2 { +tr("Watches", "Búsquedas") }
@@ -370,7 +370,7 @@ fun MAIN.watchesPage(
             )
         }
     }
-    digest?.let { digestSection(it, digestTimes, digestAll) }
+    digest?.let { digestSection(it, digestTimes) }
     heldCardsLine(heldCards)
 
     if (watches.isEmpty()) {
@@ -441,6 +441,9 @@ private fun TBODY.watchRow(watch: Watch, counts: AlertCounts?) {
  * On the `<tr>` rather than inside a cell, so the pause/resume swap — which replaces the row —
  * changes the look with it. The "paused" chip stays too: colour is never the only cue.
  */
+/** "55″ and up", for a watch with a smallest screen. */
+internal fun screenFloorLabel(inches: Int): String = tr("$inches″ and up", "$inches″ o más")
+
 private fun watchRowClass(watch: Watch): String? = if (watch.enabled) null else "paused"
 
 private fun TR.watchRowBody(watch: Watch, counts: AlertCounts?) {
@@ -452,6 +455,7 @@ private fun TR.watchRowBody(watch: Watch, counts: AlertCounts?) {
                 span("dim") { +tr("not: $it", "excepto: $it") }
             }
             watch.categoryGroup?.let { span { +categoryLabel(it) } }
+            watch.minScreenInches?.let { span { +screenFloorLabel(it) } }
             span { +if (watch.sources.isEmpty()) tr("all sources", "todas las fuentes") else watch.sources.joinToString(", ") }
             watch.amazonTerms?.takeIf { it.isNotBlank() }?.let {
                 span { +"amazon: "; code { +it } }
@@ -507,11 +511,12 @@ private fun TR.watchRowBody(watch: Watch, counts: AlertCounts?) {
 }
 
 /**
- * The digest, as a table: what is waiting for the next banner and what the last day's banners
- * announced, every watch together, biggest gap first. Where the banner's click lands, since a banner
- * has room for the top alert only.
+ * The digest: what is waiting for the next banner and what the last day's banners announced, one
+ * collapsed accordion per watch, so a glance shows which watches fired without fridges and TVs
+ * interleaving. A watch's summary carries its count and best gap; opening it lists every alert,
+ * biggest gap first. Where the banner's click lands, since a banner has room for the top alert only.
  */
-private fun MAIN.digestSection(rows: List<DigestRow>, times: List<String>, showAll: Boolean) {
+private fun MAIN.digestSection(rows: List<DigestRow>, times: List<String>) {
     div("digest") {
         attributes["id"] = "digest"
         h3 { +tr("Latest digest", "Último resumen") }
@@ -520,58 +525,74 @@ private fun MAIN.digestSection(rows: List<DigestRow>, times: List<String>, showA
             return@div
         }
         val byMatch = rows.associateBy { it.pending.matchId }
-        table("deals digest") {
-            caption("sr-only") { +tr("Latest digest", "Último resumen") }
-            thead {
-                tr {
-                    th(scope = ThScope.col, classes = "col-disc") {
-                        title = tr(
-                            "How far below the rival's price (cross-site) or the watch's earlier floor (new low)",
-                            "Cuánto por debajo del precio del rival (entre sitios) o del mínimo anterior de la búsqueda (nuevo mínimo)",
-                        )
-                        +tr("Gap", "Diferencia")
-                    }
-                    th(scope = ThScope.col, classes = "col-deal") { +tr("Item", "Producto") }
-                    th(scope = ThScope.col, classes = "col-price") { +tr("Price", "Precio") }
-                    th(scope = ThScope.col, classes = "col-seen") { +tr("Status", "Estado") }
-                }
-            }
-            val ranked = rankDigest(rows.map { it.pending })
-            tbody {
-                // The top few above the watch list; the rest one click away, so a busy day does not
-                // push the watches themselves off the screen.
-                (if (showAll) ranked else ranked.take(WATCH_DIGEST_SHOWN)).forEach { p ->
-                    val row = byMatch.getValue(p.matchId)
-                    tr {
-                        td("col-disc") { +(p.alert.gapPercent?.let { "−${it.stripTrailingZeros().toPlainString()}%" } ?: "—") }
-                        td("col-deal") {
-                            div("title") { a(href = "/deal/${p.alert.dealId}") { +p.title } }
-                            div("meta") {
-                                span { a(href = "/watches/${p.watchId}") { +p.watchName } }
-                                span { +p.source }
-                                span("dim") { +com.luis.dealstracker.i18n.localizeEvidence(p.alert.evidence) }
-                            }
-                        }
-                        td("col-price") { +formatMoney(p.alert.price, p.currency) }
-                        td("col-seen") {
-                            if (row.waiting) {
-                                span("chip") { +tr("waiting · ${times.joinToString(", ")}", "en espera · ${times.joinToString(", ")}") }
-                            } else {
-                                row.notifiedAt?.let { +tr("sent ${relativeAgo(it)}", "enviada ${relativeAgo(it)}") }
-                            }
+        groupDigest(rows.map { it.pending }).forEach { group ->
+            val n = group.items.size
+            val waiting = group.items.count { byMatch.getValue(it.matchId).waiting }
+            details("digest-watch") {
+                attributes["id"] = "digest-watch-${group.watchId}"
+                summary {
+                    span("dw-name") { +group.watchName }
+                    span("dw-count") { +tr("$n alert${if (n == 1) "" else "s"}", "$n alerta${if (n == 1) "" else "s"}") }
+                    group.items.first().alert.gapPercent?.let {
+                        // The word and the time are the parts a phone drops (see app.css) to keep the summary on one line.
+                        span("dw-best") {
+                            span("dw-wide") { +tr("best ", "mejor ") }
+                            +"−${it.stripTrailingZeros().toPlainString()}%"
                         }
                     }
+                    if (waiting > 0) span("chip") {
+                        +tr("$waiting waiting", "$waiting en espera")
+                        span("dw-wide") { +" · ${times.joinToString(", ")}" }
+                    }
                 }
+                digestTable(group.items, byMatch, times, group.watchId, group.watchName)
             }
         }
-        if (!showAll && rows.size > WATCH_DIGEST_SHOWN) {
-            p("hint") {
-                a(href = "/watches?digest=all#digest") {
-                    +tr("show all ${rows.size}", "ver las ${rows.size}")
+    }
+}
+
+private fun FlowContent.digestTable(items: List<PendingNotification>, byMatch: Map<Long, DigestRow>, times: List<String>, watchId: Long, watchName: String) {
+    table("deals digest-table") {
+        caption("sr-only") { +tr("Latest digest: $watchName", "Último resumen: $watchName") }
+        thead {
+            tr {
+                th(scope = ThScope.col, classes = "col-disc") {
+                    title = tr(
+                        "How far below the rival's price (cross-site) or the watch's earlier floor (new low)",
+                        "Cuánto por debajo del precio del rival (entre sitios) o del mínimo anterior de la búsqueda (nuevo mínimo)",
+                    )
+                    +tr("Gap", "Diferencia")
+                }
+                th(scope = ThScope.col, classes = "col-deal") { +tr("Item", "Producto") }
+                th(scope = ThScope.col, classes = "col-price") { +tr("Price", "Precio") }
+                th(scope = ThScope.col, classes = "col-seen") { +tr("Status", "Estado") }
+            }
+        }
+        tbody {
+            items.forEach { p ->
+                val row = byMatch.getValue(p.matchId)
+                tr {
+                    td("col-disc") { +(p.alert.gapPercent?.let { "−${it.stripTrailingZeros().toPlainString()}%" } ?: "—") }
+                    td("col-deal") {
+                        div("title") { a(href = "/deal/${p.alert.dealId}") { +p.title } }
+                        div("meta") {
+                            span { +p.source }
+                            span("dim") { +com.luis.dealstracker.i18n.localizeEvidence(p.alert.evidence) }
+                        }
+                    }
+                    td("col-price") { +formatMoney(p.alert.price, p.currency) }
+                    td("col-seen") {
+                        if (row.waiting) {
+                            span("chip") { +tr("waiting · ${times.joinToString(", ")}", "en espera · ${times.joinToString(", ")}") }
+                        } else {
+                            row.notifiedAt?.let { +tr("sent ${relativeAgo(it)}", "enviada ${relativeAgo(it)}") }
+                        }
+                    }
                 }
             }
         }
     }
+    p("dw-foot") { a(href = "/watches/$watchId") { +tr("Open this watch", "Abrir esta búsqueda") } }
 }
 
 /**
@@ -619,9 +640,6 @@ private fun MAIN.hiddenList(watchId: Long, hidden: List<Pair<Long, String>>) {
         }
     }
 }
-
-/** Digest rows shown before "show all". */
-internal const val WATCH_DIGEST_SHOWN = 10
 
 /** A watch's price band, worded the same on the list and on the watch's own page. */
 private fun kotlinx.html.FlowOrPhrasingContent.priceBand(watch: Watch) {
@@ -784,6 +802,22 @@ private fun MAIN.watchForm(
                     }
                 }
                 div("f") {
+                    label { htmlFor = "w-minScreenInches"; +tr("Min screen (in)", "Pantalla mín. (pulg.)") }
+                    input(type = InputType.number, name = "minScreenInches") {
+                        id = "w-minScreenInches"
+                        placeholder = "55"
+                        attributes["min"] = "10"
+                        attributes["max"] = "150"
+                        attributes["title"] = tr(
+                            "For TVs and monitors: ignore listings whose title names a smaller screen " +
+                                "(55 Pulgadas, 65\", 55-Inch). A title with no size is kept. Blank = any size.",
+                            "Para televisores y monitores: ignora los productos cuyo título dice una pantalla " +
+                                "más pequeña (55 Pulgadas, 65\", 55-Inch). Un título sin tamaño se mantiene. En blanco = cualquier tamaño.",
+                        )
+                        value = watch?.minScreenInches?.toString() ?: ""
+                    }
+                }
+                div("f") {
                     label { htmlFor = "w-crossSiteMinSpread"; +tr("Cross-site %", "Entre sitios %") }
                     input(type = InputType.number, name = "crossSiteMinSpread") {
                         id = "w-crossSiteMinSpread"
@@ -836,6 +870,7 @@ fun MAIN.watchDetail(
         span { +if (watch.sources.isEmpty()) tr("all sources", "todas las fuentes") else watch.sources.joinToString(", ") }
         span { +"−${watch.crossSiteMinSpread.stripTrailingZeros().toPlainString()}% ${tr("x-site", "entre sitios")}" }
         span { +tr("${watch.lookbackDays}-day window", "ventana de ${watch.lookbackDays} días") }
+        watch.minScreenInches?.let { span { +screenFloorLabel(it) } }
         if (watch.requireCoShipping) {
             span {
                 +tr("ships to Colombia only", "solo envío a Colombia")

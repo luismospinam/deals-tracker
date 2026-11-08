@@ -224,6 +224,69 @@ Config tab. On the promo day and the day before:
 
 Each reminder is sent once, remembered as `promo_sent.<id>` in `app_settings`.
 
+## Agents: MCP server, purchase log, suggestions
+
+The app serves its data to AI agents over **MCP** (Model Context Protocol) at
+`http://127.0.0.1:8091/mcp` (`agent.McpServer`, `agent.AgentTools`). Its tools:
+
+- `grocery_search`, `grocery_pinned`, `grocery_aisles`: grocery rows with unit price, usual price and
+  the other chain's price, the same rules the Groceries tab uses;
+- `product`, `price_history`: one row in depth, history as the days the price changed;
+- `purchases`, `promos`, `past_suggestions`;
+- `sql`: read-only SQL for anything else;
+- `suggest`: the only tool that writes. It adds a row to the suggestions inbox.
+
+**Who can reach it.** Only this Mac, holding the token:
+- It has its own port bound to 127.0.0.1. The Cloudflare tunnel forwards 8080 only.
+- Every request needs `Authorization: Bearer <.mcp-token>`. The token is generated on first boot,
+  owner-readable only and gitignored. Delete the file and restart to rotate it.
+- Requests with Cloudflare headers, or a foreign `Origin` (a web page), are refused.
+- `sql` connects as `deals_agent`: not a superuser, `SELECT` on an allow-list of tables only
+  (never `app_settings`, which holds the Exito login), read-only transactions, a 10 s timeout and
+  a 500-row cap. Postgres enforces this, not the app. The role's password is random per boot and
+  never stored. A restore into a fresh server may report errors about `deals_agent` grants; they
+  are harmless, and the next boot recreates the role.
+
+The web UI and Postgres also listen on 127.0.0.1 only (`DEALS_HTTP_HOST=0.0.0.0` reopens the UI).
+The phone keeps working through the tunnel, which connects from this Mac.
+
+To use the tools from your own Claude Code (run in this folder):
+
+    claude mcp add --transport http deals http://127.0.0.1:8091/mcp \
+        --header "Authorization: Bearer $(cat .mcp-token)"
+
+The tools also work headless on the Claude Code login (no API key), tested 2026-11-03. Pass
+`--mcp-config` with the server and `--strict-mcp-config`, `--tools ""` and `--allowedTools
+"mcp__deals__*"`. Do not pass `--safe-mode`: it turns MCP servers off. `--bare` needs an API key.
+
+**Purchase log** (`purchases`, V38). Adding to the Exito cart is when the operator buys. The tracker's
+own Exito cart is read every 30 minutes and right after a cart-button add. A product that appears or
+grows is logged as bought, and one taken out of the still-open cart is un-logged. Items added in Exito's
+phone app go to that app's own cart, which cannot be read, so they are not seen.
+
+**The grocery agent** (`agent.GroceryAgent`, `agent.AgentRunner`) runs daily at `groceryAgentTimes`
+(08:15, after the morning crawl). A morning the Mac slept through runs on waking. It runs `claude -p` on
+the Claude Code login, so it uses plan usage and needs no API key: Sonnet, medium effort, a US$1.00 cap
+per run. The first runs (2026-11-03) cost US$0.10-0.19 and took 15-25 s. The command keeps it to the
+MCP tools above (see `claudeCommand` for each flag and why), and it runs in
+`~/Library/Application Support/deals-tracker/agents` so that no CLAUDE.md applies. Its brief
+(`groceryAgentSystemPrompt`) works through:
+- past answers;
+- the pinned list, purchases and promos;
+- searches beyond the pinned list (for switch and pin ideas);
+- a history check on every candidate;
+- at most `groceryAgentMaxSuggestions` (8) suggestions, each citing its numbers.
+
+A good run posts its suggestions as a desktop banner and to Discord (`DISCORD_AGENTS_WEBHOOK_URL`, else
+the groceries channel). A failed scheduled run alerts once and retries hourly. Each tool call is logged
+as `[mcp] grocery#<run> <tool> <args> -> <size>`. The Config tab's **Agents** section lists recent runs
+with outcome, suggestions and cost, and has **Run now**. Time, model, effort and budget are under
+Schedules.
+
+**Suggestions** (`suggestions`, V38) show above the grocery table, answered in place: *Pin it* or
+*Got it*, or *Dismiss* with an optional reason. The answers and reasons are what the next agent run
+reads. Open suggestions expire after 7 days.
+
 ## UI
 
 Styles live in `src/main/resources/static/app.css`, served via Ktor `staticResources` —

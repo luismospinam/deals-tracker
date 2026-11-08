@@ -144,6 +144,11 @@ data class Defaults(
      * goes fully idle: roughly one row in [pageRecheckDays] comes due each day. 0 turns it off.
      */
     val pageRecheckDays: Int = 4,
+    /**
+     * Hours after which a PINNED row's page is read again: the items being watched to buy get a fresh
+     * price several times a day, the rest every [pageRecheckDays]. Pinned rows due go first. 0 turns it off.
+     */
+    val pinnedPageRecheckHours: Int = 6,
     /** Days after which a `YES` shipping verdict's fee is read again from the page. 0 turns it off. */
     val shippingRecheckDays: Int = 7,
     /** Minutes between cleanup runs while there is a backlog. A block backs off for an hour instead. */
@@ -266,6 +271,20 @@ data class Defaults(
      * directory, so relying on PATH alone would work from a terminal and fail in the background.
      */
     val askClaudePath: String = "",
+
+    /**
+     * Local times the grocery agent runs (`agent.GroceryAgent`): after the morning crawl window
+     * (07:00-07:40), so it reads today's prices. A time slept through runs on waking. Empty turns it off.
+     */
+    val groceryAgentTimes: List<String> = listOf("08:15"),
+    /** `claude --model` for the agents. Sonnet: it reads tool output well and an agent run is many turns. */
+    val agentModel: String = "sonnet",
+    /** `claude --effort` for the agents. Medium: a run weighs dozens of rows, unlike a one-line Ask answer. */
+    val agentEffort: String = "medium",
+    /** Ceiling per agent run, `--max-budget-usd`. A run measured ~US$0.15-0.40; this only stops a runaway. */
+    val agentMaxBudgetUsd: Double = 1.0,
+    /** Most suggestions the grocery agent adds per run. Fewer good ones beat a list nobody reads. */
+    val groceryAgentMaxSuggestions: Int = 8,
 )
 
 @Serializable
@@ -303,13 +322,15 @@ class AppConfig(
     val discordHealthWebhook: String? = null,
     /** Payment-promo reminders (BANCOLMARTES); null falls back to [discordWatchesWebhook]. From `.env`. */
     val discordPromosWebhook: String? = null,
+    /** Agent suggestions; null falls back to [discordGroceriesWebhook]. From `.env`. */
+    val discordAgentsWebhook: String? = null,
 ) {
     val enabledProviders: List<ProviderConfig> get() = providers.filter { it.enabled }
 
     /** This config with other defaults and providers, secrets carried over. Used by `ConfigOverrides`. */
     fun copy(defaults: Defaults = this.defaults, providers: List<ProviderConfig> = this.providers) = AppConfig(
         defaults, providers, db, mlClientId, mlClientSecret,
-        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook, discordHealthWebhook, discordPromosWebhook,
+        discordGroceriesWebhook, discordTrackedWebhook, discordWatchesWebhook, discordHealthWebhook, discordPromosWebhook, discordAgentsWebhook,
     )
 
     /** Effective discount floor for a provider, falling back to the global default. */
@@ -359,6 +380,7 @@ class AppConfig(
                 discordWatchesWebhook = setting("DISCORD_WATCHES_WEBHOOK_URL", "").ifBlank { null },
                 discordHealthWebhook = setting("DISCORD_HEALTH_WEBHOOK_URL", "").ifBlank { null },
                 discordPromosWebhook = setting("DISCORD_PROMOS_WEBHOOK_URL", "").ifBlank { null },
+                discordAgentsWebhook = setting("DISCORD_AGENTS_WEBHOOK_URL", "").ifBlank { null },
             )
         }
 

@@ -10,6 +10,8 @@ import com.luis.dealstracker.db.GroceryRow
 import com.luis.dealstracker.db.ShelfPrice
 import com.luis.dealstracker.db.SyncStatus
 import com.luis.dealstracker.ingest.unitPriceLabel
+import com.luis.dealstracker.model.CardScope
+import com.luis.dealstracker.model.HeldCards
 import com.luis.dealstracker.model.formatMoney
 import io.ktor.http.encodeURLParameter
 import kotlinx.html.FlowContent
@@ -103,10 +105,7 @@ internal fun chainNames(stores: Map<String, GroceryStore>): Map<String, String> 
  */
 internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStore>): List<GroceryRow> {
     val order = stores.keys.withIndex().associate { (i, id) -> id to i }
-    val labelled = rows.map {
-        it.copy(store = stores[it.deal.source]?.label ?: storeName(it.deal.source), chain = stores[it.deal.source]?.chain ?: it.deal.source)
-    }
-    return labelled
+    return labelStores(rows, stores)
         .groupBy { Triple(stores[it.deal.source]?.chain ?: it.deal.source, it.deal.merchant, it.deal.sourceDealId) }
         .values
         .map { copies ->
@@ -122,6 +121,30 @@ internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStor
             )
         }
 }
+
+/** [rows] with their store and chain set, one row per store: what a search shows (see [splitByStore]). */
+internal fun labelStores(rows: List<GroceryRow>, stores: Map<String, GroceryStore>): List<GroceryRow> = rows.map {
+    it.copy(store = stores[it.deal.source]?.label ?: storeName(it.deal.source), chain = stores[it.deal.source]?.chain ?: it.deal.source)
+}
+
+/**
+ * Whether the table shows every store's copy as its own row rather than [mergeStores]' one per chain.
+ * A search does: looking for one product, you want to see it at Laureles AND Colombia, even when one
+ * is $14 dearer. Browsing (no search) stays merged, so All items does not list most products twice.
+ * So does a search of exclusions only (`!aceite`): that is browsing with some rows hidden, not
+ * looking for a product.
+ */
+internal fun splitByStore(controls: GroceryControls): Boolean =
+    com.luis.dealstracker.db.SearchQuery.parse(controls.search).include.isNotEmpty()
+
+/** [mergeStores], or one row per store when [split]. */
+internal fun storeRows(rows: List<GroceryRow>, stores: Map<String, GroceryStore>, split: Boolean): List<GroceryRow> =
+    if (split) labelStores(rows, stores) else mergeStores(rows, stores)
+
+/** One copy per product per chain, the one [mergeStores] would lead with: on the shelf first, then cheapest. */
+internal fun onePerChain(rows: List<GroceryRow>): List<GroceryRow> =
+    rows.groupBy { Triple(it.chain.ifEmpty { it.deal.source }, it.deal.merchant, it.deal.sourceDealId) }.values
+        .map { copies -> copies.sortedWith(compareByDescending<GroceryRow> { it.onShelf }.thenBy { it.deal.price }).first() }
 
 /**
  * Each row's cheapest on-shelf copy at ANOTHER chain, by barcode, as [GroceryRow.rival].
@@ -242,6 +265,19 @@ internal enum class GrocerySort(val key: String, val label: String) {
      * over paying cash today. Rows with no card price last.
      */
     CARD("card", "Card"),
+
+    /**
+     * Rows with a card price you hold first, furthest under the usual price paying with it, by
+     * [belowUsualWithCard]: the store's promotion and the card both count, against a price we measured.
+     * Rows with no such card price last -- this is the card sort, not a second "vs usual".
+     */
+    CARD_USUAL("cardusual", "Card vs usual"),
+
+    /**
+     * Only rows with a store discount AND a card price you hold first, by [cardAndStorePercent]: the card
+     * price against the store's own list price. Everything else last.
+     */
+    CARD_STORE("cardstore", "Card + store"),
     PRICE("price", "Price"),
 
     /**
@@ -303,8 +339,7 @@ internal data class GroceryControls(
             // shopping list for one trip.
             if (chains.isNotEmpty()) add("store=" + chains.sorted().joinToString(",").encodeURLParameter())
             if (groups.isNotEmpty() && view != GroceryView.PINNED) add("group=" + groups.sorted().joinToString(",").encodeURLParameter())
-            // Pinned has no box, so carrying a search onto it would filter a view with nothing to clear it.
-            if (view != GroceryView.PINNED) search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
+            search?.takeIf { it.isNotBlank() }?.let { add("q=" + it.encodeURLParameter()) }
             if (sort != null && sort != GrocerySort.of(null, view)) add("sort=${sort.key}")
             if (cartable && view == GroceryView.PINNED) add("cart=1")
             if (buyAt != null && view == GroceryView.PINNED) add("buy=" + buyAt.encodeURLParameter())
@@ -319,7 +354,7 @@ internal data class GroceryControls(
             return GroceryControls(
                 view = view,
                 groups = params["group"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
-                search = params["q"]?.trim()?.takeIf { it.isNotEmpty() && view != GroceryView.PINNED },
+                search = params["q"]?.trim()?.takeIf { it.isNotEmpty() },
                 sort = GrocerySort.of(params["sort"], view),
                 chains = params["store"]?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
                 cartable = params["cart"] == "1" && view == GroceryView.PINNED,
@@ -352,6 +387,35 @@ internal fun groceryInView(rows: List<GroceryRow>, view: GroceryView): List<Groc
     GroceryView.PINNED -> rows.filter { it.pinnedAt != null }
 }
 
+/** The cheapest price a card you hold pays for [row] today, when it beats the shelf price. */
+internal fun heldCardPrice(row: GroceryRow, held: Set<CardScope> = HeldCards.current): BigDecimal? =
+    com.luis.dealstracker.model.usableOffer(row.cardOffers, held)?.price?.takeIf { it < row.deal.price }
+
+/**
+ * Percent under the usual price paying with your best card, or the shelf price without one -- the
+ * [GroceryRow.belowUsual] of what you would actually pay. Null until the usual price is known.
+ */
+internal fun belowUsualWithCard(row: GroceryRow, held: Set<CardScope> = HeldCards.current): BigDecimal? {
+    val usual = row.usual?.takeIf { row.days >= GroceryRow.MIN_DAYS && it.signum() > 0 } ?: return null
+    val pay = heldCardPrice(row, held) ?: row.deal.price
+    return BigDecimal.ONE.subtract(pay.divide(usual, 6, java.math.RoundingMode.HALF_UP))
+        .multiply(BigDecimal(100)).setScale(1, java.math.RoundingMode.HALF_UP)
+}
+
+/**
+ * The total off the store's list price paying with your best card, for a row with BOTH a store discount
+ * and such a card price; null otherwise. Exito and Carulla take the card percentage off the pre-promotion
+ * price, so it replaces the shelf promotion rather than stacking on it -- the card price over the list
+ * price is the whole saving.
+ */
+internal fun cardAndStorePercent(row: GroceryRow, held: Set<CardScope> = HeldCards.current): BigDecimal? {
+    if (row.deal.storeDiscountPercent == null) return null
+    val list = row.deal.listPrice?.takeIf { it > row.deal.price } ?: return null
+    val card = heldCardPrice(row, held) ?: return null
+    return BigDecimal.ONE.subtract(card.divide(list, 6, java.math.RoundingMode.HALF_UP))
+        .multiply(BigDecimal(100)).setScale(1, java.math.RoundingMode.HALF_UP)
+}
+
 /** Every ordering puts "unknown" last rather than reading it as zero, as the other tabs do. */
 internal fun groceryComparator(sort: GrocerySort): Comparator<GroceryRow> = when (sort) {
     GrocerySort.BELOW -> compareByDescending<GroceryRow> { it.belowUsual ?: BigDecimal("-1000") }
@@ -365,6 +429,11 @@ internal fun groceryComparator(sort: GrocerySort): Comparator<GroceryRow> = when
         com.luis.dealstracker.model.usableOffer(r.cardOffers, com.luis.dealstracker.model.HeldCards.current)
             ?.let { BigDecimal.ONE - it.price.divide(r.deal.price, 6, java.math.RoundingMode.HALF_UP) } ?: BigDecimal("-1")
     }.thenBy { it.deal.title }
+    GrocerySort.CARD_USUAL -> compareBy<GroceryRow> { heldCardPrice(it) == null }
+        .thenByDescending { belowUsualWithCard(it) ?: BigDecimal("-1000") }
+        .thenBy { it.deal.title }
+    GrocerySort.CARD_STORE -> compareByDescending<GroceryRow> { cardAndStorePercent(it) ?: BigDecimal("-1") }
+        .thenBy { it.deal.title }
     GrocerySort.STORE -> compareByDescending<GroceryRow> { it.deal.storeDiscountPercent ?: -1 }
         .thenBy { it.deal.title }
     GrocerySort.PRICE -> compareBy<GroceryRow> { it.deal.price }.thenBy { it.deal.title }
@@ -436,8 +505,8 @@ private fun MAIN.groceryBody(
             )
         }
         +tr(
-            ". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which; where another chain sells the same barcode, its price sits beneath. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its ",
-            ". Un producto que se vende en dos tiendas de la misma cadena aparece una sola vez, en la más barata, marcado con cuál es; si otra cadena vende el mismo código de barras, su precio aparece debajo. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus ",
+            ". An item sold at two stores of one chain is shown once, at the cheaper one, tagged with which (a search lists each store); where another chain sells the same barcode, its price sits beneath. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its ",
+            ". Un producto que se vende en dos tiendas de la misma cadena aparece una sola vez, en la más barata, marcado con cuál es (una búsqueda muestra cada tienda); si otra cadena vende el mismo código de barras, su precio aparece debajo. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus ",
         )
         +tr(
             // No clock times here: each store keeps its own schedule in sources.yaml, and the Last
@@ -489,24 +558,28 @@ private fun MAIN.groceryBody(
         cartableToggle(rows.count { it.pinnedAt != null && cartCopy(it) != null }, controls)
     }
 
-    if (controls.view != GroceryView.PINNED) {
-        searchBox(
-            action = "/groceries",
-            value = controls.search,
-            clearHref = controls.url(search = null),
-            carry = buildMap {
-                put("view", controls.view.key)
-                if (controls.groups.isNotEmpty()) put("group", controls.groups.sorted().joinToString(","))
-                if (controls.chains.isNotEmpty()) put("store", controls.chains.sorted().joinToString(","))
-            },
-        )
-    }
+    // On Pinned too: with 150+ staples, "where is the milk on my list?" needs a search as much as browsing does.
+    searchBox(
+        action = "/groceries",
+        value = controls.search,
+        clearHref = controls.url(search = null),
+        placeholder = if (controls.view == GroceryView.PINNED) tr("Search your pinned items", "Buscar en tus fijados") else "leche | huevos | !aceite",
+        carry = buildMap {
+            put("view", controls.view.key)
+            if (controls.groups.isNotEmpty() && controls.view != GroceryView.PINNED) put("group", controls.groups.sorted().joinToString(","))
+            if (controls.chains.isNotEmpty()) put("store", controls.chains.sorted().joinToString(","))
+            if (controls.cartable) put("cart", "1")
+            controls.buyAt?.let { put("buy", it) }
+        },
+    )
 
     // Store above aisle: which shop you are going to is the first decision, the aisle the second.
     storeTags(chainCounts, controls)
     val chainLabels = chainCounts.associate { it.first to it.second }
     if (controls.view == GroceryView.PINNED) {
-        shoppingPlan(groceryInView(rows, GroceryView.PINNED))?.let { planBlock(it, chainLabels, controls) }
+        // A search shows each store's copy; the plan counts each product once, at its chain's best store.
+        val planRows = groceryInView(rows, GroceryView.PINNED).let { if (splitByStore(controls)) onePerChain(it) else it }
+        shoppingPlan(planRows)?.let { planBlock(it, chainLabels, controls) }
     }
     // Not on Pinned, which is the whole list whatever aisle is picked.
     if (controls.view != GroceryView.PINNED) groupTags(groupCounts, controls)
@@ -533,9 +606,9 @@ private fun MAIN.groceryBody(
     if (shown.isEmpty()) {
         div("empty") {
             // A filter of this page's own emptied it, not the view: say so, rather than "nothing pinned".
-            if (controls.buyAt != null) {
-                +tr("No items match. ", "Ningún producto coincide. ")
-                a(href = controls.url(buyAt = null)) { +tr("Clear the filter", "Quitar el filtro") }
+            if (controls.buyAt != null || (controls.view == GroceryView.PINNED && controls.search != null)) {
+                +tr("No pinned items match. ", "Ningún fijado coincide. ")
+                a(href = controls.url(buyAt = null, search = null)) { +tr("Clear the filter", "Quitar el filtro") }
                 return@div
             }
             when (controls.view) {
@@ -657,6 +730,8 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
             tr("Price", "Precio") to GrocerySort.PRICE,
             tr("Card saving", "Ahorro con tarjeta") to GrocerySort.CARD, tr("Unit price", "Precio unitario") to GrocerySort.UNIT,
             tr("Store %", "% tienda") to GrocerySort.STORE, tr("vs usual", "vs habitual") to GrocerySort.BELOW,
+            tr("Card + store", "Tarjeta + tienda") to GrocerySort.CARD_STORE,
+            tr("Card vs usual", "Tarjeta vs habitual") to GrocerySort.CARD_USUAL,
         ).map { (label, sort) -> SortOption(label, controls.url(sort = sort), controls.sort == sort) },
     )
     table("deals tracked grocery") {
@@ -745,7 +820,7 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                 th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
             }
         }
-        tbody { rows.forEach { groceryRow(it, controls.view) } }
+        tbody { rows.forEach { groceryRow(it, controls.view, split = splitByStore(controls), sort = controls.sort) } }
     }
 }
 
@@ -769,7 +844,14 @@ private fun kotlinx.html.TR.sortableTh(
     }
 }
 
-internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.DEALS) {
+internal fun TBODY.groceryRow(
+    row: GroceryRow,
+    view: GroceryView = GroceryView.DEALS,
+    /** A search result, one row per store: the pin toggle must answer with this store's row, not the merged one. */
+    split: Boolean = false,
+    /** The table's sort: the two card sorts show the number they rank by, which no column holds. */
+    sort: GrocerySort? = null,
+) {
     val deal = row.deal
     tr(classes = if (row.onShelf) null else "paused") {
         id = "grocery-${deal.id}"
@@ -794,9 +876,9 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 deal.brand?.let { span { +it } }
                 if (!row.onShelf) span("chip chip-expired") {
                     title = tr(
-                        "Not in its store's latest crawl — out of stock at Laureles, or delisted. " +
+                        "Not in its store's latest crawl, or Exito said it was sold out when you tried to add it — out of stock, or delisted. " +
                             "The price is the last one seen.",
-                        "No apareció en la última lectura de su tienda — agotado en Laureles, o retirado. " +
+                        "No apareció en la última lectura de su tienda, o Exito dijo que estaba agotado al intentar agregarlo — agotado, o retirado. " +
                             "El precio es el último visto.",
                     )
                     +tr("unavailable", "no disponible")
@@ -816,10 +898,11 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 }
                 +row.store.ifEmpty { storeName(deal.source) }
             }
+            // A link to that store's own copy (its history and pin), so the other Exito is one tap away.
             row.others.forEach { other ->
-                div("store-alt") {
+                a(href = "/deal/${other.deal.id}", classes = "store-alt") {
                     title = if (other.onShelf) {
-                        tr("Same product at ${other.store}", "El mismo producto en ${other.store}")
+                        tr("Same product at ${other.store}: open its price history", "El mismo producto en ${other.store}: ver su historial de precios")
                     } else {
                         tr("${other.store}: not in its latest crawl", "${other.store}: no apareció en su última lectura")
                     }
@@ -853,6 +936,14 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
             cardLabel(tr("Store %", "% tienda"))
             deal.storeDiscountPercent?.let { span("disc disc-s${discountTier(BigDecimal(it))}") { +"−$it%" } }
                 ?: span("muted") { +"—" }
+            if (sort == GrocerySort.CARD_STORE) cardAndStorePercent(row)?.let { total ->
+                div("combo") {
+                    title = tr("Card price against the store's list price", "Precio con tarjeta frente al precio de lista de la tienda")
+                    span { +tr("with card", "con tarjeta") }
+                    +" "
+                    span("v") { +"−${total.toPlainString()}%" }
+                }
+            }
         }
         td(classes = "col-disc") {
             cardLabel(tr("vs usual", "vs habitual"))
@@ -865,6 +956,16 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 below.signum() > 0 -> span(if (row.isDeal) "lowbadge" else "chg chg-down") { +"−${below.toPlainString()}%" }
                 below.signum() < 0 -> span("chg chg-up") { +"+${below.negate().toPlainString()}%" }
                 else -> span("muted") { +"0%" }
+            }
+            // Only where the card changes the answer: without a card price it equals the number above.
+            if (sort == GrocerySort.CARD_USUAL && heldCardPrice(row) != null) belowUsualWithCard(row)?.let { b ->
+                div("combo") {
+                    title = tr("Your card's price against the usual price", "El precio con tu tarjeta frente al precio habitual")
+                    val v = if (b.signum() >= 0) "−${b.toPlainString()}%" else "+${b.negate().toPlainString()}%"
+                    span { +tr("with card", "con tarjeta") }
+                    +" "
+                    span("v") { +v }
+                }
             }
         }
         td(classes = "col-price") {
@@ -887,7 +988,7 @@ internal fun TBODY.groceryRow(row: GroceryRow, view: GroceryView = GroceryView.D
                 a(href = "/deal/${deal.id}") { +tr("history", "historial") }
                 val pinned = row.pinnedAt != null
                 button(classes = if (pinned) "fav-btn on" else "fav-btn") {
-                    attributes["hx-post"] = "/groceries/${deal.id}/${if (pinned) "unpin" else "pin"}?view=${view.key}"
+                    attributes["hx-post"] = "/groceries/${deal.id}/${if (pinned) "unpin" else "pin"}?view=${view.key}" + if (split) "&split=1" else ""
                     attributes["hx-target"] = "#grocery-${deal.id}"
                     attributes["hx-swap"] = "outerHTML"
                     attributes["aria-pressed"] = pinned.toString()
@@ -1016,8 +1117,8 @@ internal fun groceryDetailPinFragment(id: Long, pinned: Boolean): String =
         .removePrefix("<div>").removeSuffix("</div>")
 
 /** One row as a bare `<tr>`, for the htmx swap after a pin toggle. */
-internal fun groceryRowFragment(row: GroceryRow, view: GroceryView): String =
-    createHTML(prettyPrint = false).table { tbody { groceryRow(row, view) } }
+internal fun groceryRowFragment(row: GroceryRow, view: GroceryView, split: Boolean = false, sort: GrocerySort? = null): String =
+    createHTML(prettyPrint = false).table { tbody { groceryRow(row, view, split, sort) } }
         .substringAfter("<tbody>").substringBeforeLast("</tbody>")
 
 /** One store's line in the sync footer: its crawl history plus when the schedule runs it next. */

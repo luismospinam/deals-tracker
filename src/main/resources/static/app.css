@@ -1616,12 +1616,18 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
 /* The chain's other store and its price, under the store tag: quiet, since the row's own price is the
  * cheaper one and this is only the comparison. */
 .store-alt {
+  display: block;
   margin-top: 3px;
   font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--text-faint);
   white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
 }
+/* A link to that store's copy: same quiet grey, with an underline so it reads as tappable. */
+a.store-alt:hover { color: var(--text); text-decoration-color: var(--text-dim); }
 
 /* The same barcode at another chain. Quiet when it is dearer; amber when it is cheaper, since that is
  * the one that changes where to shop -- and the sign says so too, not just the colour. */
@@ -1683,6 +1689,18 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
   color: var(--good);
 }
 .card-price.store-only { color: var(--accent); }
+/* Under Store % or vs usual on the two card sorts: the number the row is ranked by, in the card's green
+ * so it reads as the card's doing. */
+/* The label may wrap above the number, so the extra line never widens the column past the table. */
+.combo { margin-top: 3px; font-family: var(--mono); font-size: var(--fs-sm); color: var(--good); }
+.combo .v { white-space: nowrap; }
+
+/* "price from 9h ago" under a price: quiet while fresh, the stale tone (shared with the shipping
+ * check's) once a day old. On its own line in a table cell, inline beside the deal page's price. */
+.price-age { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint); white-space: nowrap; }
+td .price-age { display: block; margin-top: 3px; }
+.price-age.stale-prov { color: var(--d-mid); }
+.detail-age { margin: -6px 0 12px; }
 
 /* The deal page: today's card price and the lowest one recorded, on one line under the price. */
 .detail-card { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: -4px 0 12px; }
@@ -1846,6 +1864,10 @@ details.ask > summary:focus-visible { outline: 2px solid var(--accent); outline-
     justify-content: center;
     font-size: var(--fs-xs);
   }
+
+  /* A card cell is a third of the card, narrower than "✓ CMR only −12.28% → $9,999,900": unwrapped it
+   * ran over the next cell's price. It wraps at its spaces; the amount, which has none, stays whole. */
+  .deals td .card-price { white-space: normal; }
 
   /* Non-card tables that are narrow enough to keep, but scroll inside themselves if not. */
   .runs { overflow-x: auto; }
@@ -2142,9 +2164,43 @@ a.open-cart:hover { background: #ff8a3a; text-decoration: none; }
 
 /* The digest table on /watches: where the banner's click lands. */
 .digest { margin: 16px 0 28px; }
-.digest .col-disc { width: 90px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.digest .col-price { width: 150px; }
-.digest .col-seen { width: 150px; }
+.digest-table .col-disc { width: 90px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.digest-table .col-price { width: 150px; }
+.digest-table .col-seen { width: 150px; }
+/* One collapsed accordion per watch: the summary says which watches fired, opening one lists its alerts. */
+details.digest-watch { border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface); }
+details.digest-watch + details.digest-watch { margin-top: 8px; }
+details.digest-watch > summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  padding: 10px 14px; cursor: pointer; list-style: none;
+}
+details.digest-watch > summary::-webkit-details-marker { display: none; }
+details.digest-watch > summary::before { content: "▸"; color: var(--text-faint); font-size: var(--fs-xs); width: 0.8em; }
+details.digest-watch[open] > summary::before { content: "▾"; color: var(--accent); }
+details.digest-watch > summary:hover .dw-name { color: var(--accent); }
+details.digest-watch > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.digest-watch[open] > summary { border-bottom: 1px solid var(--line-soft); }
+.dw-name { font-weight: 600; color: var(--text); }
+.dw-count { color: var(--text-dim); }
+.dw-best { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+details.digest-watch > summary .chip { margin-left: auto; }
+details.digest-watch .digest-table { margin: 0; border: 0; }
+.dw-foot { margin: 0; padding: 8px 14px 10px; font-size: var(--fs-xs); }
+@media (max-width: 640px) {
+  /* The accordion is already the card: its rows go flat with a divider, not a card inside a card. */
+  details.digest-watch .deals tbody tr {
+    margin: 0; padding: 12px 14px; background: none;
+    border: 0; border-top: 1px solid var(--line-soft); border-radius: 0;
+  }
+  details.digest-watch .deals tbody tr:first-child { border-top: 0; }
+
+  /* One line per watch on a phone: drop "best" and the send time (the intro and each row say it),
+   * tighten the gaps, and let a long watch name truncate rather than push the chip down. */
+  details.digest-watch > summary { flex-wrap: nowrap; gap: 8px; padding: 10px 12px; }
+  details.digest-watch .dw-wide { display: none; }
+  details.digest-watch .dw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.digest-watch .dw-count, details.digest-watch .dw-best, details.digest-watch > summary .chip { flex: none; white-space: nowrap; }
+}
 
 /* ---------- deal page ---------- */
 
@@ -2215,3 +2271,97 @@ a.open-cart:hover { background: #ff8a3a; text-decoration: none; }
 .promo-form label { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-xs); color: var(--text-dim); }
 .promo-form input[type=text] { width: 150px; }
 form.inline { display: inline; margin-right: 6px; }
+
+/* Agent suggestions above the grocery table. A disclosure shaped like the digest beside it (border,
+ * surface, summary bar), with the accent edge instead of the digest's green: these are proposals, and
+ * green is kept for verified outcomes. Quiet by design -- the price table is the page's job, so only
+ * the one action that changes something (Pin it) is filled orange. */
+details.suggestions {
+  margin: 10px 0 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+details.suggestions > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+details.suggestions > summary::-webkit-details-marker { display: none; }
+details.suggestions > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.suggestions[open] > summary { border-bottom: 1px solid var(--line-soft); }
+.sugg-head { font-weight: 600; color: var(--text); }
+.sugg-count { font-family: var(--mono); font-size: var(--fs-md); color: var(--accent); }
+.sugg-sub { color: var(--text-faint); font-size: var(--fs-sm); }
+.sugg-list { padding: 2px 12px 6px; }
+
+/* One suggestion: kind | what and why | answer. The reason is held to a reading measure. */
+.suggestion {
+  display: grid;
+  /* The text column stops at a reading measure and the answer sits right after it, rather than at the
+   * far edge of a wide screen where it no longer looks attached to its suggestion. */
+  grid-template-columns: 164px minmax(0, 72ch) auto;
+  justify-content: start;
+  gap: 4px 24px;
+  align-items: start;
+  padding: 10px 0;
+}
+.suggestion + .suggestion, .sugg-more { border-top: 1px solid var(--line-soft); }
+/* Wide enough for every English label on one line; the longest Spanish one ("¿agregar a fijados?") may
+ * wrap on desktop, so a wrapped chip is centred with a radius that suits two lines. */
+.sugg-kind { justify-self: start; margin-top: 2px; white-space: normal; text-align: center; line-height: 1.35; border-radius: 10px; max-width: 164px; }
+.sugg-body { min-width: 0; }
+.sugg-title { color: var(--text); font-weight: 600; font-size: var(--fs-lg); overflow-wrap: anywhere; }
+a.sugg-title:hover { color: var(--accent); }
+.sugg-reason { margin: 3px 0 0; color: var(--text-dim); font-size: var(--fs-md); line-height: 1.5; overflow-wrap: anywhere; }
+.sugg-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.sugg-btn { min-width: 88px; padding-block: 4px; font-size: var(--fs-sm); }
+
+/* Dismiss is a text link until pressed; then it opens the optional reason and the confirming button. */
+.sugg-dismiss > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+.sugg-dismiss > summary::-webkit-details-marker { display: none; }
+.sugg-dismiss > summary:hover { color: var(--text); }
+.sugg-dismiss > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sugg-dismiss[open] > summary { margin-bottom: 6px; }
+.sugg-dismiss-form { display: flex; gap: 6px; align-items: center; }
+.sugg-dismiss-form input { width: 240px; font-size: var(--fs-sm); }
+
+/* "Show N more", in the panel's own dim voice rather than as a button. */
+.sugg-more > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 0 4px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+.sugg-more > summary::-webkit-details-marker { display: none; }
+.sugg-more > summary::before { content: "▸ "; }
+.sugg-more[open] > summary::before { content: "▾ "; }
+.sugg-more > summary:hover { color: var(--text); }
+.sugg-more[open] > summary { padding-bottom: 0; }
+
+.suggestion.answered { display: block; color: var(--text-faint); font-size: var(--fs-sm); padding: 8px 0; }
+
+/* Phone: the kind sits beside the title, and the answer drops under the reason as one row. */
+@media (max-width: 640px) {
+  .suggestion { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .sugg-kind { max-width: none; white-space: nowrap; }
+  .sugg-actions { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .sugg-dismiss > summary { text-align: left; }
+  .sugg-dismiss[open] { flex-basis: 100%; }
+  .sugg-dismiss-form input { flex: 1 1 auto; width: auto; min-width: 0; }
+}

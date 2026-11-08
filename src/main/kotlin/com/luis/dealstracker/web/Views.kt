@@ -33,7 +33,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "75"
+private const val CSS_VERSION = "90"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -1119,6 +1119,37 @@ internal fun shippingAge(checkedAt: Instant?, now: Instant = Instant.now()): Shi
     return ShippingAge(days, stale = days >= SHIPPING_STALE_DAYS)
 }
 
+/** How old the price on screen is. Stale from a day: past that, a retailer has often moved it. */
+internal data class PriceAge(val label: String, val stale: Boolean)
+
+internal const val PRICE_STALE_HOURS = 24L
+
+internal fun priceAge(readAt: Instant, now: Instant = Instant.now()): PriceAge {
+    val minutes = Duration.between(readAt, now).toMinutes().coerceAtLeast(0)
+    val hours = minutes / 60
+    val label = when {
+        minutes < 60 -> tr("price from <1h ago", "precio de hace <1 h")
+        hours < 24 -> tr("price from ${hours}h ago", "precio de hace $hours h")
+        else -> tr("price from ${hours / 24}d ago", "precio de hace ${hours / 24} d")
+    }
+    return PriceAge(label, stale = hours >= PRICE_STALE_HOURS)
+}
+
+/**
+ * "price from 9h ago" under a price. Amazon items that drop out of search results are only re-read by
+ * their page check, so a price can trail Amazon's by hours; this says so instead of passing it off as now.
+ */
+internal fun kotlinx.html.FlowOrPhrasingContent.priceAgeSpan(deal: Deal, now: Instant = Instant.now()) {
+    val age = priceAge(deal.priceReadAt, now)
+    span(if (age.stale) "price-age stale-prov" else "price-age") {
+        title = tr(
+            "When this price was last read from ${deal.source}. It can change in between; open the store's page to confirm before buying.",
+            "Cuándo se leyó este precio de ${deal.source} por última vez. Puede cambiar entre lecturas; abre la página de la tienda para confirmarlo antes de comprar.",
+        )
+        +age.label
+    }
+}
+
 /**
  * "checked 8d ago" beside a shipping verdict. The fee is a reading from one day and Amazon moves it with
  * the price, so a verdict that has outlived its re-check window looks different from a fresh one rather
@@ -1433,6 +1464,8 @@ fun MAIN.dealDetail(
             span("sub") { +tr("lowest recorded $m", "mínimo registrado $m") }
         }
     }
+    // Its own line, so "price · list · −22%" still reads as one claim.
+    p("detail-age") { priceAgeSpan(deal) }
     // The card-only price from the latest reading, if it carried one: the shelf price above is what
     // anyone pays, this is what the right card pays. The lowest card price follows even when there
     // is none today -- "it was 2,179,900 with CMR last month" is what tells you whether to wait.

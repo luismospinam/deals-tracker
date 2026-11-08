@@ -294,6 +294,8 @@ data class Deal(
     val pinnedAt: Instant? = null,
     /** When the Colombia shipping verdict was last read from the page; null if never. */
     val coShippingCheckedAt: Instant? = null,
+    /** When the retailer's own product page last gave a usable price (Amazon's page check). */
+    val pageValidAt: Instant? = null,
     /**
      * The latest reading's card-only price, kept on the deal by V34's trigger. Display only: no deal
      * rule reads it, since holding that particular card is not a given (see `V17__card_price`).
@@ -307,6 +309,12 @@ data class Deal(
     val cardLows: Map<CardScope, BigDecimal> = emptyMap(),
 ) {
     /** [cardOffers], or [card] alone for a row built before V35 or in a test. */
+    /**
+     * When the price shown was read: the later of a search listing it and its own page being read. An item
+     * that dropped out of search results keeps only the page check, which can be a day or two old.
+     */
+    val priceReadAt: Instant get() = pageValidAt?.takeIf { it > lastSeenAt } ?: lastSeenAt
+
     val allCardOffers: List<CardOffer> get() = cardOffers.ifEmpty { listOfNotNull(card) }
 
     val discountPercent: BigDecimal?

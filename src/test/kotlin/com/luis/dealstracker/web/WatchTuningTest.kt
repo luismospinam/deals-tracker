@@ -60,11 +60,11 @@ class WatchTuningTest {
         assertTrue(html.contains("action=\"/watches/1/unhide/105450\""))
     }
 
-    private fun row(id: Long, gap: String?, waiting: Boolean) = DigestRow(
+    private fun row(id: Long, gap: String?, waiting: Boolean, watchId: Long = 1) = DigestRow(
         PendingNotification(
-            matchId = id, watchName = "Nevera",
+            matchId = id, watchName = if (watchId == 1L) "Nevera" else "Televisor",
             alert = WatchAlert(id, MatchReason.CROSS_SITE_SPREAD, BigDecimal("2587455"), "16.0% cheaper than carulla", gapPercent = gap?.let(::BigDecimal)),
-            title = "Nevecon $id", source = "exito", currency = "COP", watchId = 1,
+            title = "Nevecon $id", source = "exito", currency = "COP", watchId = watchId,
         ),
         notifiedAt = if (waiting) null else Instant.now().minusSeconds(7200),
         waiting = waiting,
@@ -82,17 +82,21 @@ class WatchTuningTest {
         assertTrue(html.contains("one desktop notification at 19:00"))
     }
 
-    /** A busy day must not push the watches themselves off the screen. */
+    /** Collapsed by default: the summaries say which watches fired; opening one lists every alert. */
     @Test
-    fun `the digest shows the top ten and links to the rest`() {
-        val rows = (1..14L).map { row(it, "$it.0", waiting = false) }
-        val top = createHTML().main { watchesPage(listOf(watch), emptyMap(), emptyList(), emptyList(), rows, listOf("19:00")) }
-        assertEquals(WATCH_DIGEST_SHOWN, top.substringAfter("id=\"digest\"").substringBefore("</tbody>").split("<tr").size - 2)
-        assertTrue(top.contains("href=\"/watches?digest=all#digest\""))
-        assertFalse(top.contains("Nevecon 1<"), "the smallest gap is below the cut")
-        val all = createHTML().main { watchesPage(listOf(watch), emptyMap(), emptyList(), emptyList(), rows, listOf("19:00"), digestAll = true) }
-        assertTrue(all.contains("Nevecon 1<"))
-        assertFalse(all.contains("show all"))
+    fun `the digest is one collapsed accordion per watch, best group first`() {
+        val rows = (1..14L).map { row(it, "$it.0", waiting = false) } +
+            listOf(row(20, "34.0", waiting = true, watchId = 2), row(21, "3.0", waiting = false, watchId = 2))
+        val html = createHTML().main { watchesPage(listOf(watch), emptyMap(), emptyList(), emptyList(), rows, listOf("19:00")) }
+        val digest = html.substringAfter("id=\"digest\"")
+        assertEquals(2, digest.split("<details class=\"digest-watch\"").size - 1)
+        assertFalse(digest.contains("<details class=\"digest-watch\" open"), "collapsed by default")
+        assertTrue(digest.indexOf("Televisor") < digest.indexOf("Nevera"), "34% leads, so its watch goes first")
+        assertTrue(digest.contains("14 alerts"))
+        assertTrue(digest.contains("<span class=\"dw-wide\">best </span>−34%"), "the word is a span a phone can drop")
+        assertTrue(digest.contains("1 waiting<span class=\"dw-wide\"> · 19:00</span>"), "the summary says a watch has something unsent")
+        assertTrue(digest.contains("Nevecon 1<"), "every alert is inside, nothing cut")
+        assertFalse(html.contains("digest=all"))
     }
 
     @Test

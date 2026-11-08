@@ -615,6 +615,19 @@ private val MASTERCARD_IDS = setOf(MASTERCARD_ID, "210")
 private val VISA_IDS = setOf("2", "209")
 private const val ADDI_ID = "102"
 
+/**
+ * Exito's own-card price table: `exito1_aliado_tabladeprecios_*`, restricted by a list of Tuya BINs
+ * rather than by payment id. Measured 2026-11-05: 113 of 127 card teasers over eight searches, and
+ * the rendered page (Televisor CAIXUN 55" ...-3255839) shows its price, 1,279,903, beside the
+ * "Tarjeta Éxito" logo. Before this it was recorded as an unknown "Card".
+ */
+private val STORE_CARD_TABLE = Regex("""^exito\d*_aliado_""", RegexOption.IGNORE_CASE)
+
+/** Who can pay a BIN-restricted price table, from its name: the store card, or a card not named. */
+internal fun scopeOfBinTable(name: String?): com.luis.dealstracker.model.CardScope =
+    if (name != null && STORE_CARD_TABLE.containsMatchIn(name)) com.luis.dealstracker.model.CardScope.STORE_CARD
+    else com.luis.dealstracker.model.CardScope.OTHER
+
 /** Who can pay a teaser restricted to these payment ids. */
 internal fun scopeOfPaymentIds(ids: Set<String>): com.luis.dealstracker.model.CardScope = when {
     ids.any { it in MASTERCARD_IDS } -> com.luis.dealstracker.model.CardScope.MASTERCARD
@@ -702,7 +715,7 @@ internal fun cardOffersOf(
                     } else {
                         listOf(card)
                     }
-                } ?: listOfNotNull(byPriceTable(teaser, base, shelfPrice))
+                } ?: listOfNotNull(byPriceTable(teaser, base, shelfPrice, scopeOfBinTable(teaser.name)))
             // A mixed or unknown condition is not a plain card offer -- a SkuIdsList makes it a
             // multi-buy. Dropped rather than guessed at.
             else -> emptyList()

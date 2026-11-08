@@ -193,7 +193,7 @@ class GroceryRepository(private val ds: DataSource) {
                    agg.min_price, agg.max_price, agg.n,
                    0.0 AS relevance,
                    hist.usual, hist.low, COALESCE(hist.days, 0) AS days,
-                   (s.since IS NULL OR d.last_seen_at >= s.since) AS on_shelf
+                   $ON_SHELF AS on_shelf
             FROM deals d
             LEFT JOIN shelf s ON s.source = d.source
             JOIN LATERAL (
@@ -207,7 +207,7 @@ class GroceryRepository(private val ds: DataSource) {
                 SELECT d.usual_price AS usual, d.usual_low AS low, d.usual_days AS days
             ) hist
             WHERE ${where.joinToString(" AND ") { "($it)" }}
-              AND (s.since IS NULL OR d.last_seen_at >= s.since OR d.pinned_at IS NOT NULL)
+              AND ($ON_SHELF OR d.pinned_at IS NOT NULL)
             ORDER BY d.title, d.id
             LIMIT ${filter.limit}
         """.trimIndent()
@@ -268,7 +268,7 @@ class GroceryRepository(private val ds: DataSource) {
                 SELECT price FROM price_observations WHERE deal_id = d.id ORDER BY observed_at DESC LIMIT 1
             ) po ON TRUE
             WHERE d.match_key = ANY (?) AND d.source = ANY (?) AND d.is_active
-              AND (s.since IS NULL OR d.last_seen_at >= s.since)
+              AND $ON_SHELF
         """.trimIndent()
         return ds.connection.use { conn ->
             conn.prepareStatement(sql).use { st ->
@@ -483,6 +483,11 @@ class GroceryRepository(private val ds: DataSource) {
      * today. Pinning only the store shown would lose the pin the day the other store became cheaper.
      * Returns the ids of the rows changed, empty when [id] does not exist.
      */
+    /** Marks [id] off the shelf until its store's next crawl: Exito just said the store has none. See [ON_SHELF]. */
+    fun markSoldOut(id: Long) = ds.connection.use { conn ->
+        conn.prepareStatement("UPDATE deals SET sold_out_at = now() WHERE id = ?").use { it.setLong(1, id); it.executeUpdate() }
+    }
+
     fun setPinned(id: Long, pinned: Boolean, sources: List<String>): List<Long> =
         ds.connection.use { conn ->
             conn.prepareStatement(
@@ -507,6 +512,14 @@ class GroceryRepository(private val ds: DataSource) {
         const val WINDOW_DAYS = 30
 
         /** When each source's latest successful crawl began: a row last seen before it is off the shelf. */
+        /**
+         * On the shelf: in its store's latest successful crawl, and not reported sold out since that crawl
+         * began (`sold_out_at`, V39, set when Exito refuses a cart add for want of stock). Needs `d` and
+         * `s` from [SHELF_CTE]. With no crawl on record a row counts as on the shelf, unless marked sold out.
+         */
+        internal const val ON_SHELF =
+            "((s.since IS NULL OR d.last_seen_at >= s.since) AND (d.sold_out_at IS NULL OR d.sold_out_at < s.since))"
+
         private val SHELF_CTE = """
             WITH shelf AS (
                 SELECT source, max(started_at) AS since FROM fetch_runs

@@ -5,6 +5,7 @@ import com.luis.dealstracker.i18n.tr
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.ManualItemRepository
+import com.luis.dealstracker.db.TrackedSection
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.sources.PoliteHttp
@@ -52,7 +53,13 @@ class ManualItemService(
      * diagnosed by reading logs. The one exception is a transient refusal — see the message text,
      * which says the retry will happen rather than implying the URL is wrong.
      */
-    suspend fun add(url: String, brand: String?, productType: String?, lang: Lang = Lang.EN): AddOutcome {
+    suspend fun add(
+        url: String,
+        brand: String?,
+        productType: String?,
+        lang: Lang = Lang.EN,
+        section: TrackedSection = TrackedSection.DEFAULT,
+    ): AddOutcome {
         val cfg = provider ?: return AddOutcome(false, lang.tr("no amazon provider is configured", "no hay un proveedor de Amazon configurado"))
 
         val fetcher = AmazonFetcher(
@@ -72,7 +79,7 @@ class ManualItemService(
                     // A readable-but-refused URL is still worth remembering, so the poll can retry
                     // it. A malformed one is not: there is nothing to retry.
                     if (result.reason == ManualItemFetcher.Failure.Unreadable && result.asin != null) {
-                        items.add(url, result.asin, brand, productType)
+                        items.add(url, result.asin, brand, productType, section)
                         items.recordFetch(items.all().first { it.asin == result.asin }.id, why)
                         AddOutcome(true, lang.tr("added, but $shown", "agregado, pero $shown"))
                     } else {
@@ -81,7 +88,7 @@ class ManualItemService(
                 }
 
                 is ManualItemFetcher.Result.Ok -> {
-                    val (item, isNew) = items.add(url, result.asin, brand, productType)
+                    val (item, isNew) = items.add(url, result.asin, brand, productType, section)
                     store(result.deal)
                     items.recordFetch(item.id, null)
                     AddOutcome(

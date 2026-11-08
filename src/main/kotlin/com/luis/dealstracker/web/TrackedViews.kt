@@ -1,5 +1,6 @@
 package com.luis.dealstracker.web
 
+import com.luis.dealstracker.db.TrackedSection
 import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.Deal
 import com.luis.dealstracker.model.formatMoney
@@ -195,6 +196,42 @@ internal enum class TrackedOrigin(val label: String) {
     }
 }
 
+/** The section's name on the switch and in the add form. */
+internal val TrackedSection.display: String
+    get() = when (this) {
+        TrackedSection.CLOTHES -> tr("Clothes", "Ropa")
+        TrackedSection.ELECTRONICS -> tr("Electronics", "Electrónica")
+    }
+
+/**
+ * The tracked rows that belong to [section]. Electronics holds exactly the items added to it by URL;
+ * clothes is everything else, which is every searched row plus the clothes added by URL. So an item
+ * is in one section or the other, never both and never neither.
+ */
+internal fun inSection(deals: List<Deal>, section: TrackedSection, electronicsAsins: Set<String>): List<Deal> =
+    deals.filter { d ->
+        val electronic = d.asin != null && d.asin in electronicsAsins
+        if (section == TrackedSection.ELECTRONICS) electronic else !electronic
+    }
+
+/**
+ * Clothes · Electronics, the same segmented control the feed and groceries use. Switching section
+ * drops every other control: the brands and filters of one mean nothing in the other.
+ */
+private fun MAIN.sectionScopes(section: TrackedSection, counts: Map<TrackedSection, Int>) {
+    div("scopes") {
+        TrackedSection.entries.forEach { s ->
+            val on = s == section
+            a(href = trackedUrl(emptySet(), TrackedSort.DEFAULT, section = s), classes = if (on) "scope on" else "scope") {
+                if (on) attributes["aria-current"] = "page"
+                +s.display
+                // Shown only when there are some, as on the feed: "Electronics 0" reads as a broken counter.
+                counts[s]?.takeIf { it > 0 }?.let { span("scope-count") { +"$it" } }
+            }
+        }
+    }
+}
+
 /**
  * How the tracked table is ordered.
  *
@@ -271,8 +308,10 @@ private fun trackedUrl(
     // Only the pager passes a page. Every other control starts again at page 1, since a new
     // filter or order makes the old page number point at different rows.
     page: Int = 1,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ): String {
     val params = buildList {
+        if (section != TrackedSection.DEFAULT) add("section=${section.key}")
         if (types.isNotEmpty()) add("type=" + types.joinToString(",") { it.label })
         // The default is omitted, so the plain path stays the canonical URL for it.
         if (sort != TrackedSort.DEFAULT) add("sort=${sort.key}")
@@ -317,8 +356,9 @@ private fun kotlinx.html.TR.sortTh(
     showNoShip: Boolean,
     freeShip: Boolean = false,
     tooltip: String? = null,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ) {
-    val href = trackedUrl(selected, sort, brand, origin, showNoShip, freeShip)
+    val href = trackedUrl(selected, sort, brand, origin, showNoShip, freeShip, section = section)
 
     th(scope = ThScope.col, classes = classes) {
         tooltip?.let { title = it }
@@ -423,11 +463,11 @@ private fun kotlinx.html.FlowContent.searchForm(
     }
 }
 
-private fun MAIN.addItemForm(notice: String?) {
+private fun MAIN.addItemForm(notice: String?, section: TrackedSection = TrackedSection.DEFAULT, open: Boolean = false) {
     details("additem") {
         // Open when there is a result to show. The notice lives inside the details, and a collapsed
         // one after the redirect made a successful add look like the button did nothing.
-        if (notice != null) attributes["open"] = ""
+        if (notice != null || open) attributes["open"] = ""
         summary { +tr("Track an item by URL", "Seguir un producto por URL") }
 
         notice?.let { div("additem-notice") { +it } }
@@ -473,6 +513,21 @@ private fun MAIN.addItemForm(notice: String?) {
                 }
             }
             div("f") {
+                label { htmlFor = "add-section"; +tr("Section", "Sección") }
+                // Preset to the section on screen, so adding from Electronics lands in Electronics.
+                select {
+                    id = "add-section"
+                    name = "section"
+                    TrackedSection.entries.forEach { s ->
+                        option {
+                            value = s.key
+                            if (s == section) selected = true
+                            +s.display
+                        }
+                    }
+                }
+            }
+            div("f") {
                 label { +"" }
                 button { +tr("Add & fetch", "Agregar y consultar") }
             }
@@ -501,6 +556,7 @@ private fun MAIN.brandPicker(
     origin: TrackedOrigin?,
     showNoShip: Boolean,
     freeShip: Boolean = false,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ) {
     // Case-insensitive grouping: V12's backfill recovered the folded form (`adidas`) from
     // model_key while a fresh fetch stores the source's own casing (`Nike`), and the two must not
@@ -519,7 +575,7 @@ private fun MAIN.brandPicker(
                 attributes["onchange"] = "location.href=this.value"
 
                 option {
-                    value = trackedUrl(types, sort, null, origin, showNoShip, freeShip)
+                    value = trackedUrl(types, sort, null, origin, showNoShip, freeShip, section = section)
                     if (brand.isNullOrBlank()) this.selected = true
                     +tr("all brands", "todas las marcas")
                 }
@@ -527,7 +583,7 @@ private fun MAIN.brandPicker(
                     .forEach { (key, n) ->
                         val name = display[key] ?: key
                         option {
-                            value = trackedUrl(types, sort, name, origin, showNoShip, freeShip)
+                            value = trackedUrl(types, sort, name, origin, showNoShip, freeShip, section = section)
                             if (brand?.lowercase() == key) this.selected = true
                             +"$name ($n)"
                         }
@@ -553,6 +609,7 @@ private fun MAIN.originTags(
     origin: TrackedOrigin?,
     showNoShip: Boolean,
     freeShip: Boolean = false,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ) {
     val inBrand = deals.filter {
         brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase()
@@ -579,7 +636,7 @@ private fun MAIN.originTags(
             val on = origin == which
             a(
                 classes = if (on) "typetag on" else "typetag",
-                href = trackedUrl(selected, sort, brand, if (on) null else which, showNoShip, freeShip),
+                href = trackedUrl(selected, sort, brand, if (on) null else which, showNoShip, freeShip, section = section),
             ) {
                 +which.display
                 span("typetag-n") { +n.toString() }
@@ -606,6 +663,7 @@ private fun MAIN.typeTags(
     origin: TrackedOrigin?,
     showNoShip: Boolean,
     freeShip: Boolean = false,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ) {
     // Counted within the active BRAND, but across all types.
     //
@@ -631,7 +689,7 @@ private fun MAIN.typeTags(
 
             val on = type in selected
             val next = if (on) selected - type else selected + type
-            val href = trackedUrl(next, sort, brand, origin, showNoShip, freeShip)
+            val href = trackedUrl(next, sort, brand, origin, showNoShip, freeShip, section = section)
 
             a(classes = if (on) "typetag on" else "typetag", href = href) {
                 +type.display
@@ -642,7 +700,7 @@ private fun MAIN.typeTags(
         if (selected.isNotEmpty()) {
             // Clears the TYPE filter only. Resetting the sort too would be a second, unasked-for
             // change hiding behind one control.
-            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip, freeShip)) { +tr("clear", "quitar") }
+            a(classes = "typetag clear", href = trackedUrl(emptySet(), sort, brand, origin, showNoShip, freeShip, section = section)) { +tr("clear", "quitar") }
         }
     }
 }
@@ -666,6 +724,7 @@ private fun MAIN.noShipToggle(
     manualAsins: Set<String>,
     showNoShip: Boolean,
     freeShip: Boolean = false,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ) {
     val n = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip = true)
         .count { it.coShipping == CoShipping.NO }
@@ -676,8 +735,8 @@ private fun MAIN.noShipToggle(
             input(type = InputType.checkBox) {
                 checked = showNoShip
                 attributes["onchange"] =
-                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, true, freeShip)}'" +
-                    ":'${trackedUrl(selected, sort, brand, origin, false, freeShip)}'"
+                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, true, freeShip, section = section)}'" +
+                    ":'${trackedUrl(selected, sort, brand, origin, false, freeShip, section = section)}'"
             }
             +tr(" show items that don't ship to Colombia", " mostrar productos que no envían a Colombia")
             span("typetag-n") { +n.toString() }
@@ -698,6 +757,7 @@ private fun MAIN.freeShipToggle(
     origin: TrackedOrigin?,
     showNoShip: Boolean,
     freeShip: Boolean,
+    section: TrackedSection = TrackedSection.DEFAULT,
 ) {
     val n = deals.count { it.freeShipToColombia }
     div("noship-toggle") {
@@ -705,8 +765,8 @@ private fun MAIN.freeShipToggle(
             input(type = InputType.checkBox) {
                 checked = freeShip
                 attributes["onchange"] =
-                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, showNoShip, true)}'" +
-                    ":'${trackedUrl(selected, sort, brand, origin, showNoShip, false)}'"
+                    "location.href=this.checked?'${trackedUrl(selected, sort, brand, origin, showNoShip, true, section = section)}'" +
+                    ":'${trackedUrl(selected, sort, brand, origin, showNoShip, false, section = section)}'"
             }
             +tr(" only free shipping to Colombia", " solo envío gratis a Colombia")
             span("typetag-n") { +n.toString() }
@@ -761,15 +821,31 @@ internal fun MAIN.trackedPage(
     searchToggles: List<Triple<String, String, Boolean>> = emptyList(),
     searchesOpen: Boolean = false,
     page: Int = 1,
+    section: TrackedSection = TrackedSection.DEFAULT,
+    sectionCounts: Map<TrackedSection, Int> = emptyMap(),
 ) {
-    addItemForm(notice)
+    sectionScopes(section, sectionCounts)
+    // Open on an empty Electronics, where adding is the only thing to do.
+    addItemForm(notice, section, open = section == TrackedSection.ELECTRONICS && allDeals.isEmpty())
 
     // Before anything counts rows, so the tags, the total and the table all agree on one row per
     // product. See collapseVariants.
     val (deals, variants) = collapseVariants(allDeals, manualAsins)
-    searchesPanel(searchToggles, deals, searchesOpen)
+    // The searches only ever find clothes, so they live in that section alone.
+    if (section == TrackedSection.CLOTHES) searchesPanel(searchToggles, deals, searchesOpen)
 
-    p("tracked-intro") {
+    if (section == TrackedSection.ELECTRONICS) {
+        p("tracked-intro") {
+            +tr(
+                "Only the items you add by URL are here; nothing is searched for. ",
+                "Aquí solo están los productos que agregas por URL; no se busca nada. ",
+            )
+            +tr(
+                "Each one is re-read every hour, with the price movement we have recorded.",
+                "Cada uno se vuelve a leer cada hora, con el movimiento de precio que hemos registrado.",
+            )
+        }
+    } else p("tracked-intro") {
         +tr(
             "Items tracked by name and size, with the price movement we have recorded. ",
             "Productos seguidos por nombre y talla, con el movimiento de precio que hemos registrado. ",
@@ -787,7 +863,12 @@ internal fun MAIN.trackedPage(
 
     if (deals.isEmpty()) {
         div("empty") {
-            if (sources.isEmpty()) {
+            if (section == TrackedSection.ELECTRONICS) {
+                +tr(
+                    "Nothing here yet. Paste an amazon.com product link into “Track an item by URL” above.",
+                    "Todavía no hay nada. Pega un enlace de producto de amazon.com en “Seguir un producto por URL”, arriba.",
+                )
+            } else if (sources.isEmpty()) {
                 +tr("No tracking providers are enabled. Add one with ", "No hay proveedores de seguimiento activos. Agrega uno con ")
                 code { +"type: amazon" }
                 +tr(" in config/sources.yaml.", " en config/sources.yaml.")
@@ -815,18 +896,22 @@ internal fun MAIN.trackedPage(
 
     // Tags are built from the UNFILTERED set, so the counts stay stable and a deselected type does
     // not vanish from the row the moment you click it.
-    brandPicker(pool, selected, sort, brand, origin, showNoShip, freeShip)
-    typeTags(pool, selected, sort, brand, origin, showNoShip, freeShip)
-    originTags(pool, manualAsins, selected, sort, brand, origin, showNoShip, freeShip)
-    noShipToggle(deals, selected, sort, brand, origin, manualAsins, showNoShip, freeShip)
-    freeShipToggle(deals, selected, sort, brand, origin, showNoShip, freeShip)
+    brandPicker(pool, selected, sort, brand, origin, showNoShip, freeShip, section)
+    // Garment types and found/added only mean something among the clothes: every electronics row
+    // was added by hand, and none is a shoe or a shirt.
+    if (section == TrackedSection.CLOTHES) {
+        typeTags(pool, selected, sort, brand, origin, showNoShip, freeShip)
+        originTags(pool, manualAsins, selected, sort, brand, origin, showNoShip, freeShip)
+    }
+    noShipToggle(deals, selected, sort, brand, origin, manualAsins, showNoShip, freeShip, section)
+    freeShipToggle(deals, selected, sort, brand, origin, showNoShip, freeShip, section)
 
     val shown = trackedShown(deals, selected, brand, origin, manualAsins, sort, showNoShip, freeShip)
 
     if (shown.isEmpty()) {
         div("empty") {
             +tr("No tracked items of that type. ", "No hay productos en seguimiento de ese tipo. ")
-            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip, freeShip)) { +tr("Show all", "Ver todos") }
+            a(href = trackedUrl(emptySet(), sort, brand, origin, showNoShip, freeShip, section = section)) { +tr("Show all", "Ver todos") }
             +"."
         }
         return
@@ -869,12 +954,16 @@ internal fun MAIN.trackedPage(
             tr("Lowest yet", "Mínimo histórico") to TrackedSort.LOWEST,
             tr("Checked", "Revisado") to TrackedSort.CHECKED,
         )
-            .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip, freeShip), sort == s) },
+            .map { (label, s) -> SortOption(label, trackedUrl(selected, s, brand, origin, showNoShip, freeShip, section = section), sort == s) },
     )
     // The count above and the Ask panel cover every row; only the table is paged.
+    // A TV has no size, but some electronics carry Amazon's own variation ("65 Inches", "256GB");
+    // the column stays only when one does, and says what it holds.
+    val sizeLabel = if (section == TrackedSection.CLOTHES) tr("Size", "Talla") else tr("Variant", "Variante")
+    val showSize = section == TrackedSection.CLOTHES || shown.any { sizeOf(it.title) != null }
     val pages = trackedPageCount(shown.size)
     val current = page.coerceIn(1, pages)
-    val pageUrl = { p: Int -> trackedUrl(selected, sort, brand, origin, showNoShip, freeShip, p) }
+    val pageUrl = { p: Int -> trackedUrl(selected, sort, brand, origin, showNoShip, freeShip, p, section = section) }
     pagerLinks(current, pages, pageUrl)
     table("deals tracked") {
         // For screen readers only: names the table, so its columns have something to belong to.
@@ -883,8 +972,8 @@ internal fun MAIN.trackedPage(
             tr {
                 th(scope = ThScope.col, classes = "col-thumb") { attributes["aria-label"] = tr("image", "imagen") }
                 th(scope = ThScope.col, classes = "col-deal") { +tr("Item", "Producto") }
-                th(scope = ThScope.col, classes = "col-size") { +tr("Size", "Talla") }
-                sortTh(tr("Now", "Ahora"), TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip, freeShip)
+                if (showSize) th(scope = ThScope.col, classes = "col-size") { +sizeLabel }
+                sortTh(tr("Now", "Ahora"), TrackedSort.PRICE, sort, selected, "col-price", brand, origin, showNoShip, freeShip, section = section)
                 th(scope = ThScope.col, classes = "col-price") {
                     title = tr(
                         "Amazon's own \"List:\" price, where it publishes one",
@@ -901,8 +990,7 @@ internal fun MAIN.trackedPage(
                         "Descuento sobre el precio de lista de Amazon — lo que Amazon dice de su " +
                             "propio precio anterior, no una baja que hayamos visto. Vacío cuando no hay " +
                             "precio de lista; esas filas quedan de últimas.",
-                    ),
-                )
+                    ), section = section)
                 sortTh(
                     "Extra", TrackedSort.DELIVERED, sort, selected, "col-extra", brand, origin, showNoShip, freeShip,
                     tooltip = tr(
@@ -914,8 +1002,7 @@ internal fun MAIN.trackedPage(
                             "precio, y lo que el producto cuesta entonces puesto en casa. " +
                             "Vacío hasta que se revise el envío a Colombia de ese producto. " +
                             "Ordena por el costo puesto en casa, de menor a mayor; sin cotización de envío van de últimas.",
-                    ),
-                )
+                    ), section = section)
                 th(scope = ThScope.col, classes = "col-price") {
                     title = tr("Cheapest price we have recorded for this item", "El precio más bajo que hemos registrado para este producto")
                     +tr("Lowest", "Mínimo")
@@ -931,8 +1018,7 @@ internal fun MAIN.trackedPage(
                             "a higher one we saw. A price that never moved does not qualify.",
                         "En el precio más bajo que hemos registrado, Y de verdad por debajo de " +
                             "uno más alto que vimos. Un precio que nunca se movió no cuenta.",
-                    ),
-                )
+                    ), section = section)
                 th(scope = ThScope.col, classes = "col-chg") {
                     title = tr(
                         "Change from the dearest price we recorded. Blank until a second " +
@@ -942,12 +1028,14 @@ internal fun MAIN.trackedPage(
                     )
                     +tr("Change", "Cambio")
                 }
-                sortTh(tr("Checked", "Revisado"), TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip, freeShip)
+                sortTh(tr("Checked", "Revisado"), TrackedSort.CHECKED, sort, selected, "col-seen", brand, origin, showNoShip, freeShip, section = section)
                 th(scope = ThScope.col, classes = "col-act") { attributes["aria-label"] = tr("actions", "acciones") }
             }
         }
         tbody {
-            trackedPageRows(shown, current).forEach { trackedRow(it, manualAsins, variants[it.id].orEmpty(), origin == TrackedOrigin.PINNED) }
+            trackedPageRows(shown, current).forEach {
+                trackedRow(it, manualAsins, variants[it.id].orEmpty(), origin == TrackedOrigin.PINNED, sizeLabel.takeIf { showSize })
+            }
         }
     }
     pagerLinks(current, pages, pageUrl)
@@ -1103,7 +1191,14 @@ internal fun pinButtonFragment(id: Long, pinned: Boolean, variants: List<Long>, 
 internal fun isPinnedOrAdded(deal: Deal, manualAsins: Set<String>): Boolean =
     deal.pinnedAt != null || (deal.asin != null && deal.asin in manualAsins)
 
-private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, variants: List<Deal>, onPinnedView: Boolean) {
+private fun kotlinx.html.TBODY.trackedRow(
+    deal: Deal,
+    manualAsins: Set<String>,
+    variants: List<Deal>,
+    onPinnedView: Boolean,
+    // The size column's heading, or null where the column is left out.
+    sizeLabel: String? = tr("Size", "Talla"),
+) {
     tr {
         // htmx targets this to remove the row on hide.
         id = "tracked-${deal.id}"
@@ -1164,14 +1259,15 @@ private fun kotlinx.html.TBODY.trackedRow(deal: Deal, manualAsins: Set<String>, 
         // Pulled out of the title so it can be scanned down the column. The size lives in the
         // title because `deals` has no size column; this is the one place that matters enough
         // to read it back out.
-        td(classes = "col-size") {
-            cardLabel(tr("Size", "Talla"))
+        if (sizeLabel != null) td(classes = "col-size") {
+            cardLabel(sizeLabel)
             sizeOf(deal.title)?.let { span("size-chip") { +it } } ?: span("muted") { +"—" }
         }
 
         td(classes = "col-price") {
             cardLabel(tr("Now", "Ahora"))
             div("price") { +formatMoney(deal.price, deal.currency) }
+            priceAgeSpan(deal)
         }
 
         // Amazon's own list price and the discount it advertises against it.

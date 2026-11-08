@@ -80,16 +80,35 @@ class WatchDigestTest {
         assertNull(dueSlot(after, times, slot), "sent once")
     }
 
-    /** The post lists every alert, ranked, each linked to the retailer; brackets in a title cannot break the link. */
+    /** The post lists every alert, grouped by watch, each linked to the retailer; brackets in a title cannot break the link. */
     @Test
-    fun `the Discord post lists every alert with its link`() {
+    fun `the Discord post lists every alert with its link, under its watch`() {
         val withUrl = item(3, 1, "47.7").copy(title = "Nevera [Inverter] 565L", url = "https://falabella.example/1")
         val lines = digestDiscordLines(listOf(item(1, 2, "16.0"), withUrl), Lang.EN)
         assertEquals(2, lines.size)
         assertEquals(
-            "**−47.7%** Nevera · [Nevera (Inverter) 565L](https://falabella.example/1) — \$1,000,000 at exito (under a rival)",
+            "__**Nevera**__ (1)\n**−47.7%** [Nevera (Inverter) 565L](https://falabella.example/1) — \$1,000,000 at exito (under a rival)",
             lines[0],
         )
-        assertTrue(lines[1].startsWith("**−16%** Televisor · Item 1 —"), lines[1])
+        assertTrue(lines[1].startsWith("__**Televisor**__ (1)\n**−16%** Item 1 —"), lines[1])
+    }
+
+    /** Fridges and TVs interleaved by gap read as one list; each watch gets its own block. */
+    @Test
+    fun `alerts group by watch, groups ordered by their best gap`() {
+        val groups = groupDigest(listOf(item(1, 1, "16.0"), item(2, 2, "34.0"), item(3, 1, "47.7"), item(4, 2, "10.0"), item(5, 1, null)))
+        assertEquals(listOf("Nevera", "Televisor"), groups.map { it.watchName })
+        assertEquals(listOf(3L, 1L, 5L), groups[0].items.map { it.matchId })
+        assertEquals(listOf(2L, 4L), groups[1].items.map { it.matchId })
+    }
+
+    /** The heading rides on a group's first line only, so "and N more" counts alerts, not headings. */
+    @Test
+    fun `only a group's first Discord line carries the heading`() {
+        val lines = digestDiscordLines(listOf(item(1, 1, "16.0"), item(2, 1, "20.0"), item(3, 2, "5.0")), Lang.EN)
+        assertEquals(3, lines.size)
+        assertTrue(lines[0].startsWith("__**Nevera**__ (2)\n**−20%**"), lines[0])
+        assertTrue(lines[1].startsWith("**−16%**"), lines[1])
+        assertTrue(lines[2].startsWith("__**Televisor**__ (1)\n"), lines[2])
     }
 }

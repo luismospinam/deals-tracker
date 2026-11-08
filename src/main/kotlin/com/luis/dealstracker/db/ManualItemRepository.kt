@@ -5,6 +5,23 @@ import java.time.Instant
 import javax.sql.DataSource
 
 /**
+ * Which part of the Tracked tab an item belongs to. Everything a search finds is clothes, since the
+ * searches are size-filtered garment searches; only an item added by URL can be anything else.
+ */
+enum class TrackedSection(val key: String) {
+    CLOTHES("clothes"),
+    ELECTRONICS("electronics");
+
+    companion object {
+        val DEFAULT = CLOTHES
+
+        /** Unknown or missing values are clothes, so a stale URL shows the tab as it always was. */
+        fun of(value: String?): TrackedSection =
+            entries.firstOrNull { it.key.equals(value?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+/**
  * One item tracked because it was asked for by URL.
  *
  * [brand] and [productType] are operator OVERRIDES and normally null: the product page publishes a
@@ -18,6 +35,7 @@ data class ManualItem(
     val source: String,
     val brand: String?,
     val productType: String?,
+    val section: TrackedSection,
     val addedAt: Instant,
     val lastFetchAt: Instant?,
     val lastFetchError: String?,
@@ -47,19 +65,27 @@ class ManualItemRepository(private val ds: DataSource) {
      * Returns the row and whether it was newly created, so the caller can say "already tracking
      * this" rather than silently doing nothing.
      */
-    fun add(url: String, asin: String, brand: String?, productType: String?): Pair<ManualItem, Boolean> =
+    fun add(
+        url: String,
+        asin: String,
+        brand: String?,
+        productType: String?,
+        section: TrackedSection = TrackedSection.DEFAULT,
+    ): Pair<ManualItem, Boolean> =
         ds.connection.use { conn ->
             conn.prepareStatement(
                 """
-                INSERT INTO manual_items (url, asin, brand, product_type)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO manual_items (url, asin, brand, product_type, section)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (asin) DO UPDATE SET
                     -- Re-adding with an override is how you CORRECT one, so these refresh. COALESCE
                     -- in this direction means re-adding without an override leaves the existing one
                     -- alone rather than clearing it.
                     brand        = COALESCE(EXCLUDED.brand, manual_items.brand),
-                    product_type = COALESCE(EXCLUDED.product_type, manual_items.product_type)
-                RETURNING id, url, asin, source, brand, product_type, added_at,
+                    product_type = COALESCE(EXCLUDED.product_type, manual_items.product_type),
+                    -- The form always names a section, so re-adding from the other one moves the item.
+                    section      = EXCLUDED.section
+                RETURNING id, url, asin, source, brand, product_type, section, added_at,
                           last_fetch_at, last_fetch_error, (added_at = now()) AS is_new
                 """.trimIndent(),
             ).use { st ->
@@ -67,6 +93,7 @@ class ManualItemRepository(private val ds: DataSource) {
                 st.setString(2, asin)
                 st.setString(3, brand)
                 st.setString(4, productType)
+                st.setString(5, section.key)
                 st.executeQuery().use { rs ->
                     rs.next()
                     rs.toManualItem() to rs.getBoolean("is_new")
@@ -88,11 +115,21 @@ class ManualItemRepository(private val ds: DataSource) {
         }
     }
 
+    /** The ASINs added to [section], to split the tab's rows between its sections. */
+    fun asinsIn(section: TrackedSection): Set<String> = ds.connection.use { conn ->
+        conn.prepareStatement("SELECT asin FROM manual_items WHERE section = ?").use { st ->
+            st.setString(1, section.key)
+            st.executeQuery().use { rs ->
+                buildSet { while (rs.next()) add(rs.getString("asin")) }
+            }
+        }
+    }
+
     /** Oldest-checked first, nulls first, so a repeatedly failing item cannot starve the others. */
     fun all(): List<ManualItem> = ds.connection.use { conn ->
         conn.prepareStatement(
             """
-            SELECT id, url, asin, source, brand, product_type, added_at, last_fetch_at, last_fetch_error
+            SELECT id, url, asin, source, brand, product_type, section, added_at, last_fetch_at, last_fetch_error
             FROM manual_items ORDER BY last_fetch_at ASC NULLS FIRST, id ASC
             """.trimIndent(),
         ).use { st ->
@@ -140,6 +177,7 @@ class ManualItemRepository(private val ds: DataSource) {
         source = getString("source"),
         brand = getString("brand"),
         productType = getString("product_type"),
+        section = TrackedSection.of(getString("section")),
         addedAt = getTimestamp("added_at").toInstant(),
         lastFetchAt = getTimestamp("last_fetch_at")?.toInstant(),
         lastFetchError = getString("last_fetch_error"),

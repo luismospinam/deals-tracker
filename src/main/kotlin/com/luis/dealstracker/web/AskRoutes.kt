@@ -19,6 +19,7 @@ import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.db.DealRepository
 import com.luis.dealstracker.db.FeedFilter
 import com.luis.dealstracker.db.ManualItemRepository
+import com.luis.dealstracker.db.TrackedSection
 import com.luis.dealstracker.db.WatchRepository
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -245,8 +246,10 @@ internal fun askContextFor(
     screen == "tracked" -> {
         val sources = trackingSources(app)
         val manualAsins = manualItems.trackedAsins()
+        val section = TrackedSection.of(params["section"])
+        val inIt = inSection(trackedDeals(repo, sources), section, manualItems.asinsIn(TrackedSection.ELECTRONICS))
         // Collapsed as the page does, so the answer is about the rows the operator sees.
-        val all = collapseVariants(trackedDeals(repo, sources), manualAsins).rows
+        val all = collapseVariants(inIt, manualAsins).rows
         val selected = params["type"]?.split(',')
             ?.mapNotNull { l -> ProductType.entries.firstOrNull { it.label.equals(l.trim(), ignoreCase = true) } }
             ?.toSet().orEmpty()
@@ -261,10 +264,15 @@ internal fun askContextFor(
             freeShip = params["freeship"] == "1",
         )
         AskContext(
-            label = "tracked Amazon items (one size each)",
+            label = if (section == TrackedSection.ELECTRONICS) "tracked Amazon electronics" else "tracked Amazon items (one size each)",
             preamble = listOf(
-                "These are specific items the operator tracks in their own size; " +
-                    "the question is usually about price movement, not discount.",
+                if (section == TrackedSection.ELECTRONICS) {
+                    "These are electronics the operator added by hand to follow their price; " +
+                        "the question is usually about price movement, not discount."
+                } else {
+                    "These are specific items the operator tracks in their own size; " +
+                        "the question is usually about price movement, not discount."
+                },
             ),
             deals = shown.take(maxRows),
             omitted = (shown.size - maxRows).coerceAtLeast(0),
@@ -280,7 +288,7 @@ internal fun askContextFor(
             else GroceryFilter(sources, controls.groups.toList(), controls.search),
         )
         // Rivals as the page loads them, so the other-chain sort orders the same rows here.
-        val merged = withRivalsFor(mergeStores(rows, stores), controls, stores) { groceries.shelfPrices(it, grocerySources(app)) }
+        val merged = withRivalsFor(storeRows(rows, stores, splitByStore(controls)), controls, stores) { groceries.shelfPrices(it, grocerySources(app)) }
         val shown = groceryShown(merged, controls)
         AskContext(
             label = "groceries (${controls.view.label.lowercase()}" +

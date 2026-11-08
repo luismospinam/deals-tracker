@@ -37,7 +37,13 @@ internal fun cartCopy(row: GroceryRow): GroceryRow? =
  * The toast for one add-to-cart attempt, as a fragment for `#toast`. A success carries [cartLink] when the
  * tracker has a cart to open, so the shopper can go straight from "added" to paying, on a phone above all.
  */
-internal fun cartToast(result: CartResult, title: String?, cartLink: String? = null): String {
+internal fun cartToast(
+    result: CartResult,
+    title: String?,
+    cartLink: String? = null,
+    /** When the row was last seen in stock, for the sold-out message: the crawl it came from. */
+    lastSeen: java.time.Instant? = null,
+): String {
     val (kind, text) = when (result) {
         is CartResult.Added -> "ok" to buildString {
             append(tr("Added to your Exito cart", "Agregado a tu carrito de Exito"))
@@ -56,6 +62,14 @@ internal fun cartToast(result: CartResult, title: String?, cartLink: String? = n
             tr("Exito did not add it (out of stock at this store?)", "Exito no lo agregó (¿agotado en esta tienda?)")
         } else {
             tr("Exito did not add it: ", "Exito no lo agregó: ") + result.reason
+        }
+        CartResult.SoldOut -> "warn" to buildString {
+            append(tr("Laureles is sold out of it right now", "Laureles no tiene unidades en este momento"))
+            lastSeen?.let {
+                val at = it.atZone(java.time.ZoneId.systemDefault()).toLocalTime().let { t -> "%02d:%02d".format(t.hour, t.minute) }
+                append(tr(" (it had stock at the $at check)", " (tenía unidades en la revisión de las $at)"))
+            }
+            append(tr(". Marked unavailable there until the next check.", ". Queda como no disponible allí hasta la próxima revisión."))
         }
         is CartResult.Failed -> "err" to tr("Could not reach Exito: ", "No se pudo contactar a Exito: ") + result.reason
     }

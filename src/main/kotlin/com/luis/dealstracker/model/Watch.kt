@@ -71,6 +71,11 @@ data class Watch(
     val requireCoShipping: Boolean = true,
     /** Ceiling on the quoted Colombia shipping fee, in US$. Null means no cap. */
     val maxShippingCost: BigDecimal? = null,
+    /**
+     * Smallest screen wanted, in inches, read from each listing's title by `screenInches`. A
+     * listing whose title names no size still passes. Null means any size.
+     */
+    val minScreenInches: Int? = null,
 )
 
 /**

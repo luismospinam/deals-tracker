@@ -118,13 +118,13 @@ class GroceryViewsTest {
         val all = GroceryControls.from(parametersOf("view" to listOf("all"), "q" to listOf("café")))
         assertEquals("café", all.search)
         assertEquals("café", GroceryControls.from(parametersOf("q" to listOf("café"))).search)
-        assertNull(GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("café"))).search)
+        assertEquals("café", GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("café"))).search, "Pinned takes a search too")
         // url() itself keeps the search (sort/aisle links need it); the section tabs pass search = null.
         assertEquals("/groceries?q=caf%C3%A9", all.url(view = GroceryView.DEALS, sort = null))
         assertEquals("/groceries", all.url(view = GroceryView.DEALS, sort = null, search = null))
         val html = createHTML().main { groceryPage(listOf(row()), listOf("Pantry" to 1), all, listOf("carulla-grocery")) }
         assertTrue(html.contains("href=\"/groceries\""), "the Deals tab link must not carry the search")
-        assertEquals("/groceries?view=pinned", all.url(view = GroceryView.PINNED, sort = null))
+        assertEquals("/groceries?view=pinned", all.url(view = GroceryView.PINNED, sort = null, search = null))
         assertEquals("!aceite", GroceryControls.from(parametersOf("q" to listOf("!aceite"))).search)
     }
 
@@ -530,5 +530,126 @@ class GroceryViewsTest {
             groceryPage(bulk(10), listOf("Pantry" to 10), allView(), listOf("carulla-grocery"))
         }
         assertFalse("class=\"pager\"" in one)
+    }
+
+    @Test
+    fun `Pinned has its own search box, keeping the cart and one-trip filters`() {
+        val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("leche"), "cart" to listOf("1"), "buy" to listOf("exito")))
+        assertEquals("/groceries?view=pinned&q=leche&cart=1&buy=exito", pinned.url())
+        val html = createHTML().main { groceryPage(listOf(row()), listOf("Pantry" to 1), pinned, listOf("carulla-grocery")) }
+        assertTrue(html.contains("class=\"grocery-search\"") && html.contains("placeholder=\"Search your pinned items\""))
+        assertTrue(html.contains("name=\"cart\" value=\"1\"") && html.contains("name=\"buy\" value=\"exito\""), "a search keeps the trip it was made in")
+        assertTrue(html.contains("value=\"leche\""))
+    }
+
+    @Test
+    fun `a Pinned search that matches nothing says so and offers to clear it`() {
+        val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("caviar")))
+        val html = createHTML().main { groceryPage(emptyList(), listOf("Pantry" to 1), pinned, listOf("carulla-grocery")) }
+        assertTrue(html.contains("No pinned items match.") && html.contains("href=\"/groceries?view=pinned\""), html)
+        assertFalse(html.contains("Nothing pinned yet"), "the list is not empty, the search is")
+    }
+
+    @Test
+    fun `a search shows every store's copy, browsing shows one per chain`() {
+        assertTrue(splitByStore(GroceryControls.from(parametersOf("q" to listOf("tajin")))))
+        assertFalse(splitByStore(GroceryControls.from(parametersOf("view" to listOf("all")))))
+        assertTrue(splitByStore(GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("tajin")))))
+    }
+
+    @Test
+    fun `a search of exclusions only is still browsing, one row per chain`() {
+        assertFalse(splitByStore(GroceryControls.from(parametersOf("q" to listOf("!aceite")))))
+        assertFalse(splitByStore(GroceryControls.from(parametersOf("q" to listOf("!aceite | !leche")))))
+        assertTrue(splitByStore(GroceryControls.from(parametersOf("q" to listOf("leche | !deslactosada")))))
+    }
+
+    @Test
+    fun `the other store's line links to that store's copy`() {
+        val merged = mergeStores(
+            listOf(
+                row(id = 1, source = "exito-grocery", product = "p", price = "6594"),
+                row(id = 2, source = "exito-colombia-grocery", product = "p", price = "6580"),
+            ),
+            stores,
+        )
+        val html = createHTML().main {
+            groceryPage(merged, listOf("Pantry" to 1), GroceryControls.from(parametersOf("view" to listOf("all"))), stores.keys.toList())
+        }
+        assertTrue(html.contains("<a href=\"/deal/1\" class=\"store-alt\""), html.substringAfter("col-size").take(600))
+    }
+
+    /** The Tajín case, 2026-11-03: Colombia $14 cheaper hid Laureles from a search for it. */
+    @Test
+    fun `searching lists the product at each store, and the plan still counts it once`() {
+        val raw = listOf(
+            row(id = 1, source = "exito-grocery", product = "tajin", price = "6594", pinned = true),
+            row(id = 2, source = "exito-colombia-grocery", product = "tajin", price = "6580", pinned = true),
+        )
+        val split = storeRows(raw, stores, split = true)
+        assertEquals(listOf("Exito Laureles", "Exito Colombia"), split.map { it.store })
+        assertEquals(1, storeRows(raw, stores, split = false).size)
+        assertEquals(listOf(2L), onePerChain(split).map { it.deal.id }, "the plan takes the cheaper copy once")
+
+        val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("tajin")))
+        val html = createHTML().main { groceryPage(split, listOf("Pantry" to 1), pinned, stores.keys.toList()) }
+        assertTrue(html.contains("id=\"grocery-1\"") && html.contains("id=\"grocery-2\""), "both stores' rows")
+        assertTrue(html.contains("?view=pinned&amp;split=1"), "a pin swap answers with this store's row")
+    }
+
+    private val mc = setOf(com.luis.dealstracker.model.CardScope.MASTERCARD)
+    private fun mcOffer(price: String) =
+        com.luis.dealstracker.model.CardOffer(BigDecimal(price), BigDecimal("30"), com.luis.dealstracker.model.CardScope.MASTERCARD)
+
+    /** Cebolla x12, Exito 2026-11-06: list 13,540, shelf 10,835 (-20%), Mastercard 9,576; usual 11,975. */
+    private val cebolla get() = row(price = "10835", listPrice = "13540", usual = "11975", card = mcOffer("9576"))
+
+    @Test
+    fun `card vs usual ranks what your card pays against the usual price`() {
+        assertEquals(BigDecimal("20.0"), belowUsualWithCard(cebolla, mc))
+        // No card price: the shelf price, so it is plain "vs usual".
+        assertEquals(BigDecimal("10.0"), belowUsualWithCard(row(price = "18000"), mc))
+        // A card you do not hold does not count.
+        assertEquals(BigDecimal("9.5"), belowUsualWithCard(cebolla, setOf(com.luis.dealstracker.model.CardScope.VISA)))
+        assertNull(belowUsualWithCard(row(days = 1), mc), "no usual price yet")
+    }
+
+    @Test
+    fun `card plus store needs both discounts, and measures the card price against the list price`() {
+        assertEquals(BigDecimal("29.3"), cardAndStorePercent(cebolla, mc))
+        assertNull(cardAndStorePercent(row(price = "10835", listPrice = "13540"), mc), "store discount, no card")
+        assertNull(cardAndStorePercent(row(price = "10835", card = mcOffer("9576")), mc), "card, no store discount")
+    }
+
+    @Test
+    fun `the two card sorts put rows with a card saving first`() {
+        val plain = row(id = 2, title = "A plain one", price = "18000")
+        val both = cebolla.copy(deal = cebolla.deal.copy(id = 3, title = "Z cebolla"))
+        assertEquals(listOf(3L, 2L), listOf(plain, both).sortedWith(groceryComparator(GrocerySort.CARD_STORE)).map { it.deal.id })
+        // Card vs usual: a far deeper shelf drop with no card still ranks below any card saving.
+        val deepNoCard = row(id = 4, title = "B half price, no card", price = "9900", usual = "19900")
+        val held = com.luis.dealstracker.model.HeldCards.current
+        com.luis.dealstracker.model.HeldCards.current = mc
+        try {
+            assertEquals(listOf(3L, 4L, 2L), listOf(plain, deepNoCard, both).sortedWith(groceryComparator(GrocerySort.CARD_USUAL)).map { it.deal.id })
+        } finally {
+            com.luis.dealstracker.model.HeldCards.current = held
+        }
+        assertEquals(GrocerySort.CARD_USUAL, GrocerySort.of("cardusual", GroceryView.ALL))
+        assertEquals(GrocerySort.CARD_STORE, GrocerySort.of("cardstore", GroceryView.DEALS))
+    }
+
+    @Test
+    fun `a card sort shows the number it ranks by, and only that sort`() {
+        val held = com.luis.dealstracker.model.HeldCards.current
+        com.luis.dealstracker.model.HeldCards.current = mc
+        try {
+            assertTrue("""with card</span> <span class="v">−29.3%""" in groceryRowFragment(cebolla, GroceryView.ALL, sort = GrocerySort.CARD_STORE))
+            assertTrue("""with card</span> <span class="v">−20.0%""" in groceryRowFragment(cebolla, GroceryView.ALL, sort = GrocerySort.CARD_USUAL))
+            assertFalse("with card" in groceryRowFragment(cebolla, GroceryView.ALL, sort = GrocerySort.NAME))
+            assertFalse("with card" in groceryRowFragment(row(price = "18000"), GroceryView.ALL, sort = GrocerySort.CARD_USUAL))
+        } finally {
+            com.luis.dealstracker.model.HeldCards.current = held
+        }
     }
 }

@@ -12,6 +12,7 @@ import com.luis.dealstracker.model.WatchSearch
 import java.math.BigDecimal
 import java.sql.Connection
 import java.sql.PreparedStatement
+import com.luis.dealstracker.model.fitsMinScreen
 import java.sql.ResultSet
 import java.time.Instant
 import javax.sql.DataSource
@@ -35,6 +36,8 @@ data class WatchDraft(
     val requireCoShipping: Boolean = true,
     /** See [Watch.maxShippingCost]. */
     val maxShippingCost: BigDecimal? = null,
+    /** See [Watch.minScreenInches]. */
+    val minScreenInches: Int? = null,
 )
 
 /**
@@ -103,8 +106,8 @@ class WatchRepository(private val ds: DataSource) {
             INSERT INTO watches (name, terms, exclude_terms, category_group, sources,
                                  min_price, max_price, currency, lookback_days,
                                  cross_site_min_spread, enabled, amazon_terms,
-                                 require_co_shipping, max_shipping_cost)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 require_co_shipping, max_shipping_cost, min_screen_inches)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
@@ -119,12 +122,12 @@ class WatchRepository(private val ds: DataSource) {
                                sources = ?, min_price = ?, max_price = ?, currency = ?,
                                lookback_days = ?, cross_site_min_spread = ?, enabled = ?,
                                amazon_terms = ?, require_co_shipping = ?,
-                               max_shipping_cost = ?
+                               max_shipping_cost = ?, min_screen_inches = ?
             WHERE id = ?
         """.trimIndent()
         conn.prepareStatement(sql).use { st ->
             st.bindDraft(conn, draft)
-            st.setLong(15, id)
+            st.setLong(16, id)
             st.executeUpdate() > 0
         }
     }
@@ -366,7 +369,10 @@ class WatchRepository(private val ds: DataSource) {
                     }
                 }
             }
-        }
+        // Filtered here rather than in SQL: the size is read from the title by one Kotlin rule
+        // (screenInches), and every reader of a watch's listings -- its page, alerts, Ask -- comes
+        // through this function. A smaller set is also neither an alert nor the floor others beat.
+        }.filter { fitsMinScreen(watch.minScreenInches, it.title) }
     }
 
     /**
@@ -504,11 +510,12 @@ class WatchRepository(private val ds: DataSource) {
      * The watch digest's rows: every alert the next digest would announce -- never announced, or
      * announced at a higher price than now, the same "is it news" test [recordAlerts] applies -- plus,
      * with [sentSince], those announced since then, so the page a digest links to still lists them.
-     * Enabled watches and active listings only: a paused watch or an ended offer is not news.
+     * Enabled watches and active listings only: a paused watch or an ended offer is not news, and
+     * neither is a screen under the watch's smallest ([Watch.minScreenInches]).
      */
     fun digestRows(sentSince: Instant? = null): List<DigestRow> = ds.connection.use { conn ->
         val sql = """
-            SELECT m.id, m.watch_id, w.name AS watch_name, m.deal_id, m.reason, m.price_at_match, m.evidence,
+            SELECT m.id, m.watch_id, w.name AS watch_name, w.min_screen_inches, m.deal_id, m.reason, m.price_at_match, m.evidence,
                    m.gap_percent, m.card_scope, m.notified_at, d.title, d.source, d.currency, d.url,
                    (m.notified_at IS NULL OR (m.notified_price IS NOT NULL AND m.price_at_match < m.notified_price)) AS waiting
             FROM watch_matches m
@@ -542,6 +549,10 @@ class WatchRepository(private val ds: DataSource) {
                                 watchId = rs.getLong("watch_id"),
                                 url = rs.getString("url"),
                             )
+                        // A set smaller than the watch's screen floor is not news, even one that
+                        // fired before the floor was set.
+                        val floor = rs.getInt("min_screen_inches").takeUnless { rs.wasNull() }
+                        if (!fitsMinScreen(floor, pending.title)) continue
                         add(DigestRow(pending, rs.getTimestamp("notified_at")?.toInstant(), rs.getBoolean("waiting")))
                     }
                 }
@@ -636,6 +647,7 @@ private fun PreparedStatement.bindDraft(conn: Connection, d: WatchDraft) {
     setString(12, d.amazonTerms?.trim()?.takeIf { it.isNotEmpty() })
     setBoolean(13, d.requireCoShipping)
     setBigDecimal(14, d.maxShippingCost)
+    if (d.minScreenInches == null) setNull(15, java.sql.Types.INTEGER) else setInt(15, d.minScreenInches)
 }
 
 /** Positional binder, dispatching on Kotlin type. Mirrors `DealRepository.bind`. */
@@ -670,6 +682,7 @@ private fun ResultSet.toWatch() = Watch(
     amazonTerms = getString("amazon_terms"),
     requireCoShipping = getBoolean("require_co_shipping"),
     maxShippingCost = getBigDecimal("max_shipping_cost"),
+    minScreenInches = getInt("min_screen_inches").takeUnless { wasNull() },
 )
 
 private fun ResultSet.toWatchMatch() = WatchMatch(

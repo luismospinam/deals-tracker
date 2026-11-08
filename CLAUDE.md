@@ -32,6 +32,26 @@ The suite needs no database or network, so keep logic that touches SQL thin and 
 rendering around it: pull a rule out of a route into a plain function (as `newlyUnderUsual` was) so
 it can be tested. Run `./dt test` and report the result before calling the work done.
 
+## Every UI change gets a frontend-design review
+
+Any change a user can see — a view in `web/`, `app.css`, a fragment HTMX swaps in, a toast — gets
+reviewed with the `frontend-design` skill before the work is called done, unprompted, the same way
+tests are. The plugin is installed at project scope (`frontend-design@claude-plugins-official`, enabled
+in `.claude/settings.json`); if the skill will not load, install it with
+`claude plugin install frontend-design@claude-plugins-official --scope project`, rather than skipping
+the review.
+
+The review works inside this app's existing design system, not a new one: same tokens, chips, tables
+and type in `app.css`. Restart the app, then screenshot the changed screen at desktop width and at
+390px, in every state the change has (open and closed, empty, long titles, Spanish), and check
+mobile, keyboard focus, reduced motion and the copy. Fix what it finds and say what was checked.
+
+Screenshots: use Playwright's headless shell, not regular headless Chrome, which will not go below
+500px wide and so fakes mobile clipping:
+
+    ~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell \
+        --screenshot=out.png --window-size=390,1000 http://127.0.0.1:8080/watches
+
 ## Every change needs the local app restarted
 
 There is no hot reload — Ktor's `development mode` is off, and the log says so on boot

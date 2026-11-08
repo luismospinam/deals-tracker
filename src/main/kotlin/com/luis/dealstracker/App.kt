@@ -566,9 +566,68 @@ fun main(args: Array<String>) {
         seller = laureles?.options?.get("regionSeller") ?: "exitocol037",
     )
 
-    println("[web] http://localhost:$port")
-    embeddedServer(Netty, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops)
+    // What was bought: the tracker's Exito cart, read every 30 minutes and right after a cart-button add.
+    val purchaseLog = com.luis.dealstracker.agent.PurchaseLog(Db.dataSource, exitoCart, SettingsRepository(Db.dataSource))
+    if (pollerEnabled) scope.launch {
+        while (true) {
+            runCatching { purchaseLog.syncExitoCart()?.let(::println) }.onFailure { println("[purchases] failed: ${it.message}") }
+            delay(30 * 60_000L)
+        }
+    }
+
+    // The agents' window on the data: an MCP server on 127.0.0.1:8091 only, a port the Cloudflare tunnel
+    // (which forwards 8080) does not reach, behind the token in .mcp-token. See agent.McpHttp.
+    // The read-only role is set up only once the port is ours: a second copy (DEALS_HTTP_PORT=8081) finds
+    // 8091 taken and must not reset the role's password under the first copy's pool.
+    var agentDb: com.luis.dealstracker.agent.AgentDb? = null
+    var mcpStarted = false
+    val agentTools = com.luis.dealstracker.agent.AgentTools(Db.dataSource, { agentDb }, GroceryRepository(Db.dataSource), ::live)
+    runCatching {
+        val token = com.luis.dealstracker.agent.mcpToken(File(projectDir, ".mcp-token"))
+        com.luis.dealstracker.agent.startMcpServer(com.luis.dealstracker.agent.McpServer(agentTools.tools(), log = ::println), token)
+        agentDb = runCatching { com.luis.dealstracker.agent.AgentDb.ensure(Db.dataSource, fileApp.db) }
+            .onFailure { println("[mcp] read-only role not set up, the sql tool is off: ${it.message}") }.getOrNull()
+        println("[mcp] http://${com.luis.dealstracker.agent.MCP_HOST}:${com.luis.dealstracker.agent.MCP_PORT}/mcp (token in .mcp-token)")
+        mcpStarted = true
+    }.onFailure { println("[mcp] not started (another copy has the port?): ${it.message}") }
+
+    // The grocery agent: `claude -p` on the Claude Code login, every morning after the crawl, with only
+    // the MCP tools above. It runs from a folder outside the repo (see agent.AgentRunner). Only the copy
+    // that owns the MCP server runs it, so a second copy never doubles the morning's suggestions.
+    val agentRuns = com.luis.dealstracker.agent.AgentRunRepository(Db.dataSource)
+    runCatching { agentRuns.failAbandoned() }
+    val agentJobs = com.luis.dealstracker.agent.AgentJobs(
+        com.luis.dealstracker.agent.AgentRunner(
+            ClaudeCli.resolveExecutable(app.defaults.askClaudePath),
+            File(System.getProperty("user.home"), "Library/Application Support/deals-tracker/agents"),
+            token = { com.luis.dealstracker.agent.mcpToken(File(projectDir, ".mcp-token")) },
+            runs = agentRuns,
+        ),
+        agentRuns, ::live, lang = { com.luis.dealstracker.i18n.AppLanguage.current },
+        notify = { title, lines ->
+            com.luis.dealstracker.notify.Notifier.notify(title, lines.firstOrNull().orEmpty(), openUrl = "http://localhost:$port/groceries#suggestions", group = "agent")
+            (live().discordAgentsWebhook ?: live().discordGroceriesWebhook ?: live().discordWatchesWebhook)?.let {
+                com.luis.dealstracker.notify.DiscordWebhook(it).send(title, com.luis.dealstracker.notify.fitDescription(lines), "Deals Tracker · grocery agent", color = 0x2ECC71)
+            }
+        },
+        baseUrl = "http://localhost:$port",
+    )
+    if (pollerEnabled && mcpStarted) scope.launch {
+        delay(2 * 60_000L)
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching { agentJobs.tick()?.let(::println) }.onFailure { println("[agent] failed: ${it.message}") }
+            }
+            delay(SCHEDULE_TICK_MILLIS)
+        }
+    }
+
+    // Bound to this Mac only. The phone reaches the app through the Cloudflare tunnel, which connects
+    // from here, so nothing on the Wi-Fi needs it. DEALS_HTTP_HOST=0.0.0.0 opens it again.
+    val host = System.getenv("DEALS_HTTP_HOST")?.takeIf { it.isNotBlank() } ?: "127.0.0.1"
+    println("[web] http://localhost:$port (listening on $host)")
+    embeddedServer(Netty, host = host, port = port) {
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null)
     }.start(wait = true)
 }
 
@@ -710,6 +769,7 @@ internal fun verifyConfig(
     // The Amazon provider's selectors, so a corrected price selector reaches the page-price read too.
     amazonOptions = app.providers.firstOrNull { it.type == "amazon" }?.options.orEmpty(),
     pageRecheckDays = app.defaults.pageRecheckDays,
+    pinnedPageRecheckHours = app.defaults.pinnedPageRecheckHours,
     shippingRecheckDays = app.defaults.shippingRecheckDays,
 )
 
@@ -773,6 +833,7 @@ private suspend fun pageCleanupOnce(repo: DealRepository, app: AppConfig): Boole
             val sources = trackingSources(app)
             if (repo.pageCheckCandidates(
                     1, sources, recheckDays = app.defaults.pageRecheckDays,
+                    pinnedRecheckHours = app.defaults.pinnedPageRecheckHours,
                     retireAfterHours = com.luis.dealstracker.verify.retireAfterHours(
                         app.providers.firstOrNull { it.type == "amazon" }?.options.orEmpty(),
                     ),

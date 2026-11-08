@@ -152,6 +152,25 @@ class CardOfferTest {
         assertNull(cardOfferOf(o, BigDecimal.ONE, BigDecimal("2399925.00")))
     }
 
+    /** Televisor CAIXUN 55", exito.com 2026-11-05: the page shows 1,279,903 beside the Tarjeta Éxito logo. */
+    @Test
+    fun `exito's own BIN price table is the store card`() {
+        val o = VtexOffer(
+            Price = BigDecimal("1399900"), ListPrice = BigDecimal("3999900"), PriceWithoutDiscount = BigDecimal("3999900"),
+            teasers = listOf(
+                tableTeaser(VtexParam("RestrictionsBins", "555845,570423,590309"), "2719997.00")
+                    .copy(name = "exito1_aliado_tabladeprecios_electrodigital"),
+            ),
+        )
+        val card = cardOfferOf(o, BigDecimal.ONE, BigDecimal("1399900.00"))
+        assertEquals(BigDecimal("1279903.00"), card?.price)
+        assertEquals(CardScope.STORE_CARD, card?.scope)
+        assertEquals(CardScope.STORE_CARD, com.luis.dealstracker.sources.vtex.scopeOfBinTable("EXITO_aliado_tabladeprecios_jul11"))
+        // Another bank's BIN list stays unnamed rather than guessed at.
+        assertEquals(CardScope.OTHER, com.luis.dealstracker.sources.vtex.scopeOfBinTable("avvillas_20_prov_mercado"))
+        assertEquals(CardScope.OTHER, com.luis.dealstracker.sources.vtex.scopeOfBinTable(null))
+    }
+
     /** V35: every offer survives, best per card, so a card that is not the cheapest still has its price. */
     @Test
     fun `every card's offer is kept, cheapest first, and the ids name the card`() {
