@@ -16,8 +16,14 @@ services:
       # let the app handle display-time zones.
       TZ: UTC
       PGTZ: UTC
+    # This Mac only: the app and ./psql connect over localhost, and nothing on the Wi-Fi needs the
+    # database. (Docker publishes on every interface unless told otherwise.)
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+    # Docker's default /dev/shm is 64 MB, and parallel queries over price_observations need more:
+    # on 2026-11-07 the nightly prune failed ten times with "could not resize shared memory
+    # segment ... No space left on device" scanning ~3.2M readings.
+    shm_size: 256mb
     volumes:
       # Named volume, not a bind mount: data survives `docker compose down`
       # and container image upgrades.
