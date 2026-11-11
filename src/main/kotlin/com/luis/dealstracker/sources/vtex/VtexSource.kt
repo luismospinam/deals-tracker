@@ -620,8 +620,12 @@ private const val ADDI_ID = "102"
  * rather than by payment id. Measured 2026-11-05: 113 of 127 card teasers over eight searches, and
  * the rendered page (Televisor CAIXUN 55" ...-3255839) shows its price, 1,279,903, beside the
  * "Tarjeta Éxito" logo. Before this it was recorded as an unknown "Card".
+ *
+ * Its grocery percentages carry the percentage in the name too: `exito1_35_aliado_mercado_fruver_...`
+ * (2026-11-10, 149 of 150 fruit & veg items at Exito Laureles). Carulla runs the same promotion as
+ * `carulla1_35_aliado_mercado_fruver_...` -- same id 40794, same 22 BINs -- so it is the same card. See [cardOffersOf].
  */
-private val STORE_CARD_TABLE = Regex("""^exito\d*_aliado_""", RegexOption.IGNORE_CASE)
+private val STORE_CARD_TABLE = Regex("""^(?:exito|carulla)\d*(?:_\d+)?_aliado_""", RegexOption.IGNORE_CASE)
 
 /** Who can pay a BIN-restricted price table, from its name: the store card, or a card not named. */
 internal fun scopeOfBinTable(name: String?): com.luis.dealstracker.model.CardScope =
@@ -715,7 +719,18 @@ internal fun cardOffersOf(
                     } else {
                         listOf(card)
                     }
-                } ?: listOfNotNull(byPriceTable(teaser, base, shelfPrice, scopeOfBinTable(teaser.name)))
+                } ?: listOfNotNull(
+                    byPriceTable(teaser, base, shelfPrice, scopeOfBinTable(teaser.name))
+                        // Exito's own card, as a percentage: `exito1_35_aliado_mercado_fruver_...`, 35%
+                        // with Tarjeta Éxito on the grocery aisles since the Mastercard ones ended
+                        // (2026-11-06). Read exactly like the PaymentMethodId shape -- off the pre-promotion
+                        // base, and only when it beats the shelf -- which is what Exito's pages showed for
+                        // its card percentages. Only for the store card: the reason Easy's BIN percentages are
+                        // ignored (often already in the shelf price) is caught here by that same beat-the-shelf
+                        // test, since a baked-in percentage reproduces the shelf price exactly.
+                        ?: scopeOfBinTable(teaser.name).takeIf { it == com.luis.dealstracker.model.CardScope.STORE_CARD }
+                            ?.let { byPercent(teaser, it, base, shelfPrice) },
+                )
             // A mixed or unknown condition is not a plain card offer -- a SkuIdsList makes it a
             // multi-buy. Dropped rather than guessed at.
             else -> emptyList()
@@ -736,12 +751,19 @@ private fun byPaymentMethod(
     ids: Set<String>,
     base: BigDecimal,
     shelfPrice: BigDecimal,
+): com.luis.dealstracker.model.CardOffer? = byPercent(teaser, scopeOfPaymentIds(ids), base, shelfPrice)
+
+/** A teaser's `PercentualDiscount` off [base], for [scope]; null unless it beats [shelfPrice]. */
+private fun byPercent(
+    teaser: VtexTeaser,
+    scope: com.luis.dealstracker.model.CardScope,
+    base: BigDecimal,
+    shelfPrice: BigDecimal,
 ): com.luis.dealstracker.model.CardOffer? {
     val percent = teaser.effects?.parameters
         ?.firstOrNull { it.name == "PercentualDiscount" }?.value?.trim()?.toBigDecimalOrNull()
         ?.takeIf { it > BigDecimal.ZERO && it < BigDecimal(100) }
         ?: return null
-    val scope = scopeOfPaymentIds(ids)
     val price = base.multiply(BigDecimal.ONE - percent.movePointLeft(2))
         .setScale(0, java.math.RoundingMode.HALF_UP).asMoney()
     return com.luis.dealstracker.model.CardOffer(price, percent.setScale(2, java.math.RoundingMode.HALF_UP), scope)

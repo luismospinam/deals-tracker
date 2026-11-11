@@ -171,6 +171,54 @@ class CardOfferTest {
         assertEquals(CardScope.OTHER, com.luis.dealstracker.sources.vtex.scopeOfBinTable(null))
     }
 
+    private fun binPercentTeaser(name: String, percent: String) = VtexTeaser(
+        name = name,
+        conditions = VtexTeaserConditions(listOf(VtexParam("RestrictionsBins", "231030,266000,510120,515067")), 0),
+        effects = VtexTeaserEffects(listOf(VtexParam("PercentualDiscount", percent))),
+    )
+
+    /**
+     * Limón Amarillo Importado at Exito Laureles, 2026-11-10: shelf 3,487/kg, before promotion 4,980, and
+     * `exito1_35_aliado_mercado_fruver_...` -- 35% with Tarjeta Éxito, off the 4,980 and not stacked.
+     */
+    @Test
+    fun `exito's own-card percentage on the grocery aisles is a store-card price`() {
+        val o = VtexOffer(
+            Price = BigDecimal("3487"), ListPrice = BigDecimal("8780"), PriceWithoutDiscount = BigDecimal("4980"),
+            teasers = listOf(binPercentTeaser("exito1_35_aliado_mercado_fruver_id40794_06oct_29dic", "35")),
+        )
+        val card = cardOfferOf(o, BigDecimal.ONE, BigDecimal("3487.00"))
+        assertEquals(BigDecimal("3237.00"), card?.price)
+        assertEquals(BigDecimal("35.00"), card?.percent)
+        assertEquals(CardScope.STORE_CARD, card?.scope)
+        // Sold by weight: the 150 g lemon scales with the pack, as its shelf price does.
+        assertEquals(BigDecimal("486.00"), cardOfferOf(o, BigDecimal("0.15"), BigDecimal("523.05"))?.price)
+    }
+
+    /** A percentage already in the shelf price reproduces it exactly, and saves nothing. */
+    @Test
+    fun `an own-card percentage already in the shelf price is dropped`() {
+        val o = VtexOffer(
+            Price = BigDecimal("3237"), ListPrice = BigDecimal("4980"), PriceWithoutDiscount = BigDecimal("4980"),
+            teasers = listOf(binPercentTeaser("exito1_35_aliado_mercado_fruver_x", "35")),
+        )
+        assertNull(cardOfferOf(o, BigDecimal.ONE, BigDecimal("3237.00")))
+    }
+
+    /** Easy's BIN percentages are still ignored: only Exito's own card is read this way. */
+    @Test
+    fun `another bank's BIN percentage is still not read`() {
+        val o = VtexOffer(
+            Price = BigDecimal("411920"), ListPrice = BigDecimal("514900"), PriceWithoutDiscount = BigDecimal("514900"),
+            teasers = listOf(binPercentTeaser("SW T. INT COD Y TMC 20", "35"), binPercentTeaser("avvillas_20_prov_mercado", "35")),
+        )
+        assertNull(cardOfferOf(o, BigDecimal.ONE, BigDecimal("411920.00")))
+        assertEquals(CardScope.STORE_CARD, com.luis.dealstracker.sources.vtex.scopeOfBinTable("exito1_35_aliado_mercado_fruver_id40794"))
+        assertEquals(CardScope.STORE_CARD, com.luis.dealstracker.sources.vtex.scopeOfBinTable("exito_20_aliado_x"))
+        // Carulla's copy of the same promotion: same id, same BINs.
+        assertEquals(CardScope.STORE_CARD, com.luis.dealstracker.sources.vtex.scopeOfBinTable("carulla1_35_aliado_mercado_fruver_id40794_06oct_29dic"))
+    }
+
     /** V35: every offer survives, best per card, so a card that is not the cheapest still has its price. */
     @Test
     fun `every card's offer is kept, cheapest first, and the ids name the card`() {
