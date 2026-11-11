@@ -59,10 +59,26 @@ There is no hot reload — Ktor's `development mode` is off, and the log says so
 invisible to the running process, so a change that looks broken in the browser is usually
 just a change that isn't loaded. The exception is CSS, which is read from disk per request.
 
-So after editing, restart it:
+So after editing, restart it. Check how it is running first: since 2026-11-08 the app is meant to
+run under launchd (`scripts/install-launchd.sh`), which restarts it on its own if it dies.
+
+    launchctl list | grep com.luis.dealstracker     # a line here means launchd runs it
+
+Under launchd, restart through launchd. Do **not** `pkill` and `nohup` a new copy: launchd starts its
+own copy again within a minute, and the two fight over port 8080.
+
+    launchctl kickstart -k gui/$(id -u)/com.luis.dealstracker
+
+Without launchd (no line above), the old way:
 
     pkill -f 'com.luis.dealstracker.AppKt'    # see the warning below before running this
     nohup caffeinate -i ./dt run > logs/app.log 2>&1 &
+
+Either way the log is `logs/app.log`. The launchd job runs `scripts/run-app.sh`, which starts Docker
+Desktop and Postgres if they are down (Docker does not start at login on this Mac) and then runs the
+app under `caffeinate -i`. A second job, `scripts/watchdog.sh`, checks every 15 minutes and posts to
+Discord when no poll has finished in two hours or the app or database stops answering; its rules are
+tested by `scripts/test-watchdog.sh`.
 
 `caffeinate -i` stops the Mac idle-sleeping for as long as the app runs, and no longer. Without
 it the poller simply stops when the lid is idle: on 2026-09-25 the Mac slept from ~09:30 to 14:03,

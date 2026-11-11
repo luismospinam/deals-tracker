@@ -1586,9 +1586,22 @@ Things learned by probing the live APIs that are easy to get wrong:
 ./scripts/install-launchd.sh
 ```
 
-The script fills this machine's project path into the plist template, so no absolute
-paths are committed. The app runs its own hourly poll internally, so launchd only keeps
-the one process alive. Logs land in `logs/`.
+The script fills this machine's project path into the plist templates, so no absolute
+paths are committed. It installs two jobs:
+
+- **`com.luis.dealstracker`** runs `scripts/run-app.sh`: it starts Docker Desktop and Postgres if
+  they are down (Docker is not set to start at login), then runs the app under `caffeinate -i`.
+  launchd restarts it if it exits with an error, a minute apart at most. The app runs its own
+  hourly poll, so launchd only keeps the one process alive. Restart it with
+  `launchctl kickstart -k gui/$(id -u)/com.luis.dealstracker`; a `pkill` alone also brings it back.
+- **`com.luis.dealstracker.watchdog`** runs `scripts/watchdog.sh` every 15 minutes. It posts to
+  Discord when `/health` or the database stops answering, or no poll has finished in two hours,
+  and once more when it recovers. A problem has to show on two checks in a row, so a Mac waking
+  from sleep with an old last poll does not post a false alarm. Its rules are tested by
+  `scripts/test-watchdog.sh`; `scripts/watchdog.sh --dry-run` shows what it would do now.
+
+Logs: `logs/app.log` and `logs/watchdog.log`. The watchdog cannot run while the Mac sleeps, so a
+sleep shows up as an alert on waking only if polling does not resume.
 
 ## Secrets
 

@@ -272,7 +272,10 @@ A failed banner is not a lost alert: `notified_at` stays null, so the next cycle
 
 ## Optional: run in the background
 
-Starts at login and polls hourly without a terminal open:
+Starts at login, restarts the app if it dies, and polls hourly without a terminal open. It also
+installs a watchdog that posts to Discord (the health channel, else the watches one) when no poll has
+finished in two hours, and again when polling recovers. Stop any hand-started copy first, or the two
+fight over port 8080:
 
 ```bash
 ./scripts/install-launchd.sh
@@ -283,7 +286,8 @@ The script substitutes this machine's project path into
 
 ```bash
 launchctl list | grep dealstracker                                  # check
-tail -f logs/dealstracker.out.log                                   # logs
+launchctl kickstart -k gui/$(id -u)/com.luis.dealstracker            # restart
+tail -f logs/app.log                                                # logs (watchdog: logs/watchdog.log)
 launchctl unload ~/Library/LaunchAgents/com.luis.dealstracker.plist  # stop
 ```
 
