@@ -2,6 +2,7 @@ package com.luis.dealstracker.sources.slickdeals
 
 import com.luis.dealstracker.config.AppConfig
 import com.luis.dealstracker.config.ProviderConfig
+import com.luis.dealstracker.model.Coupons
 import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.model.asMoney
 import com.luis.dealstracker.sources.DealSource
@@ -163,6 +164,7 @@ class SlickdealsSource : DealSource {
                     imageUrl = fragment.selectFirst("img")?.attr("src")?.takeIf { it.isNotBlank() },
                     communityScore = communityScore,
                     postedAt = postedAt,
+                    coupons = extractCoupons(fragment),
                 ),
                 merchant = merchant,
                 resolvedVia = via,
@@ -294,6 +296,36 @@ class SlickdealsSource : DealSource {
 
     private fun stripTracking(link: String): String = link.substringBefore("?utm_")
 
+    /**
+     * The coupon codes a write-up names, and whether it says to clip a coupon on the product page.
+     *
+     * Slickdeals marks a code up as `<span data-role='couponCode'>…<span class='code'>K8F6E3VU</span>`,
+     * and that marker is trusted as is. Not every poster's code gets it -- 4 of the 12 coded items in the
+     * 2026 fixture had none ("Coupon at checkout: AFFUS130", "promo code USDEAL020") -- so the text is read
+     * too, for a word in capitals and digits after "code" or "checkout:". Capitals are what keep prose
+     * out: "Code: Features" is a heading, not a code.
+     *
+     * A code only ever named after "Expired" is dropped: posters keep dead codes in the write-up
+     * ("Expired Code: USDEAL08"), and showing one would send you to checkout with a code that fails.
+     */
+    internal fun extractCoupons(fragment: org.jsoup.nodes.Document): Coupons {
+        val text = fragment.text()
+        val marked = fragment.select("[data-role=couponCode] .code").map { it.text().trim() }
+            .filter { MARKED_CODE_RE.matches(it) }
+        val written = WRITTEN_CODE_RE.findAll(text).map { it.groupValues[1] }
+            .filter { it !in NOT_CODES }
+        val codes = (marked + written)
+            .distinct()
+            .filterNot { onlyNamedExpired(text, it) }
+            .take(MAX_CODES)
+        return Coupons(codes, CLIP_RE.containsMatchIn(text))
+    }
+
+    private fun onlyNamedExpired(text: String, code: String): Boolean {
+        val at = Regex(Regex.escape(code)).findAll(text).map { it.range.first }.toList()
+        return at.isNotEmpty() && at.all { i -> text.substring((i - 25).coerceAtLeast(0), i).contains("expired", ignoreCase = true) }
+    }
+
     companion object {
         private val ASIN_RE = Regex("^[A-Z0-9]{10}$")
         private val THREAD_ID_RE = Regex("/f/(\\d+)")
@@ -322,6 +354,22 @@ class SlickdealsSource : DealSource {
         private val VIA_RE = Regex("\\bvia\\s+(.+)$", RegexOption.IGNORE_CASE)
         private val FOR_PRICE_RE = Regex("\\bfor\\s+\\$([0-9][0-9,]*(?:\\.[0-9]{1,2})?)")
         private val TITLE_PRICE_RE = Regex("\\$([0-9][0-9,]*(?:\\.[0-9]{1,2})?)")
+
+        /** More than this is a write-up listing every variant's code; the first few are the deal's. */
+        private const val MAX_CODES = 3
+        /** A marked code is whatever Slickdeals marked, within reason: one token, no spaces. */
+        private val MARKED_CODE_RE = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{2,29}$")
+        /**
+         * "code X", "promo code: X", "coupon code X", "checkout: X". The lead-in ignores case; the code
+         * itself must be capitals and digits, at least four, which is what keeps prose out.
+         */
+        private val WRITTEN_CODE_RE = Regex(
+            "(?i:\\b(?:(?:promo(?:tional)?|coupon|discount)\\s+)?code\\s*:?|\\bcheckout\\s*:)\\s*\\*?([A-Z0-9][A-Z0-9_-]{3,19})\\b",
+        )
+        /** Capitalised words that follow "code" in prose without being one. */
+        private val NOT_CODES = setOf("FREE", "NONE", "NEEDED", "REQUIRED", "BELOW", "ABOVE", "HERE", "AMAZON", "PRIME", "SNS")
+        /** "clip the coupon", "clipped coupon", "coupon you clip", within one sentence. */
+        private val CLIP_RE = Regex("(?i)\\bclip\\w*\\b[^.]{0,40}?\\bcoupons?\\b|\\bcoupons?\\b[^.]{0,25}?\\bclip\\w*\\b")
 
         /** Maps the retailer names as they appear in prose onto Slickdeals' own store slugs. */
         private val MERCHANT_ALIASES = mapOf(

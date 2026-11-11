@@ -232,9 +232,9 @@ class DealRepository(
             INSERT INTO deals (source, source_deal_id, title, url, merchant, asin, category,
                                image_url, currency, co_shipping, community_score, posted_at,
                                category_group, gtin, model_code, match_key, model_key, brand,
-                               unit_measure, unit_quantity, grocery_group,
+                               unit_measure, unit_quantity, grocery_group, coupon_codes, coupon_clip,
                                is_active, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
             ON CONFLICT (source, source_deal_id) DO UPDATE SET
                 title      = EXCLUDED.title,
                 url        = EXCLUDED.url,
@@ -266,6 +266,10 @@ class DealRepository(
                 unit_measure  = COALESCE(EXCLUDED.unit_measure, deals.unit_measure),
                 unit_quantity = COALESCE(EXCLUDED.unit_quantity, deals.unit_quantity),
                 grocery_group = COALESCE(EXCLUDED.grocery_group, deals.grocery_group),
+                -- A source that read a write-up replaces what was there, an empty array included: a code
+                -- the write-up no longer names has expired. A source with no write-up sends NULL.
+                coupon_codes = COALESCE(EXCLUDED.coupon_codes, deals.coupon_codes),
+                coupon_clip  = COALESCE(EXCLUDED.coupon_clip, deals.coupon_clip),
                 -- A row whose own page refuted its size (V23) stays retired: the next search returns
                 -- the same ASIN, and without this it would be reactivated every poll.
                 is_active  = NOT deals.size_rejected,
@@ -300,6 +304,9 @@ class DealRepository(
             st.setString(19, raw.unitMeasure.takeIf { sized })
             st.setBigDecimal(20, raw.unitQuantity.takeIf { sized })
             st.setString(21, raw.groceryGroup)
+            val coupons = raw.coupons
+            st.setArray(22, coupons?.let { conn.createArrayOf("text", it.codes.toTypedArray()) })
+            coupons?.let { st.setBoolean(23, it.clip) } ?: st.setNull(23, java.sql.Types.BOOLEAN)
             st.executeQuery().use { rs ->
                 rs.next()
                 return UpsertResult(
@@ -1567,6 +1574,8 @@ internal fun ResultSet.toDeal() = Deal(
     minCardPriceEver = getBigDecimal("obs_min_card_price"),
     cardOffers = parseCardOffers(getString("card_offers")),
     cardLows = parseCardLows(getString("card_lows")),
+    couponCodes = (getArray("coupon_codes")?.array as? Array<*>)?.filterIsInstance<String>().orEmpty(),
+    couponClip = getBoolean("coupon_clip"),
 )
 
 /** `[{"scope":"VISA","price":1899000,"percent":40.65}]`, the shape of `card_offers` (V35). */

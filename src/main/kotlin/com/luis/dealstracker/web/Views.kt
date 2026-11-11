@@ -33,7 +33,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "90"
+private const val CSS_VERSION = "96"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -219,6 +219,72 @@ internal fun FlowContent.cardChips(offers: List<CardOffer>, currency: String, he
     else cardChip(offers.minBy { it.price }, currency, CardMark.NOT_HELD)
 }
 
+/**
+ * The coupon codes a deal's write-up names (V42), each a chip whose "copy" end copies it, and a "clip coupon"
+ * note where the discount is a coupon to clip on the product page instead. With [amazon], an "Amazon ↗"
+ * button follows, straight to the product page where the code is used -- the row's title goes to the
+ * Slickdeals thread, a page and a redirect away. Nothing for a deal that names no coupon. See [COUPON_COPY_JS].
+ */
+internal fun FlowContent.couponChips(deal: Deal, amazon: Boolean = true) {
+    if (deal.couponCodes.isEmpty() && !deal.couponClip) return
+    // One wrapping line, right under a right-aligned price on the desktop table, left on the phone's card.
+    div("coupon-line") {
+        deal.couponCodes.forEach { code ->
+            button(classes = "coupon-code") {
+                type = ButtonType.button
+                attributes["data-code"] = code
+                attributes["data-copied"] = tr("copied ✓", "copiado ✓")
+                attributes["aria-label"] = tr("Copy coupon code $code", "Copiar el código de cupón $code")
+                title = tr("Coupon code from the deal post. Tap to copy it.", "Código de cupón del post. Toca para copiarlo.")
+                span("coupon-v") { +code }
+                span("coupon-act") { attributes["aria-live"] = "polite"; +tr("copy", "copiar") }
+            }
+        }
+        if (deal.couponClip) {
+            span("coupon-clip") {
+                title = tr(
+                    "The post says to clip a coupon on the product page; the price assumes it.",
+                    "El post dice que actives un cupón en la página del producto; el precio ya lo incluye.",
+                )
+                +tr("✂ clip coupon", "✂ activar cupón")
+            }
+        }
+        if (amazon) amazonUrl(deal)?.let { url ->
+            a(href = url, target = "_blank", classes = "coupon-amz") {
+                rel = "noopener"
+                title = tr("Open the product on Amazon, where the code is used", "Abrir el producto en Amazon, donde se usa el código")
+                +"Amazon ↗"
+            }
+        }
+    }
+}
+
+/**
+ * Copies a coupon code when its chip is tapped, and says so on the chip for a moment. Delegated from the
+ * document, so rows HTMX swaps in work too. The clipboard API needs a secure context, which localhost and
+ * the tunnel both are; elsewhere it falls back to selecting the code, so a long-press can copy it.
+ */
+internal const val COUPON_COPY_JS = """
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('.coupon-code');
+  if (!b) return;
+  var k = b.querySelector('.coupon-act'), v = b.querySelector('.coupon-v');
+  function shown() {
+    if (b.dataset.label === undefined) b.dataset.label = k.textContent;
+    k.textContent = b.dataset.copied;
+    b.classList.add('copied');
+    clearTimeout(b._t);
+    b._t = setTimeout(function () { k.textContent = b.dataset.label; b.classList.remove('copied'); }, 1600);
+  }
+  function select() {
+    var r = document.createRange(); r.selectNodeContents(v);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(b.dataset.code).then(shown, select);
+  else select();
+});
+"""
+
 /** Slickdeals forum names that masquerade as product categories and carry no signal. */
 private val GENERIC_CATEGORIES = setOf("Hot Deals", "Marketplace Deals", "Deal Talk", "Freebies")
 
@@ -256,6 +322,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         link(rel = "stylesheet", href = "/static/app.css?v=$CSS_VERSION")
         script(src = "https://unpkg.com/htmx.org@1.9.12") {}
         script { unsafe { +CART_FEEDBACK_JS } }
+        script { unsafe { +COUPON_COPY_JS } }
     }
     body {
         header {
@@ -961,6 +1028,8 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
             // the score and the sort all stay on the cash price.
             cardChips(deal.allCardOffers, deal.currency)
             promoChips(deal.source, deal.price, deal.currency, today())
+            // Slickdeals' title price is often the price after the code, so the code sits under it.
+            couponChips(deal)
         }
 
         td(classes = "col-disc") {
@@ -1466,6 +1535,8 @@ fun MAIN.dealDetail(
     }
     // Its own line, so "price · list · −22%" still reads as one claim.
     p("detail-age") { priceAgeSpan(deal) }
+    // No Amazon button here: the page's own links above already open the product on Amazon.
+    if (deal.couponCodes.isNotEmpty() || deal.couponClip) div("detail-coupons") { couponChips(deal, amazon = false) }
     // The card-only price from the latest reading, if it carried one: the shelf price above is what
     // anyone pays, this is what the right card pays. The lowest card price follows even when there
     // is none today -- "it was 2,179,900 with CMR last month" is what tells you whether to wait.

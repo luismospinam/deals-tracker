@@ -2365,3 +2365,55 @@ a.sugg-title:hover { color: var(--accent); }
   .sugg-dismiss[open] { flex-basis: 100%; }
   .sugg-dismiss-form input { flex: 1 1 auto; width: auto; min-width: 0; }
 }
+
+/* Coupon codes from a Slickdeals post (V42), under the price they unlock. A dashed outline reads as a
+ * coupon and as something to press; the code is the loud part, the "copy" end quiet behind a dashed
+ * divider. Tapping copies it, and "copy" turns green "copied ✓" for a moment -- the colour is never the
+ * only cue. "Amazon ↗" sits after it on the same line, solid where the coupon is dashed: a link, not a code. */
+.coupon-line { margin-top: 6px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 6px; }
+.coupon-code {
+  /* No max-width or ellipsis: a cut code ("TE01R…") is useless, so the cell grows to fit the chip
+   * instead -- on the phone card the price cell is otherwise only as wide as the price. */
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--accent);
+  background: var(--accent-wash);
+  border: 1px dashed var(--accent-line);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.coupon-code .coupon-v { padding: 1px 6px; font-weight: 600; letter-spacing: 0.04em; }
+.coupon-code .coupon-act { padding: 1px 6px; color: var(--text-dim); border-left: 1px dashed var(--accent-line); }
+.coupon-code:hover { border-style: solid; }
+.coupon-code:hover .coupon-act { color: var(--accent); }
+.coupon-code:focus-visible, .coupon-amz:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.coupon-code.copied { border-color: rgba(79, 191, 139, 0.55); }
+.coupon-code.copied .coupon-act { color: var(--good); }
+.coupon-clip { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; }
+.coupon-amz {
+  display: inline-block;
+  padding: 1px 7px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.coupon-amz:hover { border-color: var(--accent-line); color: var(--accent); }
+.detail-coupons { margin: 6px 0 10px; }
+.detail-coupons .coupon-line { margin-top: 0; justify-content: flex-start; }
+.detail-coupons .coupon-code, .detail-coupons .coupon-clip { font-size: var(--fs-sm); }
+/* A thumb, not a pointer: taller targets on the phone card, the same look. */
+@media (max-width: 640px) {
+  .coupon-code .coupon-v, .coupon-code .coupon-act { padding-block: 5px; }
+  .coupon-amz { padding-block: 5px; padding-inline: 10px; }
+  .coupon-line { justify-content: flex-start; gap: 8px; }
+}

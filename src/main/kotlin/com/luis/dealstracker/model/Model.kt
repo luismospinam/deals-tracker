@@ -116,6 +116,11 @@ enum class CoShipping { UNKNOWN, YES, NO }
  * dedupe, promotion rules, price history and the UI never learn which site a
  * deal came from beyond its [ProviderConfig] id.
  */
+/** What a deal's write-up says about coupons: [codes] to type at checkout, and whether to [clip] one. */
+data class Coupons(val codes: List<String>, val clip: Boolean) {
+    val isEmpty: Boolean get() = codes.isEmpty() && !clip
+}
+
 data class RawDeal(
     /** Stable id within the provider. Combined with the provider id, this is the dedupe key. */
     val externalId: String,
@@ -201,6 +206,12 @@ data class RawDeal(
     val specs: Map<String, String> = emptyMap(),
     /** The retailer's description as plain text, where it publishes one. Often holds the dimensions. */
     val description: String? = null,
+    /**
+     * Coupon codes and "clip the coupon" read from the source's own write-up (V42). Null where the
+     * source has no write-up to read -- every source but Slickdeals -- which leaves the stored value
+     * alone; an empty [Coupons] clears it, since a write-up that dropped a code means it expired.
+     */
+    val coupons: Coupons? = null,
 ) {
     /**
      * Advertised discount as a percentage, or null when there's no usable list price.
@@ -307,6 +318,10 @@ data class Deal(
     val cardOffers: List<CardOffer> = emptyList(),
     /** The lowest price recorded per card (V35), for "lowest with your card". */
     val cardLows: Map<CardScope, BigDecimal> = emptyMap(),
+    /** Codes to type at checkout, from the write-up (V42). Empty for every source but Slickdeals. */
+    val couponCodes: List<String> = emptyList(),
+    /** The write-up says to clip a coupon on the product page: a discount with nothing to type. */
+    val couponClip: Boolean = false,
 ) {
     /** [cardOffers], or [card] alone for a row built before V35 or in a test. */
     /**

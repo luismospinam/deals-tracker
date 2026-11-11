@@ -115,6 +115,10 @@ object DealsExport {
             d.discountPercent?.let { c.setNum(it.divide(HUNDRED, 6, RoundingMode.HALF_UP).toDouble(), s.percent) }
         },
         Col("Community score", "Puntaje de la comunidad", 10) { c, d, s -> d.communityScore?.let { c.setNum(it.toDouble(), s.integer) } },
+        Col("Coupon codes", "Códigos de cupón", 14) { c, d, _ ->
+            val text = (d.couponCodes + listOfNotNull(if (d.couponClip) "clip coupon" else null)).joinToString(" ")
+            if (text.isNotEmpty()) c.setCellValue(text)
+        },
         Col("Lowest recorded", "Mínimo registrado", 14) { c, d, s -> d.minPriceEver?.let { c.setNum(it.toDouble(), s.money(d.currency)) } },
         Col("Lowest card price", "Mínimo con tarjeta", 14) { c, d, s ->
             val held = HeldCards.current
