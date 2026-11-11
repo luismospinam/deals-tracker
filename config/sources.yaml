@@ -374,6 +374,11 @@ providers:
         - "mercado/dulces-y-chocolateria = Snacks & sweets"
         - "mercado/comidas-preparadas = Prepared"
         - "mercado/alimentacion-para-bebes = Baby food"
+      # A store subcategory filed under another aisle than the category it is crawled from, by the
+      # store's own name for it. "Carnes especiales" sits under Charcutería (Deli) at both chains and
+      # holds the smoked ribs along with ham, salami and cábanos; all of it goes to Meat & fish
+      # (decided 2026-11-11, knowing the cold cuts move too). Deli keeps cheeses and conserves.
+      aisleOverrides: ["Carnes especiales = Meat & fish"]
 
   - id: exito-colombia-grocery
     type: vtex-grocery
@@ -403,6 +408,7 @@ providers:
         - "mercado/dulces-y-chocolateria = Snacks & sweets"
         - "mercado/comidas-preparadas = Prepared"
         - "mercado/alimentacion-para-bebes = Baby food"
+      aisleOverrides: ["Carnes especiales = Meat & fish"]
 
   - id: carulla-grocery
     type: vtex-grocery
@@ -435,6 +441,7 @@ providers:
         - "bebidas-snacks-y-dulces/frutos-secos = Snacks & sweets"
         - "bebidas-snacks-y-dulces/galletas = Snacks & sweets"
         - "comidas-preparadas = Prepared"
+      aisleOverrides: ["Carnes especiales = Meat & fish"]
 
   # ---------------------------------------------------------------------------------------
   # PriceSmart -- groceries at two Medellín warehouse clubs (added 2026-09-27). See PriceSmartSource

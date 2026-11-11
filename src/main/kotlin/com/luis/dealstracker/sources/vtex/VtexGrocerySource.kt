@@ -60,6 +60,7 @@ class VtexGrocerySource(
         }
         val region = regionId(seller)
         val groups = groupsOf(cfg)
+        val overrides = aisleOverridesOf(cfg)
         if (groups.isEmpty()) {
             println("[${cfg.id}] no grocery categories configured; nothing to fetch")
             return emptyList()
@@ -73,7 +74,7 @@ class VtexGrocerySource(
             var fetched = 0
             for (query in queries) {
                 fetched += walk(cfg, base, region, query, http) { product ->
-                    toGroceryDeal(product, base, cfg.currency, group)?.let { all.putIfAbsent(it.externalId, it) }
+                    toGroceryDeal(product, base, cfg.currency, group, overrides)?.let { all.putIfAbsent(it.externalId, it) }
                 }
             }
             println("[${cfg.id}] $path ($group) -> $fetched products" +
@@ -122,6 +123,35 @@ class VtexGrocerySource(
             val label = entry.substringAfter('=', "").trim().ifEmpty { path.substringAfterLast('/') }
             path to label
         }
+
+    /**
+     * `listOptions.aisleOverrides`: a store subcategory, by the name the store gives it, filed under a
+     * different aisle than the category it was crawled from -- `Carnes especiales = Meat & fish`.
+     *
+     * By name, not by path: the product's own category trail is already in every response, so this costs
+     * no request, and one entry reads the same at Exito ("Mercado > Charcutería y delicatessen > Carnes
+     * especiales") and Carulla ("Delicatessen > Carnes maduradas y curadas > Carnes especiales").
+     */
+    internal fun aisleOverridesOf(cfg: ProviderConfig): List<Pair<String, String>> =
+        cfg.list("aisleOverrides").mapNotNull { entry ->
+            val name = plain(entry.substringBefore('='))
+            val label = entry.substringAfter('=', "").trim()
+            if (name.isEmpty() || label.isEmpty()) null else name to label
+        }
+
+    /**
+     * The aisle for a product crawled under [group]: an override whose name is one of the levels of its
+     * [category] trail ("A > B > C"), else [group]. The deepest matching level wins, so a subcategory can
+     * be moved without its parent. Case and accents are ignored.
+     */
+    internal fun aisleFor(category: String?, group: String, overrides: List<Pair<String, String>>): String {
+        if (overrides.isEmpty() || category == null) return group
+        val byName = overrides.toMap()
+        return category.split('>').map(::plain).asReversed().firstNotNullOfOrNull { byName[it] } ?: group
+    }
+
+    private fun plain(text: String): String =
+        java.text.Normalizer.normalize(text.trim().lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
 
     /**
      * The category paths to page through for one configured path: itself if it fits under the page
@@ -228,7 +258,13 @@ class VtexGrocerySource(
     }
 
     /** The shelf price at this store, plus the pack size and the tab's subcategory. */
-    internal fun toGroceryDeal(product: VtexProduct, base: String, currency: String, group: String): RawDeal? {
+    internal fun toGroceryDeal(
+        product: VtexProduct,
+        base: String,
+        currency: String,
+        group: String,
+        overrides: List<Pair<String, String>> = emptyList(),
+    ): RawDeal? {
         val raw = vtex.toRawDeal(product, base, currency) ?: return null
         // The size of the SKU that was priced. Grocery products are single-SKU in practice, so the
         // first item is that SKU; were one not, the size would be a neighbour's and the title
@@ -238,7 +274,7 @@ class VtexGrocerySource(
         return raw.copy(
             unitMeasure = size?.measure,
             unitQuantity = size?.quantity,
-            groceryGroup = group,
+            groceryGroup = aisleFor(raw.category, group, overrides),
         )
     }
 

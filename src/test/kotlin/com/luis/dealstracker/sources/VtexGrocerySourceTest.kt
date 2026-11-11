@@ -88,4 +88,44 @@ class VtexGrocerySourceTest {
         assertEquals("g", deal.unitMeasure)
         assertEquals(0, BigDecimal(500).compareTo(deal.unitQuantity))
     }
+
+    private val meatOverride = listOf("carnes especiales" to "Meat & fish")
+
+    @Test
+    fun `a subcategory is filed under its override at both chains, whatever its case or accents`() {
+        assertEquals("Meat & fish", source.aisleFor("Mercado > Charcutería y delicatessen > Carnes especiales", "Deli", meatOverride))
+        assertEquals("Meat & fish", source.aisleFor("Delicatessen > Carnes maduradas y curadas > CARNES ESPECIALES", "Deli", meatOverride))
+        assertEquals("Deli", source.aisleFor("Mercado > Charcutería y delicatessen > Quesos especiales", "Deli", meatOverride))
+        assertEquals("Deli", source.aisleFor(null, "Deli", meatOverride), "no category trail: the crawled aisle stands")
+        assertEquals("Deli", source.aisleFor("Mercado > Carnes especiales importadas", "Deli", meatOverride), "a whole level, not part of one")
+    }
+
+    @Test
+    fun `the deepest matching level wins`() {
+        val both = listOf("charcuteria y delicatessen" to "Pantry", "carnes especiales" to "Meat & fish")
+        assertEquals("Meat & fish", source.aisleFor("Mercado > Charcutería y delicatessen > Carnes especiales", "Deli", both))
+        assertEquals("Pantry", source.aisleFor("Mercado > Charcutería y delicatessen > Quesos especiales", "Deli", both))
+    }
+
+    @Test
+    fun `overrides are read from config, and a malformed entry is skipped`() {
+        val cfg = ProviderConfig(
+            id = "exito-grocery", type = "vtex-grocery", baseUrl = "https://www.exito.com",
+            listOptions = mapOf("aisleOverrides" to listOf("Carnes Especiáles = Meat & fish", "no label", " = Deli")),
+        )
+        assertEquals(listOf("carnes especiales" to "Meat & fish"), source.aisleOverridesOf(cfg))
+    }
+
+    @Test
+    fun `a product in an overridden subcategory lands in the other aisle`() {
+        val raw = """
+            {"productId":"717985","productName":"Costilla de cerdo CASA BLANCA ahumada (450  gr)","linkText":"costilla-717985",
+             "categories":["/Mercado/Charcutería y delicatessen/Carnes especiales/","/Mercado/"],
+             "items":[{"itemId":"1","measurementUnit":"un","unitMultiplier":1,
+               "sellers":[{"sellerId":"1","commertialOffer":{"Price":21825,"ListPrice":29100,"AvailableQuantity":10000}}]}]}
+        """.trimIndent()
+        val product = json.decodeFromString<VtexProduct>(raw)
+        assertEquals("Meat & fish", source.toGroceryDeal(product, "https://www.exito.com", "COP", "Deli", meatOverride)!!.groceryGroup)
+        assertEquals("Deli", source.toGroceryDeal(product, "https://www.exito.com", "COP", "Deli")!!.groceryGroup)
+    }
 }
