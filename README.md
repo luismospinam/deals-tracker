@@ -1059,12 +1059,14 @@ pages fast. All three were measured on 2026-10-10: the feed took 6.0s and Grocer
 ./dt run --args="--prune-history"               # do it; --days=N overrides the cutoff
 ```
 
-Readings older than `pruneHistoryAfterDays` (14) that repeat the reading before them are deleted, keeping
+Readings older than `pruneHistoryAfterDays` (7 in `config/sources.yaml`; the code default is 14) that repeat the reading before them are deleted, keeping
 the first of each unchanged stretch. "Repeat" means the same price, list price, currency, card price,
 card percent, card scope **and set of promotions**; `stock_qty` is ignored. Never deleted: a deal's last
 reading, anything on a pinned item, and any reading where something changed. The app runs it every
-`pruneHistoryEveryDays` (7); the last run is in `app_settings.history_pruned_at`. The first run removed
-869,782 of 3.27M rows (26%); a dump was taken first (`backups/`, gitignored).
+`pruneHistoryEveryDays` (1 in the config, so a repeat lives about a week; the code default is 7); the last run is in `app_settings.history_pruned_at`. The first run removed
+869,782 of 3.27M rows (26%); a dump was taken first (`backups/`, gitignored). Moving the cutoff to 7
+days (2026-11-08), when readings had reached ~1.5M a week and 96% repeated the one before, removed
+1,187,578 of 3.29M (36%).
 
 Because days inside an unchanged stretch have no reading after pruning, the Groceries usual price
 (a median over days that *have* readings) weights a long flat stretch as one day. That was accepted.

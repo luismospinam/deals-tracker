@@ -126,6 +126,13 @@ defaults:
   # refusals or "STOPPED EARLY", step back to 7.
   shippingRecheckDays: 5
 
+  # Thinning repeated price readings (HistoryPruner). 7 days, down from the code default of 14, and every
+  # day rather than every 7 (2026-11-08): readings had grown to ~1.5M a week, 96% of them identical to the
+  # one before, and a weekly run at a 14-day cutoff let a repeat live up to 21 days. Daily at 7 keeps
+  # about a week of raw readings. Anything that changed, a deal's last reading and pinned items are kept.
+  pruneHistoryAfterDays: 7
+  pruneHistoryEveryDays: 1
+
 providers:
   - id: slickdeals
     type: rss-slickdeals
