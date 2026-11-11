@@ -513,13 +513,15 @@ fun main(args: Array<String>) {
                 )
             }.getOrDefault(false)
             if (due) {
-                lastAttempt = java.time.Instant.now()
-                withContext(Dispatchers.IO) {
+                val ran = withContext(Dispatchers.IO) {
                     runCatching {
                         println("[exito] renewing the login for the day")
                         com.luis.dealstracker.exito.ExitoSessionProbe(headless = true, save = exitoSettings, renew = true).run()
-                    }.onFailure { println("[exito] daily login renewal failed: ${it.message}") }
+                    }.onFailure { println("[exito] daily login renewal failed: ${it.message}") }.getOrDefault(true)
                 }
+                // A run turned away by a busy profile did nothing, so it is not an attempt: the next tick
+                // (15 minutes) tries again, not the next hour.
+                if (ran) lastAttempt = java.time.Instant.now()
             }
             delay(15 * 60_000L)
         }

@@ -110,12 +110,13 @@ class ExitoSessionProbe(
     private val renew: Boolean = false,
     private val now: () -> Instant = Instant::now,
 ) {
-    fun run() {
+    /** False when another run holds the profile and nothing was done, so the caller can try again soon. */
+    fun run(): Boolean {
         val profile = File(profileDir).apply { mkdirs() }
-        VerifySlot.tryWith(
+        return VerifySlot.tryWith(
             VerifySlot.lockFileFor(profile.path),
-            onBusy = { println("[exito] another run already holds ${profile.path}, which Chrome locks. Retry in a minute.") },
-        ) { if (openCartId != null) openCart(profile, openCartId) else read(profile) }
+            onBusy = { println("[exito] another run already holds ${profile.path}, which Chrome locks. Retry in a minute."); false },
+        ) { if (openCartId != null) openCart(profile, openCartId) else read(profile); true }
     }
 
     /**

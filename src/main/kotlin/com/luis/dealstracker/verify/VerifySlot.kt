@@ -7,7 +7,7 @@ import java.nio.channels.OverlappingFileLockException
 import java.util.concurrent.Semaphore
 
 /**
- * Admits one Amazon verification at a time — across threads *and* across processes.
+ * Admits one run per Chrome profile at a time — across threads *and* across processes.
  *
  * Chrome takes an exclusive lock on its `--user-data-dir`, so two verifications sharing
  * `.amazon-profile` cannot both run: the second Chrome hands off to the first instead of
@@ -32,7 +32,16 @@ object VerifySlot {
      * same JVM already holds raises [OverlappingFileLockException] rather than reporting
      * "busy". So in-process contention has to be settled before the file lock is reached.
      */
-    private val inProcess = Semaphore(1)
+    private val inProcess = java.util.concurrent.ConcurrentHashMap<String, Semaphore>()
+
+    /**
+     * One semaphore per lock file, so per Chrome profile. A single one for every profile made a long
+     * Amazon shipping run (`.amazon-profile`) read as "busy" to the Exito login renewal
+     * (`.exito-profile`), which shares nothing with it: on 2026-11-11 both of the day's renewals were
+     * turned away that way and the login expired.
+     */
+    private fun slotFor(lockFile: File): Semaphore =
+        inProcess.computeIfAbsent(runCatching { lockFile.canonicalPath }.getOrDefault(lockFile.absolutePath)) { Semaphore(1) }
 
     /**
      * Runs [block] if no other verification holds the slot, otherwise returns [onBusy].
@@ -41,7 +50,8 @@ object VerifySlot {
      * and the UI needs to render it as a message on the row.
      */
     fun <T> tryWith(lockFile: File, onBusy: () -> T, block: () -> T): T {
-        if (!inProcess.tryAcquire()) return onBusy()
+        val slot = slotFor(lockFile)
+        if (!slot.tryAcquire()) return onBusy()
         try {
             lockFile.parentFile?.mkdirs()
             // "rw" because a shared lock on a read-only channel is not exclusive, and this
@@ -65,7 +75,7 @@ object VerifySlot {
                 }
             }
         } finally {
-            inProcess.release()
+            slot.release()
         }
     }
 
