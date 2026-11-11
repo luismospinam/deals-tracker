@@ -277,6 +277,11 @@ data class Defaults(
      * (07:00-07:40), so it reads today's prices. A time slept through runs on waking. Empty turns it off.
      */
     val groceryAgentTimes: List<String> = listOf("08:15"),
+    /**
+     * Hours between reads of the Exito account's order history (`exito.ExitoOrderSync`, V43). A normal
+     * read is one request, so this is about how soon a new order shows, not load. 0 turns it off.
+     */
+    val exitoOrdersEveryHours: Int = 12,
     /** `claude --model` for the agents. Sonnet: it reads tool output well and an agent run is many turns. */
     val agentModel: String = "sonnet",
     /** `claude --effort` for the agents. Medium: a run weighs dozens of rows, unlike a one-line Ask answer. */

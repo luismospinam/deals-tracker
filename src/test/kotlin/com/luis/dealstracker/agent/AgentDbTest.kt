@@ -25,6 +25,7 @@ class AgentDbTest {
     @Test
     fun `the settings table, which holds the Exito login, is never readable`() {
         assertFalse("app_settings" in AGENT_READABLE_TABLES)
+        assertTrue("exito_orders" in AGENT_READABLE_TABLES && "exito_order_items" in AGENT_READABLE_TABLES)
         assertFalse(AgentDb.roleStatements("x").any { it.contains("app_settings") })
     }
 

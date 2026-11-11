@@ -26,6 +26,23 @@ internal data class DayPrice(val day: LocalDate, val price: BigDecimal, val card
 /** A purchase as the tools report it. */
 internal data class Purchase(val dealId: Long?, val source: String, val productId: String, val title: String, val quantity: Int, val unitPrice: BigDecimal?, val currency: String, val at: Instant)
 
+/**
+ * What was bought, from both records: the cart log (`purchases`) and the account's Exito orders (V43).
+ * An order line reads as a purchase of its tracked row, so a product's rhythm is one series whichever
+ * way it was bought. Cancelled orders are not purchases. A cart add and the order it became can both be
+ * here for a short while; [cadence] counts a day once, so the rhythm is unaffected.
+ */
+internal const val PURCHASES_AND_ORDERS = """
+    SELECT deal_id, source, product_id, title, quantity, unit_price, currency, bought_at FROM purchases
+    UNION ALL
+    SELECT i.deal_id, COALESCE(d.source, 'exito-grocery'), COALESCE(d.source_deal_id, i.product_id), i.title,
+           i.quantity, i.unit_price, o.currency, o.placed_at
+      FROM exito_order_items i
+      JOIN exito_orders o ON o.order_id = i.order_id
+      LEFT JOIN deals d ON d.id = i.deal_id
+     WHERE o.status <> 'canceled'
+"""
+
 /** How often a product is bought, from its purchase dates. */
 internal data class Cadence(val times: Int, val units: Int, val medianDaysBetween: Int?, val last: LocalDate, val daysSinceLast: Int) {
     /** Due when it has been at least the usual gap since the last one; unknown with one purchase. */
@@ -190,8 +207,8 @@ class AgentTools(
         },
         McpTool(
             "purchases",
-            "What the operator bought (from items added to the tracker's Exito cart), with each product's rhythm: " +
-                "times bought, median days between purchases, days since the last, and whether it is due. History started 2026-11-03, so early on most products have one purchase or none.",
+            "What the operator bought (the Exito account's orders, and items added to the tracker's Exito cart), with each product's rhythm: " +
+                "times bought, median days between purchases, days since the last, and whether it is due. The cart log started 2026-11-03 and orders go back as far as the account's history, so some products have one purchase or none.",
             listOf(
                 Param("days", "integer", "Look back this many days, 1-730, default 180"),
                 Param("query", "string", "Only products whose title contains this"),
@@ -224,7 +241,9 @@ class AgentTools(
             "Read-only SQL (PostgreSQL 16) for what the other tools do not answer. At most 500 rows, 10 s. Main tables: " +
                 "deals(id, source, title, brand, grocery_group, unit_measure g|ml|un, unit_quantity, match_key = barcode, pinned_at, is_active, usual_price, usual_low, currency); " +
                 "price_observations(deal_id, observed_at, price, list_price, card_price, card_scope) -- 3.3M rows, always filter by deal_id or a recent observed_at; " +
-                "purchases(deal_id, title, quantity, unit_price, bought_at); suggestions(kind, deal_id, title, reason, status, note, created_at); " +
+                "purchases(deal_id, title, quantity, unit_price, bought_at); " +
+                "exito_orders(order_id, placed_at, status, total, discounts_total, payment_names) and exito_order_items(order_id, deal_id, title, quantity, " +
+                "unit_price = paid per unit, store_price, list_price, tracked_price/tracked_card_price/tracked_usual = what the tracker had when it was ordered); suggestions(kind, deal_id, title, reason, status, note, created_at); " +
                 "promotions/observation_promotions (store promotions per reading); fetch_runs(source, started_at, item_count). " +
                 "Grocery sources: exito-grocery (Exito Laureles), exito-colombia-grocery, carulla-grocery, pricesmart-*-grocery. Times are UTC; the operator is in America/Bogota.",
             listOf(Param("query", "string", "One SELECT statement", required = true)),
@@ -303,7 +322,7 @@ class AgentTools(
 
     private fun loadPurchases(where: String, params: List<String>, days: Int): List<Purchase> = ds.connection.use { conn ->
         conn.prepareStatement(
-            "SELECT deal_id, source, product_id, title, quantity, unit_price, currency, bought_at FROM purchases " +
+            "SELECT deal_id, source, product_id, title, quantity, unit_price, currency, bought_at FROM ($PURCHASES_AND_ORDERS) p " +
                 "WHERE $where AND bought_at >= now() - make_interval(days => ?) ORDER BY bought_at",
         ).use { st ->
             params.forEachIndexed { i, p -> st.setString(i + 1, p) }
@@ -329,7 +348,7 @@ class AgentTools(
             listOfNotNull(query?.let { "%${it.lowercase().replace("%", "").replace("_", "")}%" }),
             days,
         )
-        if (list.isEmpty()) return "(no purchases recorded in the last $days days; the log started 2026-11-03)"
+        if (list.isEmpty()) return "(no purchases or orders recorded in the last $days days)"
         val today = LocalDate.now(zone)
         return buildString {
             appendLine("deal_id\ttitle\ttimes\tunits\tlast\tdays_since\tmedian_days_between\tdue\tlast_price")

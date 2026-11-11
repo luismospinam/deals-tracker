@@ -193,6 +193,13 @@ fun main(args: Array<String>) {
         return
     }
 
+    // Reads the Exito account's orders now instead of waiting for the next scheduled read.
+    if (args.contains("--sync-exito-orders")) {
+        println(kotlinx.coroutines.runBlocking { exitoOrderSync(app, http).sync() })
+        http.close()
+        return
+    }
+
     if (args.contains("--verify-co-shipping")) {
         val limit = args.firstOrNull { it.startsWith("--limit=") }?.substringAfter("=")?.toIntOrNull()
         val cfg = verifyConfig(app, headless = args.contains("--headless"))
@@ -577,6 +584,18 @@ fun main(args: Array<String>) {
         }
     }
 
+    // What was ordered: the account's own order history, which also sees orders placed from the phone
+    // app's cart. Starts a few minutes after boot, so a restart loop does not hammer the endpoint.
+    val exitoOrders = exitoOrderSync(app, http)
+    if (pollerEnabled) scope.launch {
+        delay(3 * 60_000L)
+        while (true) {
+            val hours = live().defaults.exitoOrdersEveryHours
+            if (hours > 0) runCatching { println(exitoOrders.sync()) }.onFailure { println("[exito-orders] failed: ${it.message}") }
+            delay((if (hours > 0) hours * 60L else 60L) * 60_000L)
+        }
+    }
+
     // The agents' window on the data: an MCP server on 127.0.0.1:8091 only, a port the Cloudflare tunnel
     // (which forwards 8080) does not reach, behind the token in .mcp-token. See agent.McpHttp.
     // The read-only role is set up only once the port is ours: a second copy (DEALS_HTTP_PORT=8081) finds
@@ -882,3 +901,12 @@ private fun initAppLanguage() {
         )
     }
 }
+
+/** The order reader, with every provider that sells from exito.com and the store each is priced at. */
+private fun exitoOrderSync(app: com.luis.dealstracker.config.AppConfig, http: com.luis.dealstracker.sources.PoliteHttp) =
+    com.luis.dealstracker.exito.ExitoOrderSync(
+        http,
+        SettingsRepository(Db.dataSource),
+        com.luis.dealstracker.exito.ExitoOrderRepository(Db.dataSource),
+        com.luis.dealstracker.exito.exitoStores(app.providers.map { Triple(it.id, it.baseUrl, it.options["regionSeller"]) }),
+    )

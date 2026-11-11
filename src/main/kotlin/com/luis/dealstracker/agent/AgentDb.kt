@@ -18,6 +18,7 @@ internal val AGENT_READABLE_TABLES = listOf(
     "deals", "price_observations", "observation_promotions", "promotions", "deal_specs", "site_banners",
     "manual_items", "watches", "watch_matches", "watch_hidden_deals", "watch_sourced_deals", "disabled_searches",
     "card_programs", "promo_reminders", "fetch_runs", "purchases", "suggestions", "agent_runs",
+    "exito_orders", "exito_order_items",
 )
 
 internal const val AGENT_ROLE = "deals_agent"
