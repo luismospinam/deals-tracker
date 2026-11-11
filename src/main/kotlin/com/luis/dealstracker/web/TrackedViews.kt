@@ -1191,6 +1191,29 @@ internal fun pinButtonFragment(id: Long, pinned: Boolean, variants: List<Long>, 
 internal fun isPinnedOrAdded(deal: Deal, manualAsins: Set<String>): Boolean =
     deal.pinnedAt != null || (deal.asin != null && deal.asin in manualAsins)
 
+/**
+ * How far [deal]'s price is over the lowest ever recorded for it, in percent; 0 at the lowest. Null
+ * with no history, or a price that was never higher than it is now -- the trap [Deal.isAtLowestEver]
+ * documents. The groceries' [overLowest] without its shelf check: a tracked row is always on sale.
+ */
+internal fun overLowestEver(deal: Deal): BigDecimal? {
+    val min = deal.minPriceEver?.takeIf { it.signum() > 0 } ?: return null
+    val max = deal.maxPriceEver ?: return null
+    if (max <= deal.price) return null
+    return deal.price.subtract(min).multiply(BigDecimal(100))
+        .divide(min, 1, java.math.RoundingMode.HALF_UP).max(BigDecimal.ZERO.setScale(1))
+}
+
+/** A tracked row's coloured edge: at its lowest ever, or within [NEAR_LOWEST_PERCENT] of it. Null otherwise. */
+internal fun trackedStanding(deal: Deal): PriceStanding? {
+    val over = overLowestEver(deal) ?: return null
+    return when {
+        over.signum() == 0 -> PriceStanding.LOWEST
+        over <= NEAR_LOWEST_PERCENT -> PriceStanding.NEAR
+        else -> null
+    }
+}
+
 private fun kotlinx.html.TBODY.trackedRow(
     deal: Deal,
     manualAsins: Set<String>,
@@ -1199,7 +1222,9 @@ private fun kotlinx.html.TBODY.trackedRow(
     // The size column's heading, or null where the column is left out.
     sizeLabel: String? = tr("Size", "Talla"),
 ) {
-    tr {
+    val standing = trackedStanding(deal)
+    // The groceries' coloured edge, same rule: solid green at the lowest ever, lighter within 5% of it.
+    tr(classes = standing?.let { "heat ${it.css}" }) {
         // htmx targets this to remove the row on hide.
         id = "tracked-${deal.id}"
         td(classes = "col-thumb") {
@@ -1339,6 +1364,15 @@ private fun kotlinx.html.TBODY.trackedRow(
                             (from ?: "un precio más alto"),
                     )
                     +tr("↓ lowest", "↓ mínimo")
+                }
+                standing == PriceStanding.NEAR -> span("lowbadge lowbadge-near") {
+                    val lowest = deal.minPriceEver?.let { formatMoney(it, deal.currency) }.orEmpty()
+                    val over = overLowestEver(deal)?.toPlainString()
+                    title = tr(
+                        "Within ${NEAR_LOWEST_PERCENT}% of its lowest recorded price, $lowest",
+                        "A menos de ${NEAR_LOWEST_PERCENT}% de su precio más bajo registrado, $lowest",
+                    )
+                    +tr("near +$over%", "cerca +$over%")
                 }
                 // Distinguishes "no evidence yet" from "seen higher prices, not at the low now".
                 deal.observationCount < 2 -> span("muted") { title = tr("Only one price check so far", "Solo una revisión de precio hasta ahora"); +"—" }

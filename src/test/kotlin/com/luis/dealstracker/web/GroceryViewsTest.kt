@@ -652,4 +652,178 @@ class GroceryViewsTest {
             com.luis.dealstracker.model.HeldCards.current = held
         }
     }
+
+    // ---- Pinned, grouped by aisle ----
+
+    private fun pinnedIn(group: String?, id: Long, title: String = "Item $id", price: String = "18000") =
+        row(id = id, title = title, price = price, pinned = true).copy(group = group)
+
+    private fun pinnedView(vararg extra: Pair<String, List<String>>) =
+        GroceryControls.from(parametersOf(*(arrayOf("view" to listOf("pinned")) + extra)))
+
+    private fun pinnedPage(rows: List<GroceryRow>, controls: GroceryControls = pinnedView()) =
+        createHTML().main { groceryPage(rows, listOf("Pantry" to rows.size), controls, listOf("carulla-grocery"), pinnedCount = rows.size) }
+
+    @Test
+    fun `aisles are ordered by how many pins they hold, then by name, with unaisled rows last`() {
+        val rows = listOf(pinnedIn(null, 1), pinnedIn("Pantry", 2), pinnedIn("Drinks", 3), pinnedIn("Drinks", 4), pinnedIn("Bakery", 5))
+        val aisles = pinnedAisles(rows)
+        assertEquals(listOf("Drinks", "Bakery", "Pantry", null), aisles.map { it.group })
+        assertEquals(listOf(2, 1, 1, 1), aisles.map { it.rows.size })
+    }
+
+    @Test
+    fun `rows keep the page's order inside their aisle`() {
+        val rows = listOf(pinnedIn("Drinks", 3, "Zumo"), pinnedIn("Pantry", 2), pinnedIn("Drinks", 4, "Agua"))
+        assertEquals(listOf(3L, 4L), pinnedAisles(rows).first().rows.map { it.deal.id })
+    }
+
+    @Test
+    fun `an aisle counts the pins that are a deal today, and not one that is off the shelf`() {
+        val deal = pinnedIn("Drinks", 1, price = "15000")
+        val ordinary = pinnedIn("Drinks", 2, price = "19500")
+        val gone = pinnedIn("Drinks", 3, price = "15000").copy(onShelf = false)
+        assertEquals(1, PinnedAisle("Drinks", listOf(deal, ordinary, gone)).underUsual)
+    }
+
+    @Test
+    fun `pinned opens grouped, one closed accordion per aisle with its count`() {
+        val html = pinnedPage(listOf(pinnedIn("Drinks", 1, price = "15000"), pinnedIn("Drinks", 2, price = "19500"), pinnedIn("Pantry", 3, price = "19500")))
+        assertEquals(2, Regex("<details class=\"aisle\"").findAll(html).count())
+        assertFalse(html.contains("<details class=\"aisle\" data-aisle=\"Drinks\" open"), "closed until asked for")
+        val drinks = html.substringAfter("data-aisle=\"Drinks\"").substringBefore("</summary>")
+        assertTrue(drinks.contains(">2</span>"), "the aisle's count")
+        assertTrue(drinks.contains("under usual"), "one of the two is a deal")
+        val pantry = html.substringAfter("data-aisle=\"Pantry\"").substringBefore("</summary>")
+        assertFalse(pantry.contains("under usual"), "no chip for an aisle with no deal")
+        assertTrue(html.contains("Open all"))
+        assertEquals(2, Regex("<table").findAll(html).count(), "a table per aisle")
+        assertEquals(1, Regex("class=\"typetags sorttags\"").findAll(html).count(), "sort chips once, not per aisle")
+    }
+
+    @Test
+    fun `a search opens the aisles it left and pins them open`() {
+        val html = pinnedPage(listOf(pinnedIn("Drinks", 1)), pinnedView("q" to listOf("item")))
+        assertTrue(html.contains("data-fixed=\"1\""))
+        assertTrue(Regex("<details class=\"aisle\"[^>]*open").containsMatchIn(html))
+        assertFalse(html.contains("aisles-all"), "nothing to open or close while a search holds them open")
+    }
+
+    @Test
+    fun `one list is the flat table, and the switch keeps the rest of the state`() {
+        val controls = pinnedView("list" to listOf("flat"), "store" to listOf("carulla"))
+        assertTrue(controls.flat)
+        assertFalse(controls.grouped)
+        val html = pinnedPage(listOf(pinnedIn("Drinks", 1), pinnedIn("Pantry", 2)), controls)
+        assertFalse(html.contains("<details class=\"aisle\""))
+        assertEquals(1, Regex("<table").findAll(html).count())
+        assertTrue(html.contains("/groceries?view=pinned&amp;store=carulla\""), "By aisle drops list=flat and keeps the store")
+        assertTrue(controls.url(sort = GrocerySort.PRICE).contains("list=flat"), "a sort stays in the flat list")
+    }
+
+    @Test
+    fun `grouping is Pinned's alone`() {
+        val all = GroceryControls.from(parametersOf("view" to listOf("all"), "list" to listOf("flat")))
+        assertFalse(all.flat, "the flag means nothing off Pinned")
+        assertFalse(all.grouped)
+        assertFalse(GroceryControls.from(parametersOf()).grouped)
+        val html = createHTML().main { groceryPage(listOf(row()), listOf("Pantry" to 1), all, listOf("carulla-grocery")) }
+        assertFalse(html.contains("class=\"aisle\"") || html.contains("listmode"))
+    }
+
+    @Test
+    fun `a row that is a deal is marked for the aisle's recount`() {
+        val html = pinnedPage(listOf(pinnedIn("Drinks", 1, price = "15000"), pinnedIn("Drinks", 2, price = "19500")))
+        assertEquals(1, Regex("data-under=\"1\"").findAll(html).count())
+    }
+
+    // ---- Where the price stands against the lowest ever ----
+
+    /** A row at [price] whose recorded prices ran from [min] to [max], with a usual price of 20,000. */
+    private fun standing(price: String, min: String?, max: String?, onShelf: Boolean = true, id: Long = 1) =
+        row(id = id, price = price, minEver = min, onShelf = onShelf, pinned = true).let { r ->
+            r.copy(deal = r.deal.copy(maxPriceEver = max?.let(::BigDecimal)))
+        }
+
+    @Test
+    fun `at the lowest price ever, having been higher, is the lowest`() {
+        val r = standing("15000", min = "15000", max = "20000")
+        assertEquals(0, BigDecimal.ZERO.compareTo(overLowest(r)))
+        assertEquals(PriceStanding.LOWEST, priceStanding(r))
+    }
+
+    @Test
+    fun `a price that was never higher is not at its lowest`() {
+        val flat = standing("18000", min = "18000", max = "18000")
+        assertNull(overLowest(flat), "its minimum is today's price, trivially")
+        assertNull(priceStanding(flat))
+        assertNull(overLowest(standing("18000", min = "18000", max = null)))
+        assertNull(overLowest(standing("18000", min = null, max = "20000")))
+    }
+
+    @Test
+    fun `within five percent of the lowest is near it, and just past is ordinary`() {
+        val near = standing("18900", min = "18000", max = "21000")
+        assertEquals(BigDecimal("5.0"), overLowest(near))
+        assertEquals(PriceStanding.NEAR, priceStanding(near))
+        val past = standing("18950", min = "18000", max = "21000")
+        assertEquals(BigDecimal("5.3"), overLowest(past))
+        assertNull(priceStanding(past))
+    }
+
+    @Test
+    fun `ten percent over its usual price is high, and cheap wins when both could be said`() {
+        assertEquals(PriceStanding.HIGH, priceStanding(standing("22000", min = "15000", max = "23000")))
+        assertNull(priceStanding(standing("21900", min = "15000", max = "23000")), "9.5% over usual is ordinary")
+        // 5% over its lowest and 10% over a usual of 20,000 at once: the lowest is the better news.
+        assertEquals(PriceStanding.NEAR, priceStanding(standing("22000", min = "21000", max = "25000")))
+    }
+
+    @Test
+    fun `a row off the shelf has no standing -- its price is the last one seen, not today's`() {
+        val gone = standing("15000", min = "15000", max = "20000", onShelf = false)
+        assertNull(overLowest(gone))
+        assertNull(priceStanding(gone))
+    }
+
+    @Test
+    fun `the row carries the edge class and says the standing under its price`() {
+        val html = pinnedPage(
+            listOf(
+                standing("15000", "15000", "20000", id = 1),
+                standing("18900", "18000", "21000", id = 2),
+                standing("22000", "15000", "23000", id = 3),
+                standing("19000", "15000", "23000", id = 4),
+            ),
+            pinnedView("list" to listOf("flat")),
+        )
+        assertTrue(html.contains("class=\"heat stand-lowest\""))
+        assertTrue(html.contains("lowest ever</span>"))
+        assertTrue(html.contains("class=\"heat stand-near\""))
+        assertTrue(html.contains("+5.0% over lowest"))
+        assertTrue(html.contains("class=\"heat stand-high\""))
+        assertTrue(html.contains("+10.0% over usual"))
+        assertEquals(3, Regex("class=\"stand\"").findAll(html).count(), "an ordinary price gets no chip")
+        assertEquals(1, Regex("data-low=\"1\"").findAll(html).count())
+    }
+
+    @Test
+    fun `vs lowest puts the closest to its lowest first, and rows with nothing to say last`() {
+        val rows = listOf(
+            standing("18000", "18000", "18000", id = 1),
+            standing("19000", "15000", "23000", id = 2),
+            standing("15000", "15000", "20000", id = 3),
+            standing("18900", "18000", "21000", id = 4),
+        )
+        assertEquals(listOf(3L, 4L, 2L, 1L), rows.sortedWith(groceryComparator(GrocerySort.LOWEST)).map { it.deal.id })
+        assertEquals(GrocerySort.LOWEST, GrocerySort.of("lowest", GroceryView.PINNED))
+    }
+
+    @Test
+    fun `an aisle's heading counts its pins at their lowest`() {
+        val rows = listOf(standing("15000", "15000", "20000", id = 1), standing("19000", "15000", "23000", id = 2)).map { it.copy(group = "Drinks") }
+        assertEquals(1, PinnedAisle("Drinks", rows).atLowest)
+        val summary = pinnedPage(rows).substringAfter("data-aisle=\"Drinks\"").substringBefore("</summary>")
+        assertTrue(summary.contains("<span class=\"aisle-low-n\">1</span> at lowest"))
+    }
 }

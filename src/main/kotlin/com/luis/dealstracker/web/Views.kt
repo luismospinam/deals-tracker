@@ -33,7 +33,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "96"
+private const val CSS_VERSION = "101"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -323,6 +323,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         script(src = "https://unpkg.com/htmx.org@1.9.12") {}
         script { unsafe { +CART_FEEDBACK_JS } }
         script { unsafe { +COUPON_COPY_JS } }
+        script { unsafe { +AISLE_JS } }
     }
     body {
         header {

@@ -769,4 +769,30 @@ class TrackedViewsTest {
         assertTrue("<caption class=\"sr-only\">Tracked items</caption>" in html, html.take(300))
         assertTrue(Regex("<th[^>]*col-act[^>]*aria-label=\"actions\"|<th[^>]*aria-label=\"actions\"[^>]*col-act").containsMatchIn(html))
     }
+
+    @Test
+    fun `a tracked row at its lowest ever, or within 5 percent of it, gets the coloured edge`() {
+        assertEquals(PriceStanding.LOWEST, trackedStanding(trackedDeal(price = "25.00", minEver = "25.00", maxEver = "40.00")))
+        assertEquals(PriceStanding.NEAR, trackedStanding(trackedDeal(price = "26.25", minEver = "25.00", maxEver = "40.00")))
+        assertEquals(null, trackedStanding(trackedDeal(price = "26.30", minEver = "25.00", maxEver = "40.00")))
+        // A price that never moved sits at its "lowest" trivially, and earns nothing.
+        assertEquals(null, trackedStanding(trackedDeal(price = "25.00", minEver = "25.00", maxEver = "25.00")))
+        assertEquals(null, trackedStanding(trackedDeal(price = "25.00")))
+    }
+
+    @Test
+    fun `the tracked table marks the row and says how far over the lowest it is`() {
+        val low = createHTML(prettyPrint = false).main {
+            trackedPage(listOf(trackedDeal(price = "25.00", minEver = "25.00", maxEver = "40.00")), listOf("amazon"))
+        }
+        assertTrue("heat stand-lowest" in low && "lowbadge" in low)
+        val near = createHTML(prettyPrint = false).main {
+            trackedPage(listOf(trackedDeal(price = "26.00", minEver = "25.00", maxEver = "40.00")), listOf("amazon"))
+        }
+        assertTrue("heat stand-near" in near && "near +4.0%" in near)
+        val plain = createHTML(prettyPrint = false).main {
+            trackedPage(listOf(trackedDeal(price = "30.00", minEver = "25.00", maxEver = "40.00")), listOf("amazon"))
+        }
+        assertFalse("stand-" in plain)
+    }
 }

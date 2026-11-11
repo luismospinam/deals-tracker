@@ -264,6 +264,31 @@ own Exito cart is read every 30 minutes and right after a cart-button add. A pro
 grows is logged as bought, and one taken out of the still-open cart is un-logged. Items added in Exito's
 phone app go to that app's own cart, which cannot be read, so they are not seen.
 
+**Exito orders** (`exito_orders`, `exito_order_items`, V43; `exito.ExitoOrderSync`). Every
+`exitoOrdersEveryHours` (12) the app reads the account's own order history from
+`https://tienda.exito.com/api/oms/user/orders`, with the login the cart button already holds. Orders belong
+to the account, not to a browser, so this also sees orders placed from the phone app. A normal read is
+one request; an order's detail is read only when it is new or its `lastChange` moved (a status, a
+substitution). `./dt run --args="--sync-exito-orders"` reads now.
+
+- **Each line keeps three prices from the order**: `unit_price` (paid, after discounts), `store_price`
+  (the shelf price) and `list_price`. The sum of `unit_price * quantity` is the order's total.
+- **And what the tracker had at that moment**: the line's tracked row (`deal_id`), its latest reading
+  when the order was placed (`tracked_price`, `tracked_card_price`) and its usual price then
+  (`tracked_usual`, the Groceries definition). Orders from before a product was tracked have none.
+- **A line is matched to the row of the store that sold it** (the item's seller is the store's
+  `regionSeller`), then to any Exito row with its product id, then by barcode. Never to another retailer.
+- **Weighed goods**: `unit_price` is per pack (`unit_multiplier` of a kg), while `store_price`,
+  `list_price` and the tracked prices are per kg. Grapes at 9,980/kg in a 0.5 kg pack paid 3,493.
+- **No personal data is stored.** The order document also carries the address, the account holder's name
+  and the card's digits; the parser reads none of them. `payment_names` ("Mastercard") is kept.
+- **Only `tienda.exito.com` answers**; `www.exito.com` returns 404 for the same path.
+
+The agents' `purchases` tool reads the cart log and these orders as one series (cancelled orders left
+out), and both tables are readable through `sql`. Placing an order empties the tracker's cart without
+changing its id, which the cart log reads as everything being taken out, so on its own it ended up empty
+after each order; the orders are what keeps the bought items.
+
 **The grocery agent** (`agent.GroceryAgent`, `agent.AgentRunner`) runs daily at `groceryAgentTimes`
 (08:15, after the morning crawl). A morning the Mac slept through runs on waking. It runs `claude -p` on
 the Claude Code login, so it uses plan usage and needs no API key: Sonnet, medium effort, a US$1.00 cap
@@ -764,6 +789,40 @@ keeps a staple that Laureles stopped stocking, greyed out as `unavailable`. Unpi
 removes the row immediately. Pins use their own column
 (`pinned_at`, V16) rather than a `DealState`, so it never overwrites a hide (and since V33 the feed pins the same way). Pins
 send no alerts.
+
+**Pinned is grouped by aisle**, one accordion per aisle, closed until opened: with ~180 pins the flat
+list was a long scroll to one product. Each heading gives the aisle's pin count and how many are a
+deal today, so the bargains a closed list would hide are still announced. The aisle with the most pins
+comes first, the page's sort applies inside each aisle, and nothing is paged. A search opens the aisles
+it left. Which aisles are open is remembered in the browser (`localStorage`), so a pin, a sort or a
+reload does not close them. **One list** (`?list=flat`) is the earlier ranked list across every aisle.
+Deals and All items are not grouped.
+
+### Where the price stands
+
+Every grocery row, on all three views, says how today's shelf price sits against its own history
+(`priceStanding` in `GroceryViews.kt`): a coloured left edge, and a chip under the price so the colour
+is never the only cue.
+
+| Standing | Rule | Edge | Chip |
+|---|---|---|---|
+| lowest | at the lowest price ever recorded, having been higher | green, full height | `lowest ever` |
+| near | within 5% of that lowest | soft green, half | `+3.2% over lowest` |
+| high | 10% or more over its usual price | amber, half | `+12.0% over usual` |
+
+- **"Having been higher" is required**, as for the feed's "lowest yet": a price that never moved sits at
+  its minimum trivially.
+- **The shelf price only**, like "vs usual": a one-day card price does not light a row up.
+- **Not for a row off the shelf**, whose price is the last one seen.
+- The **Lowest ever** header sorts by how close today's price is to it (`sort=lowest`), and each aisle
+  heading on Pinned counts its pins at their lowest.
+- **Tracked uses the lowest and near rules too** (`trackedStanding` in `TrackedViews.kt`): the same
+  edge, with the `↓ lowest` badge or a quieter `near +0.2%` in its Low column. It has no usual price,
+  so no amber.
+- **An aisle can be overridden per store subcategory**: `listOptions.aisleOverrides`, entries of
+  `Store's subcategory name = Aisle`, matched against the product's own category trail (deepest level
+  wins, accents and case ignored). Exito and Carulla file "Carnes especiales" under Charcutería; the
+  override sends it to Meat & fish. It costs no extra requests.
 
 ### Cadence
 

@@ -14,7 +14,10 @@ import com.luis.dealstracker.model.CardScope
 import com.luis.dealstracker.model.HeldCards
 import com.luis.dealstracker.model.formatMoney
 import io.ktor.http.encodeURLParameter
+import kotlinx.html.ButtonType
 import kotlinx.html.FlowContent
+import kotlinx.html.details
+import kotlinx.html.summary
 import kotlinx.html.InputType
 import kotlinx.html.MAIN
 import kotlinx.html.TBODY
@@ -286,6 +289,12 @@ internal enum class GrocerySort(val key: String, val label: String) {
      */
     RIVAL("rival", "vs other chain"),
 
+    /**
+     * Closest to its lowest price ever first, by [overLowest]: what is best bought now. Rows whose price
+     * has never been higher -- where "lowest" says nothing -- and rows off the shelf last.
+     */
+    LOWEST("lowest", "vs lowest"),
+
     /** Default on All items, where there is no deal to rank by. */
     NAME("name", "Item");
 
@@ -321,7 +330,15 @@ internal data class GroceryControls(
      * which store the row is from.
      */
     val buyAt: String? = null,
+    /**
+     * Pinned only: one list ranked across every aisle, as the page was before the aisles were grouped.
+     * Off by default, so Pinned opens grouped by aisle ([grouped]).
+     */
+    val flat: Boolean = false,
 ) {
+    /** Pinned shows its rows grouped by aisle, each aisle an accordion: see [pinnedAisles]. */
+    val grouped: Boolean get() = view == GroceryView.PINNED && !flat
+
     fun url(
         view: GroceryView = this.view,
         groups: Set<String> = this.groups,
@@ -330,6 +347,7 @@ internal data class GroceryControls(
         chains: Set<String> = this.chains,
         cartable: Boolean = this.cartable,
         buyAt: String? = this.buyAt,
+        flat: Boolean = this.flat,
         // Not carried over: changing the view, filter, search or sort starts again at page 1.
         page: Int = 1,
     ): String {
@@ -343,6 +361,7 @@ internal data class GroceryControls(
             if (sort != null && sort != GrocerySort.of(null, view)) add("sort=${sort.key}")
             if (cartable && view == GroceryView.PINNED) add("cart=1")
             if (buyAt != null && view == GroceryView.PINNED) add("buy=" + buyAt.encodeURLParameter())
+            if (flat && view == GroceryView.PINNED) add("list=flat")
             if (page > 1) add("page=$page")
         }
         return if (params.isEmpty()) "/groceries" else "/groceries?" + params.joinToString("&")
@@ -360,6 +379,7 @@ internal data class GroceryControls(
                 cartable = params["cart"] == "1" && view == GroceryView.PINNED,
                 page = params["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
                 buyAt = params["buy"]?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && view == GroceryView.PINNED },
+                flat = params["list"] == "flat" && view == GroceryView.PINNED,
             )
         }
     }
@@ -379,6 +399,73 @@ internal fun groceryShown(rows: List<GroceryRow>, controls: GroceryControls): Li
         .filter { controls.view != GroceryView.PINNED || !controls.cartable || cartCopy(it) != null }
         .filter { r -> controls.buyAt == null || r.bestBuy()?.first == controls.buyAt }
         .sortedWith(groceryComparator(controls.sort))
+
+/**
+ * Where today's shelf price stands against the item's own history: the row's coloured edge and the
+ * chip under its price.
+ */
+internal enum class PriceStanding(val css: String) {
+    /** At the lowest price ever recorded for it, having been higher. */
+    LOWEST("stand-lowest"),
+    /** Within [NEAR_LOWEST_PERCENT] of that lowest. */
+    NEAR("stand-near"),
+    /** At least [GroceryRow.DEAL_PERCENT] over its usual price: the mirror of a deal. */
+    HIGH("stand-high"),
+}
+
+/** "Close to its lowest" is within this many percent of it. */
+internal val NEAR_LOWEST_PERCENT: BigDecimal = BigDecimal(5)
+
+/**
+ * How far today's shelf price is over the lowest ever recorded, in percent; 0 at the lowest.
+ *
+ * Null when the lowest says nothing: off the shelf (the price is the last one seen, not today's), no
+ * history, or a price that was never higher than it is now -- every such row sits "at its lowest"
+ * trivially, the trap [com.luis.dealstracker.model.Deal.isAtLowestEver] documents. The shelf price only,
+ * as "vs usual" is: a one-day card price is not the item getting cheaper.
+ */
+internal fun overLowest(row: GroceryRow): BigDecimal? {
+    if (!row.onShelf) return null
+    val min = row.deal.minPriceEver?.takeIf { it.signum() > 0 } ?: return null
+    val max = row.deal.maxPriceEver ?: return null
+    if (max <= row.deal.price) return null
+    return row.deal.price.subtract(min).multiply(BigDecimal(100))
+        .divide(min, 1, java.math.RoundingMode.HALF_UP).max(BigDecimal.ZERO.setScale(1))
+}
+
+/** [row]'s standing today, or null for an ordinary price. Cheap wins over dear when both could be said. */
+internal fun priceStanding(row: GroceryRow): PriceStanding? {
+    val over = overLowest(row)
+    return when {
+        over != null && over.signum() == 0 -> PriceStanding.LOWEST
+        over != null && over <= NEAR_LOWEST_PERCENT -> PriceStanding.NEAR
+        row.onShelf && row.belowUsual?.let { it <= GroceryRow.DEAL_PERCENT.negate() } == true -> PriceStanding.HIGH
+        else -> null
+    }
+}
+
+/** One aisle of the Pinned list: its rows in the table's order. A null [group] is a row with no aisle. */
+internal data class PinnedAisle(val group: String?, val rows: List<GroceryRow>) {
+    /** How many are a deal today: what says whether the aisle is worth opening. */
+    val underUsual: Int get() = rows.count { it.onShelf && it.isDeal }
+
+    /** How many sit at their lowest price ever today. */
+    val atLowest: Int get() = rows.count { priceStanding(it) == PriceStanding.LOWEST }
+}
+
+/**
+ * [shown] split by aisle for Pinned's accordions. The aisle with the most pins comes first -- it is the
+ * one most often wanted -- then by name; rows with no aisle go last. Inside an aisle the rows keep the
+ * order [shown] has them in, so the page's sort applies within each aisle.
+ */
+internal fun pinnedAisles(shown: List<GroceryRow>): List<PinnedAisle> =
+    shown.groupBy { it.group }
+        .map { (group, rows) -> PinnedAisle(group, rows) }
+        .sortedWith(
+            compareBy<PinnedAisle> { it.group == null }
+                .thenByDescending { it.rows.size }
+                .thenBy { it.group?.let(::aisleLabel).orEmpty() },
+        )
 
 /** The rows a view holds before the page's own filters: what the shopping plan and rival lookup read. */
 internal fun groceryInView(rows: List<GroceryRow>, view: GroceryView): List<GroceryRow> = when (view) {
@@ -438,6 +525,9 @@ internal fun groceryComparator(sort: GrocerySort): Comparator<GroceryRow> = when
         .thenBy { it.deal.title }
     GrocerySort.PRICE -> compareBy<GroceryRow> { it.deal.price }.thenBy { it.deal.title }
     GrocerySort.RIVAL -> compareBy<GroceryRow> { it.rivalGap == null }.thenBy { it.rivalGap }.thenBy { it.deal.title }
+    GrocerySort.LOWEST -> compareBy<GroceryRow> { overLowest(it) == null }
+        .thenBy { overLowest(it) }
+        .thenBy { it.deal.title }
     GrocerySort.NAME -> compareBy<GroceryRow> { it.deal.title.lowercase() }.thenBy { it.deal.source }
 }
 
@@ -570,6 +660,7 @@ private fun MAIN.groceryBody(
             if (controls.chains.isNotEmpty()) put("store", controls.chains.sorted().joinToString(","))
             if (controls.cartable) put("cart", "1")
             controls.buyAt?.let { put("buy", it) }
+            if (controls.flat) put("list", "flat")
         },
     )
 
@@ -585,6 +676,7 @@ private fun MAIN.groceryBody(
     if (controls.view != GroceryView.PINNED) groupTags(groupCounts, controls)
 
     val shown = groceryShown(rows, controls)
+    if (controls.view == GroceryView.PINNED && shown.isNotEmpty()) listModeTags(controls)
     val young = rows.count { it.onShelf && it.days < GroceryRow.MIN_DAYS }
     div("tracked-count") {
         +tr("${shown.size} item(s)", "${shown.size} producto(s)")
@@ -636,13 +728,150 @@ private fun MAIN.groceryBody(
         return
     }
 
+    // Pinned, by aisle: every aisle listed, closed, and opened for the one item wanted. Not paged -- an
+    // aisle cut in two by a page break would hide half of it behind "next".
+    if (controls.grouped) {
+        grocerySortTags(controls)
+        aisleAccordions(pinnedAisles(shown), controls)
+        return
+    }
+
     // Paged for the browser's sake. All items can be ~15,000 rows; the count above is the real total.
     val pages = groceryPageCount(shown.size)
     val current = controls.page.coerceIn(1, pages)
     pager(controls, current, pages)
+    grocerySortTags(controls)
     groceryTable(groceryPageRows(shown, current), controls)
     pager(controls, current, pages)
 }
+
+/** Pinned's two layouts: grouped by aisle (the default) or one list ranked across all of them. */
+private fun FlowContent.listModeTags(controls: GroceryControls) {
+    div("typetags listmode") {
+        span("typetags-label") { +tr("List", "Lista") }
+        listOf(false to tr("By aisle", "Por pasillo"), true to tr("One list", "Una sola lista")).forEach { (flat, label) ->
+            val on = controls.flat == flat
+            a(classes = if (on) "typetag on" else "typetag", href = controls.url(flat = flat)) {
+                if (on) attributes["aria-current"] = "true"
+                +label
+            }
+        }
+    }
+}
+
+/**
+ * Pinned as one accordion per aisle. Each is a native `<details>`, closed until asked for, whose summary
+ * carries what decides whether to open it: how many pins it holds and how many are a deal today.
+ *
+ * A search opens every aisle it left -- the rows are the answer, and hiding them behind a click would
+ * make a search look empty. Those are marked `data-fixed` so that [AISLE_JS] neither closes them from
+ * memory nor remembers them as opened by hand.
+ */
+private fun FlowContent.aisleAccordions(aisles: List<PinnedAisle>, controls: GroceryControls) {
+    val searching = controls.search != null
+    div("aisles") {
+        if (!searching && aisles.size > 1) {
+            div("aisles-tools") {
+                button(classes = "aisles-all") {
+                    type = ButtonType.button
+                    attributes["data-open"] = tr("Open all", "Abrir todos")
+                    attributes["data-close"] = tr("Close all", "Cerrar todos")
+                    +tr("Open all", "Abrir todos")
+                }
+            }
+        }
+        aisles.forEach { aisle ->
+            details("aisle") {
+                attributes["data-aisle"] = aisle.group ?: "none"
+                if (searching) {
+                    attributes["open"] = "open"
+                    attributes["data-fixed"] = "1"
+                }
+                summary {
+                    span("aisle-name") { +(aisle.group?.let(::aisleLabel) ?: tr("No aisle", "Sin pasillo")) }
+                    span("aisle-n") {
+                        attributes["aria-label"] = tr("${aisle.rows.size} item(s)", "${aisle.rows.size} producto(s)")
+                        +aisle.rows.size.toString()
+                    }
+                    span("aisle-chips") {
+                        if (aisle.atLowest > 0) {
+                            span("chip stand-lowest-chip aisle-low") {
+                                title = tr("At their lowest shelf price ever today", "En su precio en góndola más bajo hoy")
+                                span("aisle-low-n") { +aisle.atLowest.toString() }
+                                +tr(" at lowest", " en mínimo")
+                            }
+                        }
+                        if (aisle.underUsual > 0) {
+                            span("chip chip-drop aisle-under") {
+                                title = tr(
+                                    "At least ${GroceryRow.DEAL_PERCENT}% under their usual price today",
+                                    "Al menos ${GroceryRow.DEAL_PERCENT}% por debajo de su precio habitual hoy",
+                                )
+                                span("aisle-under-n") { +aisle.underUsual.toString() }
+                                +tr(" under usual", " bajo lo habitual")
+                            }
+                        }
+                    }
+                }
+                groceryTable(aisle.rows, controls)
+            }
+        }
+    }
+}
+
+/**
+ * Pinned's aisles: remembers which were opened, so a pin, a sort or a reload does not close the list
+ * mid-shop; "Open all / Close all"; and after an unpin removes a row, the aisle's counts follow and an
+ * emptied aisle goes. Storage can be refused (a private window), so the page works without it.
+ */
+internal const val AISLE_JS = """
+(function () {
+  var KEY = 'dt.pinnedAisles';
+  function all() { return Array.prototype.slice.call(document.querySelectorAll('details.aisle')); }
+  function read() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+  function write(a) { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
+  function button() {
+    var b = document.querySelector('.aisles-all');
+    if (!b) return;
+    var open = all().some(function (d) { return d.open; });
+    b.textContent = open ? b.dataset.close : b.dataset.open;
+    b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function restore() {
+    var open = read();
+    all().forEach(function (d) { if (!d.dataset.fixed && open.indexOf(d.dataset.aisle) >= 0) d.open = true; });
+    button();
+  }
+  function recount() {
+    all().forEach(function (d) {
+      var n = d.querySelectorAll('tbody tr').length;
+      if (!n) { d.remove(); return; }
+      var c = d.querySelector('.aisle-n');
+      if (c) c.textContent = n;
+      ['under', 'low'].forEach(function (what) {
+        var u = d.querySelector('.aisle-' + what);
+        if (!u) return;
+        var k = d.querySelectorAll('tbody tr[data-' + what + ']').length;
+        if (k) u.querySelector('.aisle-' + what + '-n').textContent = k; else u.remove();
+      });
+    });
+  }
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d.matches || !d.matches('details.aisle')) return;
+    if (!d.dataset.fixed) write(all().filter(function (x) { return x.open; }).map(function (x) { return x.dataset.aisle; }));
+    button();
+  }, true);
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.aisles-all');
+    if (!b) return;
+    var open = all().some(function (d) { return d.open; });
+    all().forEach(function (d) { d.open = !open; });
+  });
+  document.addEventListener('htmx:afterSwap', recount);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore); else restore();
+})();
+"""
 
 /** Rows per page of the grocery table. */
 internal const val GROCERY_PAGE_SIZE = 500
@@ -721,7 +950,8 @@ private fun MAIN.groupTags(groupCounts: List<Pair<String, Int>>, controls: Groce
     }
 }
 
-private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryControls) {
+/** The phone's sort chips. Once per page, above the table or the aisles, not once per aisle. */
+private fun FlowContent.grocerySortTags(controls: GroceryControls) {
     // Same orderings as the column headers, in their left-to-right order. "vs usual" is only
     // meaningful once there is history, but it is offered on every view, as its header is.
     sortTags(
@@ -732,8 +962,12 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
             tr("Store %", "% tienda") to GrocerySort.STORE, tr("vs usual", "vs habitual") to GrocerySort.BELOW,
             tr("Card + store", "Tarjeta + tienda") to GrocerySort.CARD_STORE,
             tr("Card vs usual", "Tarjeta vs habitual") to GrocerySort.CARD_USUAL,
+            tr("vs lowest", "vs mínimo") to GrocerySort.LOWEST,
         ).map { (label, sort) -> SortOption(label, controls.url(sort = sort), controls.sort == sort) },
     )
+}
+
+private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryControls) {
     table("deals tracked grocery") {
             caption("sr-only") { +tr("Grocery items", "Productos de mercado") }
         thead {
@@ -804,15 +1038,15 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
                     title = tr("Cheapest daily price in the last 30 days, today excluded", "El precio diario más bajo de los últimos 30 días, sin contar hoy")
                     +tr("30d low", "Mín. 30d")
                 }
-                th(scope = ThScope.col, classes = "col-price") {
-                    title = tr(
+                sortableTh(
+                    tr("Lowest ever", "Mín. histórico"), GrocerySort.LOWEST, controls, "col-price",
+                    tr(
                         "Cheapest price ever recorded for this item at this store, today included. Old repeated readings are " +
-                            "thinned, but every distinct price is kept, so this is exact.",
+                            "thinned, but every distinct price is kept, so this is exact. Sorts by how close today's price is to it.",
                         "El precio más bajo registrado alguna vez para este producto en esta tienda, incluido hoy. Las lecturas " +
-                            "repetidas antiguas se reducen, pero cada precio distinto se conserva, así que es exacto.",
-                    )
-                    +tr("Lowest ever", "Mín. histórico")
-                }
+                            "repetidas antiguas se reducen, pero cada precio distinto se conserva, así que es exacto. Ordena por qué tan cerca está el precio de hoy.",
+                    ),
+                )
                 th(scope = ThScope.col, classes = "col-chg") {
                     title = tr("Earlier days of history the usual price rests on", "Días anteriores de historial en los que se basa el precio habitual")
                     +tr("Days", "Días")
@@ -821,6 +1055,33 @@ private fun FlowContent.groceryTable(rows: List<GroceryRow>, controls: GroceryCo
             }
         }
         tbody { rows.forEach { groceryRow(it, controls.view, split = splitByStore(controls), sort = controls.sort) } }
+    }
+}
+
+/**
+ * The words for a row's coloured edge, under its price: colour is never the only cue. Nothing for an
+ * ordinary price.
+ */
+private fun FlowContent.standingChip(row: GroceryRow, standing: PriceStanding?) {
+    if (standing == null) return
+    val lowest = row.deal.minPriceEver?.let { formatMoney(it, row.deal.currency) }.orEmpty()
+    div("stand") {
+        span("chip ${standing.css}-chip") {
+            when (standing) {
+                PriceStanding.LOWEST -> {
+                    title = tr("The lowest shelf price ever recorded for this item at this store", "El precio en góndola más bajo registrado para este producto en esta tienda")
+                    +tr("lowest ever", "mínimo histórico")
+                }
+                PriceStanding.NEAR -> {
+                    title = tr("Within ${NEAR_LOWEST_PERCENT}% of its lowest shelf price ever, $lowest", "A menos de ${NEAR_LOWEST_PERCENT}% de su precio en góndola más bajo, $lowest")
+                    +tr("+${overLowest(row)?.toPlainString()}% over lowest", "+${overLowest(row)?.toPlainString()}% sobre el mínimo")
+                }
+                PriceStanding.HIGH -> {
+                    title = tr("At least ${GroceryRow.DEAL_PERCENT}% over its usual price today", "Al menos ${GroceryRow.DEAL_PERCENT}% sobre su precio habitual hoy")
+                    +tr("+${row.belowUsual?.negate()?.toPlainString()}% over usual", "+${row.belowUsual?.negate()?.toPlainString()}% sobre lo habitual")
+                }
+            }
+        }
     }
 }
 
@@ -853,8 +1114,13 @@ internal fun TBODY.groceryRow(
     sort: GrocerySort? = null,
 ) {
     val deal = row.deal
-    tr(classes = if (row.onShelf) null else "paused") {
+    val standing = priceStanding(row)
+    // The feed's heat gutter, reused: the row's left edge says cheap or dear before a number is read.
+    tr(classes = listOfNotNull(if (row.onShelf) null else "paused", standing?.let { "heat ${it.css}" }).joinToString(" ").ifEmpty { null }) {
         id = "grocery-${deal.id}"
+        if (standing == PriceStanding.LOWEST) attributes["data-low"] = "1"
+        // Read by AISLE_JS when an unpin removes a row, to keep the aisle's "under usual" count true.
+        if (row.onShelf && row.isDeal) attributes["data-under"] = "1"
         td(classes = "col-thumb") {
             deal.imageUrl?.let { src ->
                 a(href = deal.url) {
@@ -917,6 +1183,7 @@ internal fun TBODY.groceryRow(
         td(classes = "col-price") {
             cardLabel(tr("Price", "Precio"))
             div("price") { +formatMoney(deal.price, deal.currency) }
+            standingChip(row, standing)
             cardChips(row.cardOffers, deal.currency)
         }
         td(classes = "col-price") {

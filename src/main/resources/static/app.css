@@ -2417,3 +2417,70 @@ a.sugg-title:hover { color: var(--accent); }
   .coupon-amz { padding-block: 5px; padding-inline: 10px; }
   .coupon-line { justify-content: flex-start; gap: 8px; }
 }
+
+/* Groceries > Pinned, grouped by aisle: one accordion per aisle, the watch digest's shape. Closed, a row
+ * says what is inside -- the aisle, how many pins, how many are a deal today -- so the list is nine lines
+ * to scan rather than 180 rows to scroll. */
+.listmode { margin-bottom: 10px; }
+.aisles-tools { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+.aisles-all {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.aisles-all:hover { border-color: var(--accent-line); color: var(--text); }
+.aisles-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.aisle { border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface); }
+details.aisle + details.aisle { margin-top: 8px; }
+details.aisle > summary {
+  display: flex; align-items: center; gap: 6px 12px;
+  padding: 12px 14px; cursor: pointer; list-style: none;
+}
+details.aisle > summary::-webkit-details-marker { display: none; }
+details.aisle > summary::before { content: "▸"; color: var(--text-faint); font-size: var(--fs-xs); width: 0.8em; }
+details.aisle[open] > summary::before { content: "▾"; color: var(--accent); }
+details.aisle > summary:hover .aisle-name { color: var(--accent); }
+details.aisle > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.aisle[open] > summary { border-bottom: 1px solid var(--line-soft); }
+.aisle-name { font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aisle-n { color: var(--text-faint); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+details.aisle > summary .aisle-chips { margin-left: auto; display: flex; gap: 6px; flex: none; white-space: nowrap; }
+details.aisle .deals { margin: 0; border: 0; }
+@media (max-width: 640px) {
+  /* The accordion is already the card: its rows go flat with a divider, not a card inside a card. */
+  details.aisle .deals tbody tr {
+    margin: 0; padding: 12px 14px; background: none;
+    border: 0; border-top: 1px solid var(--line-soft); border-radius: 0;
+  }
+  details.aisle .deals tbody tr:first-child { border-top: 0; }
+  details.aisle > summary { padding: 14px 12px; }
+}
+
+/* Inside an aisle the row's own aisle tag only repeats the heading above it. */
+details.aisle .meta .cat { display: none; }
+
+/* Groceries: where today's shelf price stands against the item's own history. The feed's heat gutter
+ * carries it down the row's left edge -- green at or near its lowest ever, amber when dear -- and a chip
+ * under the price says it in words, so the colour is never the only cue. A grocery row is three lines tall, so the bar
+ * is sized to the row -- all of it at the lowest, half for the weaker claims -- not the feed's fixed pixels. */
+.deals tbody tr.stand-lowest { --heat: var(--good); --heat-h: 100%; }
+.deals tbody tr.stand-near   { --heat: rgba(79, 191, 139, 0.55); --heat-h: 50%; }
+.deals tbody tr.stand-high   { --heat: var(--d-mid); --heat-h: 50%; }
+.stand { margin-top: 4px; }
+.stand-lowest-chip { color: #06281a; border-color: var(--good); background: var(--good); font-weight: 700; }
+.stand-near-chip   { color: var(--good); border-color: rgba(79, 191, 139, 0.45); background: rgba(79, 191, 139, 0.1); }
+.stand-high-chip   { color: var(--d-mid); border-color: rgba(217, 162, 39, 0.36); background: rgba(217, 162, 39, 0.13); }
+@media (max-width: 640px) {
+  /* Two chips and a long aisle name do not fit one line at 390px: the chips take the next one. */
+  details.aisle > summary { flex-wrap: wrap; }
+  details.aisle > summary .aisle-chips { margin-left: 1.4em; flex-basis: 100%; }
+}
+.aisle-chips:empty { display: none; }
+
+/* Tracked: within 5% of the lowest ever. The lowest badge, quieter -- outline only, regular weight. */
+.lowbadge-near { font-weight: 400; background: transparent; }
