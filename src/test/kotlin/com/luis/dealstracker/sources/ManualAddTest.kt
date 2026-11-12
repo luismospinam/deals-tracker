@@ -7,7 +7,9 @@ import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Adding a tracked item from a pasted URL.
@@ -179,5 +181,28 @@ class ManualAddTest {
             assertEquals(true, it.contains("Boxer Brief", ignoreCase = true))
         }
         assertEquals(true, AmazonParser.looksLikeProductPage(page))
+    }
+
+    @Test
+    fun `a share link is recognised, and a product link is not one`() {
+        listOf("https://a.co/d/0aEGysN7", "a.co/d/0aEGysN7", "https://amzn.to/3xYz", "https://www.amzn.com/dp-short")
+            .forEach { assertTrue(AmazonParser.isShortLink(it), "failed on $it") }
+        listOf("https://www.amazon.com/dp/B0F5G5T3WR", "https://example.co/d/abc", "a.co")
+            .forEach { assertFalse(AmazonParser.isShortLink(it), "failed on $it") }
+    }
+
+    @Test
+    fun `a share link is followed to the product it redirects to`() {
+        val hops = mapOf(
+            "https://a.co/d/0aEGysN7" to "https://www.amazon.com/dp/B0F5G5T3WR?psc=1&ref=cm_sw_r",
+            "https://amzn.to/two" to "/gp/redirect",
+            "https://amzn.to/gp/redirect" to "https://www.amazon.com/Some-Slug/dp/B074JLDHK3/",
+        )
+        val followed = com.luis.dealstracker.ingest.followShortLink("a.co/d/0aEGysN7") { hops[it] }
+        assertEquals("B0F5G5T3WR", AmazonParser.asinFromUrl(followed!!))
+        assertEquals("B074JLDHK3", AmazonParser.asinFromUrl(com.luis.dealstracker.ingest.followShortLink("https://amzn.to/two") { hops[it] }!!))
+        assertNull(com.luis.dealstracker.ingest.followShortLink("https://a.co/d/dead") { null })
+        // A loop of redirects that never names a product gives up.
+        assertNull(com.luis.dealstracker.ingest.followShortLink("https://a.co/d/loop") { "https://a.co/d/loop" })
     }
 }

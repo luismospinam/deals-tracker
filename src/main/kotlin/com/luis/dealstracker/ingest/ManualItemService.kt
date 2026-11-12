@@ -10,6 +10,7 @@ import com.luis.dealstracker.model.CoShipping
 import com.luis.dealstracker.model.RawDeal
 import com.luis.dealstracker.sources.PoliteHttp
 import com.luis.dealstracker.sources.amazon.AmazonFetcher
+import com.luis.dealstracker.sources.amazon.AmazonParser
 import com.luis.dealstracker.sources.amazon.AmazonSelectors
 import com.luis.dealstracker.sources.amazon.ManualItemFetcher
 
@@ -68,6 +69,8 @@ class ManualItemService(
             logPrefix = "manual",
         )
         try {
+            // A share link (a.co/d/...) names no ASIN; the page it redirects to does.
+            val url = if (AmazonParser.asinFromUrl(url) == null && AmazonParser.isShortLink(url)) resolve(url) ?: url else url
             val result = ManualItemFetcher(fetcher, AmazonSelectors.from(cfg), cfg.requireBaseUrl().trimEnd('/'))
                 .fetch(url, brand, productType)
 
@@ -108,6 +111,11 @@ class ManualItemService(
         } finally {
             fetcher.close()
         }
+    }
+
+    /** Where a share link leads, or null when it could not be followed. */
+    private suspend fun resolve(shortUrl: String): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching { followShortLink(shortUrl) }.getOrNull()
     }
 
     /** [ManualItemFetcher.describe] in [lang], for the notice shown after an add. */
@@ -220,4 +228,34 @@ class ManualItemService(
             deals.recordObservation(conn, upsert.dealId, raw)
         }
     }
+}
+
+/**
+ * Follows a share link's redirects, at most [maxHops], and returns the first address that names an
+ * ASIN. [locationOf] answers one address with its `Location` header (null when there is none); it is
+ * a parameter so the rule is tested without the network.
+ */
+internal fun followShortLink(
+    shortUrl: String,
+    maxHops: Int = 4,
+    locationOf: (String) -> String? = ::redirectLocation,
+): String? {
+    var current = shortUrl.trim().let { if (it.startsWith("http", ignoreCase = true)) it else "https://$it" }
+    repeat(maxHops) {
+        val next = locationOf(current) ?: return null
+        current = java.net.URI(current).resolve(next).toString()
+        if (AmazonParser.asinFromUrl(current) != null) return current
+    }
+    return null
+}
+
+private fun redirectLocation(url: String): String? {
+    val client = java.net.http.HttpClient.newBuilder()
+        .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
+        .connectTimeout(java.time.Duration.ofSeconds(10)).build()
+    val request = java.net.http.HttpRequest.newBuilder(java.net.URI(url))
+        .timeout(java.time.Duration.ofSeconds(15))
+        .header("User-Agent", "Mozilla/5.0").GET().build()
+    val response = client.send(request, java.net.http.HttpResponse.BodyHandlers.discarding())
+    return response.headers().firstValue("location").orElse(null)
 }

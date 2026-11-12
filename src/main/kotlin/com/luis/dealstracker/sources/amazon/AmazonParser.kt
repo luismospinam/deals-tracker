@@ -228,6 +228,14 @@ internal object AmazonParser {
             .find(url.trim())?.groupValues?.get(1)
 
     /**
+     * True for Amazon's share links (`https://a.co/d/0aEGysN7`, `amzn.to/...`), which carry no ASIN:
+     * the app's Share button produces them, and the product is only named by where they redirect.
+     */
+    fun isShortLink(url: String): Boolean =
+        Regex("""^(?:https?://)?(?:www\.)?(?:a\.co|amzn\.to|amzn\.com|amzn\.eu)/\S+""", RegexOption.IGNORE_CASE)
+            .matches(url.trim())
+
+    /**
      * The manufacturer, read from the byline.
      *
      * There is no dedicated brand element on a product page. `#bylineInfo` holds prose — "Visit the
