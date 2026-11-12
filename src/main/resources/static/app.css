@@ -2484,3 +2484,16 @@ details.aisle .meta .cat { display: none; }
 
 /* Tracked: within 5% of the lowest ever. The lowest badge, quieter -- outline only, regular weight. */
 .lowbadge-near { font-weight: 400; background: transparent; }
+
+/* The sign-in a remote visitor meets (web/TunnelGate.kt): one field, centred, nothing else to do. */
+.signin { max-width: 22rem; margin: 12vh auto 0; }
+.signin-lead { color: var(--text-dim); margin: 0 0 16px; }
+.signin-problem { color: var(--d-mid); margin: 0 0 12px; }
+.signin form { display: grid; gap: 8px; }
+.signin label { font-family: var(--mono); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+.signin input[type=password] {
+  padding: 10px 12px; font-size: 16px; /* 16px: iOS zooms the page on a smaller field */
+  background: var(--surface); border: 1px solid var(--line); color: var(--text);
+}
+.signin input[type=password]:focus-visible { outline: 2px solid var(--accent, #ff7a1a); outline-offset: 1px; }
+.signin button { padding: 10px 12px; margin-top: 4px; }

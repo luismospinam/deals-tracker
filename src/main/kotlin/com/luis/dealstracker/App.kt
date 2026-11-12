@@ -667,8 +667,13 @@ fun main(args: Array<String>) {
     // from here, so nothing on the Wi-Fi needs it. DEALS_HTTP_HOST=0.0.0.0 opens it again.
     val host = System.getenv("DEALS_HTTP_HOST")?.takeIf { it.isNotBlank() } ?: "127.0.0.1"
     println("[web] http://localhost:$port (listening on $host)")
+    // Anyone not on this Mac -- the tunnel, or the Wi-Fi if the host is opened -- signs in with DEALS_PASSCODE.
+    val gate = com.luis.dealstracker.web.TunnelGate(
+        com.luis.dealstracker.web.PasscodeSource(File(projectDir, ".env")),
+        com.luis.dealstracker.web.sessionSecret(File(projectDir, ".session-secret")),
+    )
     embeddedServer(Netty, host = host, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null, gate = gate)
     }.start(wait = true)
 }
 

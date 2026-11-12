@@ -73,6 +73,8 @@ fun Application.routes(
     dailyChanges: com.luis.dealstracker.db.DailyChangeRepository,
     exitoCart: com.luis.dealstracker.exito.ExitoCart,
     settings: SettingsRepository = SettingsRepository(com.luis.dealstracker.db.Db.dataSource),
+    /** The sign-in for requests that do not come from this Mac. Null only in tests that build the routes bare. */
+    gate: TunnelGate? = null,
     /** Backups and source health, for the Config tab. Null in a UI-only copy without the jobs. */
     ops: com.luis.dealstracker.ops.OpsJobs? = null,
     /** Re-read after a cart-button add, so the purchase is logged at the moment it was made. */
@@ -83,11 +85,14 @@ fun Application.routes(
 ) {
     // Read on every use: the Config tab changes it while the app runs (LiveConfig).
     val app: AppConfig by kotlin.properties.ReadOnlyProperty { _, _ -> LiveConfig.currentOr(bootApp) }
+    // First, before anything else looks at the request: nobody but this Mac gets in without a session.
+    gate?.install(this)
     // Every request runs in its own language, wherever its coroutine resumes: see I18n.element.
     intercept(io.ktor.server.application.ApplicationCallPipeline.Plugins) {
         kotlinx.coroutines.withContext(com.luis.dealstracker.i18n.I18n.element(call.lang)) { proceed() }
     }
     routing {
+        gate?.routes(this)
         configRoutes(settings, repo, ops, scope, agents)
         askRoutes(ask, repo, watches, manualItems, app, rates, groceries)
         languageRoute()

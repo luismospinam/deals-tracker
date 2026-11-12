@@ -25,6 +25,8 @@ local.properties
 # Runtime state
 # The MCP server's bearer token (agent.McpHttp): anyone holding it can read the database.
 .mcp-token
+# The signing secret for remote sign-in sessions (web/TunnelGate.kt).
+.session-secret
 logs/
 *.log
 .ml-token.json

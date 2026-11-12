@@ -250,6 +250,21 @@ The app serves its data to AI agents over **MCP** (Model Context Protocol) at
 The web UI and Postgres also listen on 127.0.0.1 only (`DEALS_HTTP_HOST=0.0.0.0` reopens the UI).
 The phone keeps working through the tunnel, which connects from this Mac.
 
+**Sign-in for anything that is not this Mac** (`web/TunnelGate.kt`). The tunnel's address is public, and
+the UI can change config, fill the Exito cart and spend the Claude plan, so a request that did not come
+from this machine needs a session:
+
+- Set `DEALS_PASSCODE` in `.env`. It is read when the file changes, so no restart. **Unset or blank
+  refuses every remote request** (HTTP 403) rather than letting it in.
+- A request is local only when its socket is loopback and it carries no `Cf-*` header; cloudflared runs
+  here, so tunnelled traffic is loopback too and the headers are what tell it apart. Local requests
+  (the browser on the Mac, `curl`, the watchdog) never see the sign-in.
+- The right passcode sets `dt_session` for 30 days: an expiry signed with `.session-secret` (created on
+  first boot, gitignored) and the passcode, so changing the passcode or deleting the file signs
+  everyone out.
+- Five wrong passcodes from one address, or fifty overall, lock the sign-in for 15 minutes.
+- Without a session only `/login` and `/static/` answer.
+
 To use the tools from your own Claude Code (run in this folder):
 
     claude mcp add --transport http deals http://127.0.0.1:8091/mcp \

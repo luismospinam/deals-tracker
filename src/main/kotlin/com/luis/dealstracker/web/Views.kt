@@ -33,7 +33,7 @@ import com.luis.dealstracker.i18n.tr
  */
 // 20: both sides of the develop merge edited app.css (relevance-score styling there, watch
 // tables and pager here), so this has to clear the highest either had reached.
-private const val CSS_VERSION = "101"
+internal const val CSS_VERSION = "103"
 
 /**
  * Which feed-shaped screen is being rendered.
@@ -72,7 +72,7 @@ enum class FeedScreen(
  * fallback for each family, so the page is fully usable offline — only the character of
  * the type is lost, not the layout.
  */
-private const val FONT_HREF = "https://fonts.googleapis.com/css2" +
+internal const val FONT_HREF = "https://fonts.googleapis.com/css2" +
     "?family=Archivo:wght@400..700" +
     "&family=IBM+Plex+Mono:wght@400;500;600;700" +
     "&family=Instrument+Serif:ital@0;1" +
