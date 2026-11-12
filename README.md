@@ -836,6 +836,10 @@ is never the only cue.
 - **Not for a row off the shelf**, whose price is the last one seen.
 - The **Lowest ever** header sorts by how close today's price is to it (`sort=lowest`), and each aisle
   heading on Pinned counts its pins at their lowest.
+- **Each row carries a 30-day price line** (`web/PriceTrend.kt`), under "30d low" on Groceries and
+  under "Change" on Tracked: the day's cheapest reading, drawn as steps and placed by date, with the dot
+  for today green at the line's low and amber at its high. Loaded for the rows on screen only
+  (`GroceryRepository.dailyPrices`); a row with under two days of history has none.
 - **Tracked uses the lowest and near rules too** (`trackedStanding` in `TrackedViews.kt`): the same
   edge, with the `↓ lowest` badge or a quieter `near +0.2%` in its Low column. It has no usual price,
   so no amber.

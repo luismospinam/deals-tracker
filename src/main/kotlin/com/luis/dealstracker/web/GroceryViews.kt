@@ -189,6 +189,16 @@ internal fun needsAllRivals(controls: GroceryControls): Boolean =
  * when [needsAllRivals]. Page-only by default because All items can hold ~15,000 rows -- a 0.3s lookup
  * for rows nobody is looking at.
  */
+/**
+ * The ids of the rows [controls] puts on screen: the page, or every row when Pinned is grouped by aisle
+ * (which is not paged). What the trend lines are loaded for.
+ */
+internal fun groceryVisibleIds(rows: List<GroceryRow>, controls: GroceryControls): List<Long> {
+    val shown = groceryShown(rows, controls)
+    val visible = if (controls.view == GroceryView.PINNED && controls.grouped) shown else groceryPageRows(shown, controls.page)
+    return visible.map { it.deal.id }
+}
+
 internal fun withRivalsFor(
     rows: List<GroceryRow>,
     controls: GroceryControls,
@@ -1238,6 +1248,7 @@ internal fun TBODY.groceryRow(
         td(classes = "col-price") {
             cardLabel(tr("30d low", "Mín. 30d"))
             row.low?.takeIf { row.days >= 1 }?.let { +formatMoney(it, deal.currency) } ?: span("muted") { +"—" }
+            priceTrend(deal.id, deal.currency)
         }
         td(classes = "col-price") {
             cardLabel(tr("Lowest ever", "Mín. histórico"))

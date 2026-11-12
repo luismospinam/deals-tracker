@@ -1395,6 +1395,7 @@ private fun kotlinx.html.TBODY.trackedRow(
         td(classes = "col-chg") {
             cardLabel(tr("Change", "Cambio"))
             changeCell(deal)
+            priceTrend(deal.id, deal.currency)
         }
 
         td(classes = "col-seen") {

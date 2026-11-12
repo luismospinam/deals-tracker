@@ -2497,3 +2497,24 @@ details.aisle .meta .cat { display: none; }
 }
 .signin input[type=password]:focus-visible { outline: 2px solid var(--accent, #ff7a1a); outline-offset: 1px; }
 .signin button { padding: 10px 12px; margin-top: 4px; }
+
+/* Laptop widths: the grocery and tracked tables ran 60-80px past a 1400px window, with the item name
+ * squeezed to ~140px. Three lines that refused to wrap were holding their columns wide; here they may.
+ * Above 1500px (main's max-width) there is room and they stay on one line. */
+@media (min-width: 641px) and (max-width: 1500px) {
+  .grocery .card-price, .grocery .store-rival, .grocery .store-alt { white-space: normal; }
+  .grocery .card-price { text-wrap: balance; }
+  /* The store's name tag: "PriceSmart Las Américas" alone held the Store column at 224px. */
+  .grocery td:nth-child(3) .size-chip { white-space: normal; }
+  /* Tracked's three buttons side by side took 287px; stacked, as the grocery rows already have them. */
+  .tracked:not(.grocery) .col-act .actions { flex-wrap: wrap; white-space: normal; gap: 6px; }
+  .tracked:not(.grocery) .col-act .actions > * { flex: 1 1 100%; margin-left: 0; text-align: center; }
+}
+
+/* The 30-day price line in a grocery or tracked row (web/PriceTrend.kt). Quiet: it is context for the
+ * numbers beside it. Only the dot for today's price takes a colour, and only at the line's low or high. */
+.trend { margin-top: 4px; line-height: 0; color: var(--text-faint); }
+.trend svg { display: inline-block; overflow: visible; }
+.trend-now { fill: var(--text-dim); }
+.trend-low .trend-now { fill: var(--good); }
+.trend-high .trend-now { fill: var(--d-mid); }

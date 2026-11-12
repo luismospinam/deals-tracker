@@ -382,7 +382,13 @@ fun Application.routes(
                 )
             }
 
+            val pageNo = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
+            // The trend line of each row on this page; a failure costs the lines, not the page.
+            val trends = withContext(Dispatchers.IO) {
+                runCatching { groceries.dailyPrices(trackedPageRows(shownRows, pageNo).map { it.id }) }.getOrDefault(emptyMap())
+            }
             call.respondPage {
+              PriceTrends.with(trends) {
                 page(tr("Tracked — Deals Tracker", "Seguimiento — Deals Tracker")) {
                     askPanel(
                         "tracked",
@@ -397,11 +403,12 @@ fun Application.routes(
                         searchToggles = searchToggles, searchesOpen = call.request.queryParameters["searches"] == "open",
                         freeShip = call.request.queryParameters["freeship"] == "1",
                         // A missing or garbled page is page 1; one past the end is clamped to the last.
-                        page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1,
+                        page = pageNo,
                         section = section,
                         sectionCounts = sectionCounts,
                     )
                 }
+              }
             }
         }
 
@@ -526,7 +533,10 @@ fun Application.routes(
                 )
             }
             val suggestionList = withContext(Dispatchers.IO) { runCatching { suggestions.open() }.getOrDefault(emptyList()) }
+            // The trend line of each row on screen; a failure costs the lines, not the page.
+            val trends = withContext(Dispatchers.IO) { runCatching { groceries.dailyPrices(groceryVisibleIds(rows, controls)) }.getOrDefault(emptyMap()) }
             call.respondPage {
+              PriceTrends.with(trends) {
                 page(tr("Groceries — Deals Tracker", "Mercado — Deals Tracker")) {
                     askPanel(
                         "groceries",
@@ -539,6 +549,7 @@ fun Application.routes(
                     suggestionsPanel(suggestionList)
                     groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
                 }
+              }
             }
         }
 
@@ -570,11 +581,12 @@ fun Application.routes(
                     }
                 }
             } ?: return@post call.respondText(tr("no such item", "no existe ese producto"), status = HttpStatusCode.NotFound)
+            val trends = withContext(Dispatchers.IO) { runCatching { groceries.dailyPrices(listOf(row.deal.id)) }.getOrDefault(emptyMap()) }
             call.respondFragment {
                 when {
                     fromDetail -> groceryDetailPinFragment(id, pinned)
                     view == GroceryView.PINNED && !pinned -> ""
-                    else -> groceryRowFragment(row, view, split)
+                    else -> PriceTrends.with(trends) { groceryRowFragment(row, view, split) }
                 }
             }
         }

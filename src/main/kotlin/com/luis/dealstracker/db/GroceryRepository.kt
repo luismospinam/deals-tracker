@@ -17,6 +17,9 @@ import javax.sql.DataSource
  * discounted), and not its mean, which one promotional day drags down with it. Today is excluded,
  * so a price cannot be compared against itself.
  */
+/** A listing's cheapest price on one day. */
+data class DayPrice(val day: java.time.LocalDate, val price: BigDecimal)
+
 data class GroceryRow(
     val deal: Deal,
     val size: UnitSize?,
@@ -351,6 +354,36 @@ class GroceryRepository(private val ds: DataSource) {
                 st.setArray(1, conn.createArrayOf("bigint", ids.toTypedArray()))
                 st.executeQuery().use { rs ->
                     buildMap { while (rs.next()) put(rs.getLong("id"), rs.getBigDecimal("usual") to rs.getInt("days")) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Each listing's cheapest price on each of the last [days] days it was read, today included, oldest
+     * first -- the points of a row's trend line. Days with no reading are simply absent. For the rows of
+     * one page, not a catalogue.
+     */
+    fun dailyPrices(ids: Collection<Long>, days: Int = 30): Map<Long, List<DayPrice>> {
+        if (ids.isEmpty()) return emptyMap()
+        return ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT deal_id, observed_at::date AS day, MIN(price) AS price
+                  FROM price_observations
+                 WHERE deal_id = ANY (?) AND observed_at >= current_date - ?
+                 GROUP BY 1, 2 ORDER BY 1, 2
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("bigint", ids.toTypedArray()))
+                st.setInt(2, days)
+                st.executeQuery().use { rs ->
+                    val out = mutableMapOf<Long, MutableList<DayPrice>>()
+                    while (rs.next()) {
+                        out.getOrPut(rs.getLong("deal_id")) { mutableListOf() } +=
+                            DayPrice(rs.getDate("day").toLocalDate(), rs.getBigDecimal("price"))
+                    }
+                    out
                 }
             }
         }
