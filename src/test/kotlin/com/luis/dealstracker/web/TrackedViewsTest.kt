@@ -795,4 +795,26 @@ class TrackedViewsTest {
         }
         assertFalse("stand-" in plain)
     }
+
+    @Test
+    fun `one photo under two addresses is one image`() {
+        val a = "https://m.media-amazon.com/images/I/61tmVv2TfFL._AC_UL320_.jpg"
+        val b = "https://m.media-amazon.com/images/I/61tmVv2TfFL._AC_AIweblab1378949,T2_SF320,320_PQ70_.jpg?aicid=productui-image-1"
+        assertEquals(imageKey(a), imageKey(b))
+        assertFalse(imageKey(a) == imageKey("https://m.media-amazon.com/images/I/71abcDEFghL._AC_UL320_.jpg"))
+        assertEquals("https://cdn.example.com/p/1.jpg", imageKey("https://cdn.example.com/p/1.jpg?w=320"))
+    }
+
+    @Test
+    fun `the same shoe under two ASINs and two image addresses is listed once, on the pinned row`() {
+        val stalePinned = trackedDeal("68.68", pinned = true, asin = "B0DSQT2HPV")
+            .copy(id = 1, imageUrl = "https://m.media-amazon.com/images/I/61tmVv2TfFL._AC_UL320_.jpg")
+        val fresh = trackedDeal("68.68", asin = "B0DSR2GKZQ").copy(
+            id = 2, lastSeenAt = Instant.EPOCH.plusSeconds(3600),
+            imageUrl = "https://m.media-amazon.com/images/I/61tmVv2TfFL._AC_AIweblab1378949,T2_SF320,320_PQ70_.jpg?aicid=productui-image-1",
+        )
+        val collapsed = collapseVariants(listOf(stalePinned, fresh), emptySet())
+        assertEquals(listOf(1L), collapsed.rows.map { it.id })
+        assertEquals(listOf(2L), collapsed.others[1L]?.map { it.id })
+    }
 }

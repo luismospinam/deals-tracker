@@ -1062,20 +1062,32 @@ internal data class CollapsedVariants(val rows: List<Deal>, val others: Map<Long
  * right child ASIN at ingest.
  *
  * Same source, title (which carries the size label) and image. The image is required: two products
- * can share a short title, but not a title and a photo. A row with no image never groups.
+ * can share a short title, but not a title and a photo. A row with no image never groups. The image
+ * is compared by [imageKey], not by address: Amazon serves one photo under several addresses.
  *
- * The row kept is: one added by URL (its ASIN is exact), then one not refused for Colombia, then the
- * most recently checked, since a variant the search stopped returning goes stale first.
+ * The row kept is: one added by URL (its ASIN is exact), then a pinned one (the pin was put on that
+ * row), then one not refused for Colombia, then the most recently checked, since a variant the
+ * search stopped returning goes stale first.
  */
+/**
+ * What identifies a photo, whatever address it is served under. Amazon appends the rendering to the
+ * image's id -- `61tmVv2TfFL._AC_UL320_.jpg` and `61tmVv2TfFL._AC_AIweblab1378949,T2_SF320,320_PQ70_.jpg?aicid=...`
+ * are one photo -- and which one a search returns changed over time, so the same shoe stopped
+ * grouping with its own earlier rows. Any other address is itself, less its query.
+ */
+internal fun imageKey(url: String): String =
+    Regex("""/images/I/([^./?]+)""").find(url)?.groupValues?.get(1) ?: url.substringBefore('?')
+
 internal fun collapseVariants(deals: List<Deal>, manualAsins: Set<String>): CollapsedVariants {
     val preference = compareByDescending<Deal> { it.asin != null && it.asin in manualAsins }
+        .thenByDescending { it.pinnedAt != null }
         .thenByDescending { it.coShipping != CoShipping.NO }
         .thenByDescending { it.lastSeenAt }
         .thenByDescending { it.id }
 
     val others = mutableMapOf<Long, List<Deal>>()
     val keep = mutableSetOf<Long>()
-    deals.groupBy { d -> d.imageUrl?.let { Triple(d.source, d.title.trim().lowercase(), it) } ?: d.id }
+    deals.groupBy { d -> d.imageUrl?.let { Triple(d.source, d.title.trim().lowercase(), imageKey(it)) } ?: d.id }
         .values
         .forEach { group ->
             val sorted = group.sortedWith(preference)
