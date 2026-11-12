@@ -1,7 +1,8 @@
 # Pinned-items-on-sale Discord posts
 
-Twice a day the app posts the **pinned** items that are currently on sale to Discord, one message per
-section (Groceries, Tracked), each to its own channel. Code: `notify/PinnedAlerts.kt`, `notify/Discord.kt`.
+The app posts the **pinned** items that are on sale to Discord, each section to its own channel.
+Groceries go twice a day, one card per item with a small picture beside it. Tracked items (clothes and electronics) go as soon as each is
+first seen on sale, one card per item with its picture. Code: `notify/PinnedAlerts.kt`, `notify/Discord.kt`.
 
 ## What counts as "on sale"
 
@@ -31,6 +32,22 @@ after the last grocery crawl window ends (18:45, `pricesmart-poblado-grocery`); 
 latest passed time is sent on wake (not each missed one). The last handled time is kept in `app_settings`
 (`pinned_alert_*_slot`), so a restart neither repeats nor skips a post. A failed send is retried on the
 next tick.
+
+**Tracked items do not wait for a time** (since 2026-11-11). Every 5-minute tick compares what is on
+sale with what was already announced (`tracked_alerts`, V44) and posts the new ones:
+
+- An item is announced once, and again only at a **lower price** than the one announced.
+- An announcement is forgotten **24 hours** after it was made if the item is off sale by then
+  (`ALERT_MEMORY`), so its next sale is announced again but a price hovering on the threshold is not.
+- Each item is a card: name linking to the store, price and why, size and brand, and the picture.
+  Up to ten cards per message.
+- `pinnedAlertTimes` and "off" do not affect it; only the missing webhook turns it off.
+- `--notify-pinned` posts everything on sale now, whatever was already announced.
+
+**Slickdeals posts about tracked items** go to the same channel, as blue cards (since 2026-11-12). A
+post counts when it carries the ASIN of a pinned or added tracked item (Slickdeals reads it off the
+Amazon link, so the match is exact) and is at most 7 days old (`POST_MAX_AGE`). The card shows the
+post's price against the tracked Amazon price. Announced once; again only if the post's price drops.
 
 ## Changing the rules
 

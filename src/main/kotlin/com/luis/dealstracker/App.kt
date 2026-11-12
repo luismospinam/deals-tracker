@@ -493,12 +493,14 @@ fun main(args: Array<String>) {
         }
     }
 
-    // The twice-daily Discord posts of pinned items that are on sale. Due-ness is the latest configured time
-    // already passed and not yet recorded in app_settings, so a restart neither repeats nor skips a post.
+    // The Discord posts of pinned items on sale. Groceries go at the configured times: due-ness is the latest
+    // time already passed and not yet recorded in app_settings, so a restart neither repeats nor skips a post.
+    // Tracked items are announced on the tick after they are first seen on sale (tracked_alerts, V44).
     if (pollerEnabled) scope.launch {
         val alerts = com.luis.dealstracker.notify.PinnedAlerts(
             app, repo, GroceryRepository(Db.dataSource), manualItems, SettingsRepository(Db.dataSource),
             timesFn = { live().defaults.pinnedAlertTimes },
+            trackedAlerts = com.luis.dealstracker.notify.TrackedAlertRepository(Db.dataSource),
         )
         while (true) {
             withContext(Dispatchers.IO) {

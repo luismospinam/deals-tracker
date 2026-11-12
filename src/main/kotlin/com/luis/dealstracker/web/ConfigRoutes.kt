@@ -273,7 +273,7 @@ private fun fieldText(key: String): Pair<String, String> = when (key) {
     "watchDigestTimes" -> tr("Watch digest at", "Resumen de búsquedas a las") to
         tr("One banner and Discord post for all watch alerts. \"off\" sends one per watch per cycle.", "Un aviso y un post de Discord para todas las alertas. \"off\" envía uno por búsqueda en cada ciclo.")
     "pinnedAlertTimes" -> tr("Pinned-on-sale posts at", "Posts de fijados en oferta a las") to
-        tr("Discord posts of pinned groceries and tracked items on sale. \"off\" sends none.", "Posts en Discord de fijados en oferta. \"off\" no envía ninguno.")
+        tr("Discord posts of pinned groceries on sale. \"off\" sends none. Tracked items are posted as soon as they go on sale, whatever this says.", "Posts en Discord de mercado fijado en oferta. \"off\" no envía ninguno. El seguimiento se publica apenas entra en oferta, sin importar este valor.")
     "pruneHistoryAfterDays" -> tr("Thin history older than (days)", "Adelgazar historial de más de (días)") to
         tr("Unchanged readings past this age are thinned; changes and pinned rows are kept. 0 turns it off.", "Las lecturas sin cambios más viejas se adelgazan; los cambios y los fijados se conservan. 0 lo apaga.")
     "pruneHistoryEveryDays" -> tr("Thin history every (days)", "Adelgazar historial cada (días)") to ""
