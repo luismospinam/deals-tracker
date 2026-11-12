@@ -282,6 +282,11 @@ substitution). `./dt run --args="--sync-exito-orders"` reads now.
   `list_price` and the tracked prices are per kg. Grapes at 9,980/kg in a 0.5 kg pack paid 3,493.
 - **No personal data is stored.** The order document also carries the address, the account holder's name
   and the card's digits; the parser reads none of them. `payment_names` ("Mastercard") is kept.
+- **The login behind it is renewed each morning without opening the shop**: one call to
+  `tienda.exito.com/api/vtexid/refreshtoken/webstore` from the signed-in profile, which exchanges the
+  30-day refresh token for a new 24-hour login. Loading `www.exito.com` headless ends at Cloudflare's
+  check page (both runs on 2026-11-12), so the page is only the fallback. A run that leaves the old
+  login in place posts once to the health channel.
 - **Only `tienda.exito.com` answers**; `www.exito.com` returns 404 for the same path.
 
 The agents' `purchases` tool reads the cart log and these orders as one series (cancelled orders left

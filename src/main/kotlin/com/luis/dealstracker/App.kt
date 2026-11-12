@@ -151,15 +151,14 @@ fun main(args: Array<String>) {
     val port = System.getenv("DEALS_HTTP_PORT")?.toIntOrNull() ?: app.defaults.httpPort
     val promoRepo = com.luis.dealstracker.promo.PromoRepository(Db.dataSource)
     runCatching { promoRepo.refresh() }.onFailure { println("[promo] load failed: ${it.message}") }
-    val ops = com.luis.dealstracker.ops.OpsJobs(
-        projectDir, repo, SettingsRepository(Db.dataSource), ::live,
-        alert = { title, body ->
-            com.luis.dealstracker.notify.Notifier.notify(title, body, openUrl = "http://localhost:$port/config#health", group = "ops")
-            (live().discordHealthWebhook ?: live().discordWatchesWebhook)?.let {
-                com.luis.dealstracker.notify.DiscordWebhook(it).send(title, com.luis.dealstracker.notify.fitDescription(body.lines()), "Deals Tracker · /config", color = 0xE67E22)
-            }
-        },
-    )
+    // Something is wrong and needs a person: a desktop notice and a post to the health channel.
+    val opsAlert: (String, String) -> Unit = { title, body ->
+        com.luis.dealstracker.notify.Notifier.notify(title, body, openUrl = "http://localhost:$port/config#health", group = "ops")
+        (live().discordHealthWebhook ?: live().discordWatchesWebhook)?.let {
+            com.luis.dealstracker.notify.DiscordWebhook(it).send(title, com.luis.dealstracker.notify.fitDescription(body.lines()), "Deals Tracker · /config", color = 0xE67E22)
+        }
+    }
+    val ops = com.luis.dealstracker.ops.OpsJobs(projectDir, repo, SettingsRepository(Db.dataSource), ::live, alert = opsAlert)
     val watchService = WatchService(
         watches, baseUrl = "http://localhost:$port", fx = rates::current,
         digest = { live().defaults.watchDigestTimes.isNotEmpty() },
@@ -515,6 +514,7 @@ fun main(args: Array<String>) {
     if (pollerEnabled) scope.launch {
         val exitoSettings = SettingsRepository(Db.dataSource)
         var lastAttempt: java.time.Instant? = null
+        var alertedOn: java.time.LocalDate? = null
         while (true) {
             val due = runCatching {
                 com.luis.dealstracker.exito.renewalDue(
@@ -530,7 +530,25 @@ fun main(args: Array<String>) {
                 }
                 // A run turned away by a busy profile did nothing, so it is not an attempt: the next tick
                 // (15 minutes) tries again, not the next hour.
-                if (ran) lastAttempt = java.time.Instant.now()
+                if (ran) {
+                    lastAttempt = java.time.Instant.now()
+                    // Said once a day, on the first run that leaves yesterday's login in place: found here, not
+                    // at the cart button. The hourly retries carry on quietly.
+                    val today = java.time.LocalDate.now()
+                    val stillOld = runCatching {
+                        com.luis.dealstracker.exito.renewalDue(java.time.Instant.now(), exitoSettings.get(SettingsRepository.EXITO_COOKIE), null, java.time.ZoneId.systemDefault())
+                    }.getOrDefault(false)
+                    if (stillOld && alertedOn != today) {
+                        alertedOn = today
+                        runCatching {
+                            opsAlert(
+                                "Exito login was not renewed",
+                                "The daily renewal ran and left the old login in place. The cart button and the order sync stop when it expires.\n" +
+                                    "Renew by hand: ./dt run --args=\"--exito-session --renew --save\" (a Chrome window opens; sign in if asked).",
+                            )
+                        }
+                    }
+                }
             }
             delay(15 * 60_000L)
         }

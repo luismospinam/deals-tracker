@@ -75,6 +75,29 @@ internal fun renewalDue(
     return issued == null || issued.atZone(zone).toLocalDate() != local.toLocalDate()
 }
 
+/**
+ * Whether [token] was just issued: a renewal's token runs 24 hours from the moment it is made, so one with
+ * under [margin] left is the old token, still in the profile because the refresh did nothing.
+ */
+internal fun isFullDay(token: String, now: Instant, margin: java.time.Duration = java.time.Duration.ofHours(23)): Boolean =
+    cookieExpiry(token)?.let { java.time.Duration.between(now, it) >= margin } ?: false
+
+/**
+ * Whether the account API takes [token]: one small read of the order history on the checkout host, sent the
+ * way the tracker sends it -- a plain request with the cookie, not through the browser, whose headless
+ * requests to the shop host Cloudflare refuses whatever the token.
+ */
+internal fun accountAccepts(token: String): Boolean = try {
+    val request = java.net.http.HttpRequest.newBuilder(java.net.URI("$EXITO_ORDERS_URL?page=1&per_page=1"))
+        .timeout(java.time.Duration.ofSeconds(20))
+        .header("Cookie", "$EXITO_COOKIE_NAME=$token")
+        .header("Accept", "application/json")
+        .GET().build()
+    java.net.http.HttpClient.newHttpClient().send(request, java.net.http.HttpResponse.BodyHandlers.discarding()).statusCode() == 200
+} catch (_: Exception) {
+    false
+}
+
 /** Stores the login token where the cart button reads it, leaving the saved cart id alone. */
 internal fun saveLogin(settings: SettingsRepository, token: String) {
     settings.set(mapOf(SettingsRepository.EXITO_COOKIE to token))
@@ -171,6 +194,10 @@ class ExitoSessionProbe(
                     ctx.clearCookies(BrowserContext.ClearCookiesOptions().setName(EXITO_COOKIE_NAME))
                     println("[exito] login token deleted from the profile; the refresh token (vid_rt) is left. Visiting to see if it is re-issued.")
                 }
+                // The daily renewal first, with no page loaded: Cloudflare stops a headless visit to the shop
+                // (both runs on 2026-11-12 ended at its check page), but the renewal is one API call to the
+                // sign-in host, which it lets through. The page route below stays as the fallback.
+                if (renew && !dropLoginFirst && renewWithoutPage(ctx)) return
                 val page = ctx.pages().firstOrNull() ?: ctx.newPage()
                 page.navigate("https://www.exito.com/")
                 page.waitForLoadState()
@@ -192,6 +219,29 @@ class ExitoSessionProbe(
                 ctx.close()
             }
         }
+    }
+
+    /**
+     * Renews from the refresh token without opening the shop, and saves the login when it is a new one that
+     * the cart API accepts. False when it did not get that far, so the caller falls back to the page.
+     */
+    private fun renewWithoutPage(ctx: BrowserContext): Boolean {
+        refreshLogin(ctx)
+        val token = loginTokenFrom(ctx.cookies().map { CookieRow(it.name, it.domain, it.value) })
+        if (token == null || !isFullDay(token, now())) {
+            println("[exito] the refresh left no new login token; trying through the shop's page instead")
+            return false
+        }
+        if (!accountAccepts(token)) {
+            println("[exito] the renewed token was refused by the account API; trying through the shop's page instead")
+            return false
+        }
+        println("[exito] renewed without loading the shop; the new login expires ${cookieExpiry(token)}")
+        if (save != null) {
+            saveLogin(save, token)
+            println("[exito] SAVED the login token (the saved cart id is untouched).")
+        }
+        return true
     }
 
     /**

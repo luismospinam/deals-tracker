@@ -102,4 +102,16 @@ class ExitoSessionTest {
         assertTrue(looksLikeBotWall("Attention Required! | Cloudflare"))
         assertFalse(looksLikeBotWall("Éxito - Compra en línea"))
     }
+
+    @Test
+    fun `only a token with a full day left counts as renewed`() {
+        val now = java.time.Instant.parse("2026-11-12T14:00:00Z")
+        fun token(exp: java.time.Instant): String {
+            val payload = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString("""{"exp":${exp.epochSecond}}""".toByteArray())
+            return "h.$payload.s"
+        }
+        assertTrue(isFullDay(token(now.plus(java.time.Duration.ofHours(24))), now))
+        assertFalse(isFullDay(token(now.plus(java.time.Duration.ofHours(9))), now), "yesterday's token, still in the profile")
+        assertFalse(isFullDay("not-a-token", now))
+    }
 }
