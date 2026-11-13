@@ -665,6 +665,43 @@ fun main(args: Array<String>) {
 
     // Bound to this Mac only. The phone reaches the app through the Cloudflare tunnel, which connects
     // from here, so nothing on the Wi-Fi needs it. DEALS_HTTP_HOST=0.0.0.0 opens it again.
+    // Pinned groceries are filed under an aisle by Claude, once each: every unfiled one shortly after
+    // boot (which is also how the pins made before V45 get theirs), then whenever something is pinned,
+    // and once a day for anything a failed call left behind. Never the unpinned shelf.
+    val groceryRepo = GroceryRepository(Db.dataSource)
+    val aisleCli = ClaudeCli(
+        executable = claudePath,
+        workDir = File(projectDir, "build/aisles"),
+        model = app.defaults.askModel,
+        effort = app.defaults.askEffort,
+        maxBudgetUsd = app.defaults.askMaxBudgetUsd,
+        systemPrompt = com.luis.dealstracker.ask.AISLE_SYSTEM_PROMPT,
+    )
+    val aisles = com.luis.dealstracker.ask.AisleClassifier(
+        pending = groceryRepo::unfiledPinned,
+        save = groceryRepo::saveAisles,
+        ask = { prompt ->
+            val text = StringBuilder()
+            val outcome = aisleCli.run(prompt, java.util.UUID.randomUUID().toString(), resume = false) { text.append(it) }
+            if (outcome.error != null) println("[aisles] claude failed: ${outcome.error}")
+            text.toString().takeIf { outcome.error == null && it.isNotBlank() }
+        },
+    )
+    val aislePins = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    scope.launch {
+        if (pollerEnabled) delay(60_000L) else aislePins.receive()
+        while (true) {
+            // A few seconds' grace, so pinning five things in a row is one question rather than five.
+            delay(15_000L)
+            withContext(Dispatchers.IO) {
+                runCatching { aisles.run() }
+                    .onSuccess { if (it.asked > 0) println("[aisles] asked about ${it.asked} pinned product(s): ${it.filed} row(s) filed, ${it.moved} moved to another aisle, ${it.failedBatches} failed call(s)") }
+                    .onFailure { println("[aisles] failed: ${it.message}") }
+            }
+            kotlinx.coroutines.withTimeoutOrNull(24 * 60 * 60_000L) { aislePins.receive() }
+        }
+    }
+
     val host = System.getenv("DEALS_HTTP_HOST")?.takeIf { it.isNotBlank() } ?: "127.0.0.1"
     println("[web] http://localhost:$port (listening on $host)")
     // Anyone not on this Mac -- the tunnel, or the Wi-Fi if the host is opened -- signs in with DEALS_PASSCODE.
@@ -673,7 +710,7 @@ fun main(args: Array<String>) {
         com.luis.dealstracker.web.sessionSecret(File(projectDir, ".session-secret")),
     )
     embeddedServer(Netty, host = host, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, GroceryRepository(Db.dataSource), disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null, gate = gate)
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, groceryRepo, disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null, gate = gate, onGroceryPinned = { aislePins.trySend(Unit) })
     }.start(wait = true)
 }
 

@@ -175,7 +175,7 @@ class GroceryRepository(private val ds: DataSource) {
         val where = mutableListOf("d.source = ANY (?)", "d.is_active OR d.pinned_at IS NOT NULL")
         val params = mutableListOf<Any>(filter.sources)
         if (filter.groups.isNotEmpty()) {
-            where += "d.grocery_group = ANY (?)"
+            where += "$AISLE = ANY (?)"
             params.add(filter.groups)
         }
         if (filter.pinnedOnly) where += "d.pinned_at IS NOT NULL"
@@ -196,7 +196,8 @@ class GroceryRepository(private val ds: DataSource) {
                    agg.min_price, agg.max_price, agg.n,
                    0.0 AS relevance,
                    hist.usual, hist.low, COALESCE(hist.days, 0) AS days,
-                   $ON_SHELF AS on_shelf
+                   $ON_SHELF AS on_shelf,
+                   $AISLE AS aisle
             FROM deals d
             LEFT JOIN shelf s ON s.source = d.source
             JOIN LATERAL (
@@ -232,7 +233,7 @@ class GroceryRepository(private val ds: DataSource) {
                                 GroceryRow(
                                     deal = rs.toDeal(),
                                     size = if (measure != null && quantity != null) UnitSize(measure, quantity) else null,
-                                    group = rs.getString("grocery_group"),
+                                    group = rs.getString("aisle"),
                                     pinnedAt = rs.getTimestamp("pinned_at")?.toInstant(),
                                     usual = rs.getBigDecimal("usual")?.setScale(2, RoundingMode.HALF_UP),
                                     low = rs.getBigDecimal("low"),
@@ -418,7 +419,7 @@ class GroceryRepository(private val ds: DataSource) {
         if (sources.isEmpty()) return emptyList()
         return ds.connection.use { conn ->
             conn.prepareStatement(
-                "SELECT grocery_group, count(DISTINCT merchant || ':' || source_deal_id) FROM deals " +
+                "SELECT $AISLE, count(DISTINCT merchant || ':' || source_deal_id) FROM deals d " +
                     "WHERE source = ANY (?) AND is_active AND grocery_group IS NOT NULL " +
                     "GROUP BY 1 ORDER BY 2 DESC, 1",
             ).use { st ->
@@ -498,6 +499,36 @@ class GroceryRepository(private val ds: DataSource) {
         }
     }
 
+    /**
+     * Pinned groceries nobody has filed yet (`aisle_ai` is null, V45): what [com.luis.dealstracker.ask.AisleClassifier]
+     * asks about. Unpinned rows are never returned, so the shelf's other ~27,000 products cost nothing.
+     */
+    fun unfiledPinned(): List<com.luis.dealstracker.ask.AisleItem> = ds.connection.use { conn ->
+        conn.prepareStatement(
+            "SELECT id, title, brand, category, grocery_group FROM deals " +
+                "WHERE pinned_at IS NOT NULL AND grocery_group IS NOT NULL AND aisle_ai IS NULL ORDER BY id",
+        ).use { st ->
+            st.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) add(
+                        com.luis.dealstracker.ask.AisleItem(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5)),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Files each row under the aisle chosen for it. Returns how many rows were written. */
+    fun saveAisles(aisles: Map<Long, String>): Int {
+        if (aisles.isEmpty()) return 0
+        return ds.connection.use { conn ->
+            conn.prepareStatement("UPDATE deals SET aisle_ai = ? WHERE id = ?").use { st ->
+                aisles.forEach { (id, aisle) -> st.setString(1, aisle); st.setLong(2, id); st.addBatch() }
+                st.executeBatch().sum()
+            }
+        }
+    }
+
     /** How many rows are pinned, for the Pinned tab's badge. */
     fun pinnedCount(sources: List<String>): Int {
         if (sources.isEmpty()) return 0
@@ -541,6 +572,12 @@ class GroceryRepository(private val ds: DataSource) {
         }
 
     companion object {
+        /**
+         * The aisle a row is shown under: the one chosen for it when it was pinned (`aisle_ai`, V45), else
+         * the one its store's category maps to. Needs `d`.
+         */
+        const val AISLE = "COALESCE(d.aisle_ai, d.grocery_group)"
+
         /** Days of history the usual price is taken over. */
         const val WINDOW_DAYS = 30
 

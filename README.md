@@ -847,6 +847,14 @@ is never the only cue.
   `Store's subcategory name = Aisle`, matched against the product's own category trail (deepest level
   wins, accents and case ignored). Exito and Carulla file "Carnes especiales" under Charcutería; the
   override sends it to Meat & fish. It costs no extra requests.
+- **Pinned items are filed by Claude, not by the store's category** (`ask/AisleClassifier.kt`). Exito
+  keeps biscuits under Despensa and breaded nuggets under Pollo, so the Pinned accordions put them in
+  Pantry and Meat & fish. Each pinned product is sent once to `claude -p` (title, brand, store category;
+  no tools, same login as the Ask panel) and the answer is kept in `deals.aisle_ai` (V45), which every
+  grocery screen reads ahead of `grocery_group`. Null there means "not asked yet": a pass runs a minute
+  after boot, about 15 seconds after any pin, and once a day for whatever a failed call left behind.
+  Only pinned rows are ever sent, the same title at two stores is asked once, and the answer stays if
+  the item is unpinned. To have a product asked again, set its `aisle_ai` back to null.
 
 ### Cadence
 

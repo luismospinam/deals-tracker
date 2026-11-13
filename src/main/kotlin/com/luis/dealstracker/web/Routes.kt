@@ -75,6 +75,8 @@ fun Application.routes(
     settings: SettingsRepository = SettingsRepository(com.luis.dealstracker.db.Db.dataSource),
     /** The sign-in for requests that do not come from this Mac. Null only in tests that build the routes bare. */
     gate: TunnelGate? = null,
+    /** Called after a grocery is pinned, so its aisle is chosen (ask.AisleClassifier). Must not block. */
+    onGroceryPinned: () -> Unit = {},
     /** Backups and source health, for the Config tab. Null in a UI-only copy without the jobs. */
     ops: com.luis.dealstracker.ops.OpsJobs? = null,
     /** Re-read after a cart-button add, so the purchase is logged at the moment it was made. */
@@ -581,6 +583,7 @@ fun Application.routes(
                     }
                 }
             } ?: return@post call.respondText(tr("no such item", "no existe ese producto"), status = HttpStatusCode.NotFound)
+            if (pinned) onGroceryPinned()
             val trends = withContext(Dispatchers.IO) { runCatching { groceries.dailyPrices(listOf(row.deal.id)) }.getOrDefault(emptyMap()) }
             call.respondFragment {
                 when {
@@ -606,6 +609,7 @@ fun Application.routes(
                 val dealId = suggestions.answer(id, answer, note)
                 if (answer == com.luis.dealstracker.agent.SuggestionAnswer.PIN && dealId != null) {
                     groceries.setPinned(dealId, true, grocerySources(app))
+                    onGroceryPinned()
                 }
             }
             call.respondFragment { suggestionAnswered(call.parameters["action"].orEmpty()) }
