@@ -24,6 +24,17 @@ echo
 echo "  project:  $PROJECT_DIR"
 echo "  logs:     logs/app.log, logs/watchdog.log"
 echo
+# macOS does not let a background job read ~/Documents, ~/Desktop or ~/Downloads unless the program
+# it runs has Full Disk Access. The job then exits 78 before writing a line to the log.
+case "$PROJECT_DIR" in
+    "$HOME/Documents"/*|"$HOME/Desktop"/*|"$HOME/Downloads"/*)
+        echo "NOTE: this project is under a folder macOS protects. If 'launchctl list | grep dealstracker'"
+        echo "      shows 78 in the middle column, give /bin/bash Full Disk Access (System Settings >"
+        echo "      Privacy & Security > Full Disk Access > +, then Cmd+Shift+G and type /bin/bash) and"
+        echo "      run this script again."
+        echo
+        ;;
+esac
 echo "check:      launchctl list | grep dealstracker"
 echo "restart:    launchctl kickstart -k gui/\$(id -u)/com.luis.dealstracker"
 echo "stop:       launchctl unload ~/Library/LaunchAgents/com.luis.dealstracker.plist"
