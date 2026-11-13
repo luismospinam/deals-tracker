@@ -856,6 +856,30 @@ is never the only cue.
   Only pinned rows are ever sent, the same title at two stores is asked once, and the answer stays if
   the item is unpinned. To have a product asked again, set its `aisle_ai` back to null.
 
+### Orders
+
+**Groceries > Orders** (`/groceries/orders`, `web/OrderViews.kt`) is the fourth button of the Groceries
+strip, not a tab of its own. It lists the Exito orders stored by `ExitoOrderSync` (V43), newest first,
+one accordion each, and compares every line with what the tracker knew when the order was placed:
+
+- **Shelf then**: the price without a card, as last read before the order (`tracked_price`). On a
+  phone it sits under Paid, and only where the two differ.
+- **Usual then**: the item's usual price on that day, stored with the line (`tracked_usual`).
+- **Lowest then**: the lowest price recorded up to the order, card prices included, read from
+  `price_observations` when the page loads.
+- **vs usual**: the percent and the money for the quantity bought. Fruit sold by the half kilo is
+  compared with half the per-kilo price (`unit_multiplier`).
+
+Each order's heading names how it was paid (`payment_names`: "Tarjeta Éxito y Carulla", "Mastercard",
+"Pago contra entrega"). The saving is split in two: **by timing** is usual minus shelf (the shelf price
+was low that day, whoever paid), **by card** is shelf minus paid. A line with no shelf reading counts
+wholly as timing.
+
+An order's saving and the totals at the top count only the lines that had a usual price, so an order
+from before the tracker read those items says "no price history" rather than "saved $0". Lines the
+tracker follows outside the grocery aisles (a fridge on the same account) are left out, and cancelled
+orders are not listed.
+
 ### Cadence
 
 Each grocery store is crawled inside daily **windows**, at a minute picked per store per day

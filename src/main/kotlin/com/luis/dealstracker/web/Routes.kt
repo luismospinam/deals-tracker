@@ -75,6 +75,10 @@ fun Application.routes(
     settings: SettingsRepository = SettingsRepository(com.luis.dealstracker.db.Db.dataSource),
     /** The sign-in for requests that do not come from this Mac. Null only in tests that build the routes bare. */
     gate: TunnelGate? = null,
+    /** The stored Exito orders, for Groceries > Orders. */
+    placedOrders: () -> List<com.luis.dealstracker.exito.PlacedOrder> = {
+        com.luis.dealstracker.exito.ExitoOrderRepository(com.luis.dealstracker.db.Db.dataSource).placed()
+    },
     /** Called after a grocery is pinned, so its aisle is chosen (ask.AisleClassifier). Must not block. */
     onGroceryPinned: () -> Unit = {},
     /** Backups and source health, for the Config tab. Null in a UI-only copy without the jobs. */
@@ -552,6 +556,18 @@ fun Application.routes(
                     groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
                 }
               }
+            }
+        }
+
+        // Groceries > Orders: a view of the Groceries tab, reached from its Deals / All items / Pinned strip.
+        get(ORDERS_PATH) {
+            val (orders, pinnedCount) = withContext(Dispatchers.IO) {
+                placedOrders() to groceries.pinnedCount(sourcesForChains(groceryStores(app), emptySet()))
+            }
+            call.respondPage {
+                page(tr("Orders — Groceries — Deals Tracker", "Pedidos — Mercado — Deals Tracker")) {
+                    groceryOrdersPage(orders, pinnedCount)
+                }
             }
         }
 

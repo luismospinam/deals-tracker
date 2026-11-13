@@ -585,6 +585,29 @@ internal fun MAIN.groceryPage(
     }
 }
 
+/**
+ * Deals / All items / Pinned / Orders. The same segmented control the feed uses for All deals / Pinned,
+ * so the two tabs read alike. Orders is a page of its own (`/groceries/orders`, [groceryOrdersPage]) but
+ * sits in this strip: it is another way of looking at the groceries, not another tab.
+ */
+internal fun FlowContent.groceryScopes(controls: GroceryControls, pinnedCount: Int, ordersOn: Boolean) {
+    div("scopes scopes-4") {
+        GroceryView.entries.forEach { v ->
+            val on = !ordersOn && v == controls.view
+            a(href = controls.url(view = v, sort = null, search = null), classes = if (on) "scope on" else "scope") {
+                if (on) attributes["aria-current"] = "page"
+                +v.display()
+                // Shown only when there are some, as on the feed: "Pinned 0" reads as a broken counter.
+                if (v == GroceryView.PINNED && pinnedCount > 0) span("scope-count") { +"$pinnedCount" }
+            }
+        }
+        a(href = ORDERS_PATH, classes = if (ordersOn) "scope on" else "scope") {
+            if (ordersOn) attributes["aria-current"] = "page"
+            +tr("Orders", "Pedidos")
+        }
+    }
+}
+
 private fun MAIN.groceryBody(
     rows: List<GroceryRow>,
     groupCounts: List<Pair<String, Int>>,
@@ -638,18 +661,7 @@ private fun MAIN.groceryBody(
         return
     }
 
-    // The same segmented control the feed uses for All deals / Pinned, so the two tabs read alike.
-    div("scopes") {
-        GroceryView.entries.forEach { v ->
-            val on = v == controls.view
-            a(href = controls.url(view = v, sort = null, search = null), classes = if (on) "scope on" else "scope") {
-                if (on) attributes["aria-current"] = "page"
-                +v.display()
-                // Shown only when there are some, as on the feed: "Pinned 0" reads as a broken counter.
-                if (v == GroceryView.PINNED && pinnedCount > 0) span("scope-count") { +"$pinnedCount" }
-            }
-        }
-    }
+    groceryScopes(controls, pinnedCount, ordersOn = false)
 
     // Shopping happens from the shopping list: the cart buttons and the link to the cart they fill live on
     // Pinned only, not on Deals or All items, where an item is being browsed rather than bought.

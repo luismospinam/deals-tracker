@@ -193,8 +193,86 @@ internal fun pickDeal(line: OrderLine, candidates: List<DealCandidate>, stores: 
 /** What the tracker had recorded for a row when an order was placed. */
 data class TrackedAt(val price: BigDecimal?, val listPrice: BigDecimal?, val cardPrice: BigDecimal?, val usual: BigDecimal?)
 
+/**
+ * One line of a stored order, with what the tracker knew when it was placed: the item's usual price
+ * (the median of the 30 days before) and the lowest price recorded up to that moment, card prices
+ * included -- most of these orders were paid with the store's card, so the shelf price alone would
+ * call nearly every line a record.
+ *
+ * [multiplier] is VTEX's `unitMultiplier`: 1 for a pack, 0.5 for fruit sold by the half kilo, where
+ * [unitPrice] is for that half kilo and the tracked prices are per kilo.
+ * [grocery] is false for a line the tracker follows outside the grocery aisles (a fridge, a TV).
+ */
+data class PlacedLine(
+    val title: String,
+    val quantity: Int,
+    val unitPrice: BigDecimal?,
+    val multiplier: BigDecimal = BigDecimal.ONE,
+    val dealId: Long? = null,
+    val usual: BigDecimal? = null,
+    val lowest: BigDecimal? = null,
+    val grocery: Boolean = true,
+    /** The shelf price, what anyone pays without a card, as last read before the order. */
+    val shelf: BigDecimal? = null,
+)
+
+data class PlacedOrder(
+    val orderId: String,
+    val placedAt: Instant,
+    val total: BigDecimal?,
+    val currency: String,
+    val payment: String?,
+    val lines: List<PlacedLine>,
+)
+
 /** The SQL around [ExitoOrderSync]; the rules above stay out of it. */
 class ExitoOrderRepository(private val ds: DataSource) {
+
+    /** Every stored order that was not cancelled, newest first, for the Groceries tab's Orders view. */
+    fun placed(): List<PlacedOrder> = ds.connection.use { conn ->
+        conn.prepareStatement(
+            """
+            SELECT o.order_id, o.placed_at, o.total, o.currency, o.payment_names,
+                   i.title, i.quantity, i.unit_price, COALESCE(i.unit_multiplier, 1) AS multiplier,
+                   i.deal_id, i.tracked_usual, i.tracked_price,
+                   (d.id IS NULL OR d.grocery_group IS NOT NULL) AS grocery,
+                   low.price AS lowest
+            FROM exito_orders o
+            JOIN exito_order_items i USING (order_id)
+            LEFT JOIN deals d ON d.id = i.deal_id
+            LEFT JOIN LATERAL (
+                SELECT min(LEAST(po.price, COALESCE(po.card_price, po.price))) AS price FROM price_observations po
+                WHERE po.deal_id = i.deal_id AND po.observed_at <= o.placed_at
+            ) low ON TRUE
+            WHERE o.status NOT ILIKE '%cancel%'
+            ORDER BY o.placed_at DESC, o.order_id, i.line
+            """.trimIndent(),
+        ).use { st ->
+            st.executeQuery().use { rs ->
+                val orders = LinkedHashMap<String, PlacedOrder>()
+                while (rs.next()) {
+                    val id = rs.getString("order_id")
+                    val line = PlacedLine(
+                        title = rs.getString("title"),
+                        quantity = rs.getInt("quantity"),
+                        unitPrice = rs.getBigDecimal("unit_price"),
+                        multiplier = rs.getBigDecimal("multiplier"),
+                        dealId = rs.getLong("deal_id").takeIf { !rs.wasNull() },
+                        usual = rs.getBigDecimal("tracked_usual"),
+                        lowest = rs.getBigDecimal("lowest"),
+                        grocery = rs.getBoolean("grocery"),
+                        shelf = rs.getBigDecimal("tracked_price"),
+                    )
+                    val order = orders[id] ?: PlacedOrder(
+                        id, rs.getTimestamp("placed_at").toInstant(), rs.getBigDecimal("total"),
+                        rs.getString("currency"), rs.getString("payment_names"), emptyList(),
+                    )
+                    orders[id] = order.copy(lines = order.lines + line)
+                }
+                orders.values.toList()
+            }
+        }
+    }
 
     /** The stored `last_change` of each of [orderIds] that is stored at all. */
     fun lastChanges(orderIds: List<String>): Map<String, Instant?> {

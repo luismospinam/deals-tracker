@@ -94,7 +94,7 @@ class ExitoCartViewsTest {
     fun `the open-cart link is under the Pinned tabs and absent from the other views`() {
         val pinned = page("pinned")
         assertTrue("/groceries/exito-cart/link" in pinned)
-        assertTrue(pinned.indexOf("class=\"scopes\"") < pinned.indexOf("/groceries/exito-cart/link"), "under the tabs")
+        assertTrue(pinned.indexOf("class=\"scopes scopes-4\"") < pinned.indexOf("/groceries/exito-cart/link"), "under the tabs")
         assertFalse("/groceries/exito-cart/link" in page(null))
         assertFalse("/groceries/exito-cart/link" in page("all"))
     }
