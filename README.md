@@ -1720,6 +1720,20 @@ paths are committed. It installs two jobs:
 Logs: `logs/app.log` and `logs/watchdog.log`. The watchdog cannot run while the Mac sleeps, so a
 sleep shows up as an alert on waking only if polling does not resume.
 
+### The tunnel
+
+The phone reaches the app through a Cloudflare quick tunnel, which needs no account but has a random
+`trycloudflare.com` address. Cloudflare can forget such a tunnel after a network outage; cloudflared
+then retries for ever with "Unauthorized: Tunnel not found" while looking healthy. `scripts/run-tunnel.sh`
+keeps it alive: it checks every minute, replaces a tunnel Cloudflare has forgotten (or a cloudflared
+that exited), and posts the new address to the health Discord channel. It is not a launchd job; start
+it by hand:
+
+    nohup caffeinate -i scripts/run-tunnel.sh > logs/tunnel-watch.log 2>&1 &
+
+A tunnel that is already up is adopted, so starting the script does not change the address.
+cloudflared's own output is `logs/tunnel.log`. The rules are tested by `scripts/test-tunnel.sh`.
+
 ## Secrets
 
 `.env` (Postgres password) and `local.properties` (MercadoLibre client secret) are
