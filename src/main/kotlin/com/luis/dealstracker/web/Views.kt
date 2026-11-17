@@ -347,12 +347,12 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             span("sub") { a(href = "/groceries") { +tr("groceries", "mercado") } }
             span("sub") { a(href = "/watches") { +tr("watches", "búsquedas") } }
             // Settings that used to need an editor and a restart: cards held, job times, sources paused.
-            span("sub") { a(href = "/config") { +tr("config", "configuración") } }
             // Holds the right rail apart from the nameplate, so the serif sits alone
             // instead of being crowded by the mono labels.
             div("masthead-gap") {}
             span("sub tagline") { +tr("local price monitor", "monitor local de precios") }
             languageSwitch()
+            configLink()
         }
         promoBanner(ActivePromos.current, today())
         main { block() }
@@ -360,6 +360,25 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         div { id = "toast"; attributes["aria-live"] = "polite" }
     }
 }
+
+/**
+ * Settings, as a gear at the right end of the masthead beside EN / ES rather than a sixth word among
+ * the tabs. The tabs are the screens you read; this is the one you adjust, and with Household added the
+ * six words no longer fit a phone on one line. The icon has no visible text, so the name is in
+ * `aria-label` and `title`.
+ */
+private fun HEADER.configLink() {
+    val name = tr("Config", "Configuración")
+    a(href = "/config", classes = "mast-config") {
+        attributes["aria-label"] = name
+        title = name
+        unsafe { +CONFIG_ICON_SVG }
+    }
+}
+
+/** A cog, drawn in the current text colour (Feather's "settings", MIT). */
+internal const val CONFIG_ICON_SVG =
+    """<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>"""
 
 /**
  * EN / ES in the masthead. Links, not a form: `/lang/es?back=<this page>` sets the cookie and comes

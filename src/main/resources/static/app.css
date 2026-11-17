@@ -191,6 +191,11 @@ header h1::after {
 .langsep { color: var(--text-faint); }
 .langswitch a { display: inline-block; padding: 4px 6px; }
 
+/* Config: a gear after EN / ES, not a word among the tabs. Sized by its padding, so the target is 33px
+ * on desktop without the icon growing. */
+.mast-config { display: inline-flex; align-items: center; padding: 8px; margin-right: -8px; color: var(--text-dim); border-radius: var(--radius-sm); }
+.mast-config:hover { color: var(--accent); }
+
 main { padding: 20px 22px 72px; max-width: 1500px; }
 
 /* ---------- scope row ----------
@@ -1752,14 +1757,18 @@ td .price-age { display: block; margin-top: 3px; }
   .more-grid input, .more-grid select { width: 100%; }
 
   .chip-tog, .typetag { padding-block: 7px; }
-  /* Two lines: the nameplate alone, then the four tabs with EN / ES at the right. On one line the
-   * switch was pushed off the edge. Wrapping is safe here, unlike on desktop, because cards have no
-   * sticky thead that has to sit exactly --header-h below the masthead. */
-  header { flex-wrap: wrap; height: auto; row-gap: 6px; padding-block: 10px 9px; }
-  header .masthead-gap { flex: 0 0 100%; height: 0; order: -1; }
-  header h1 { order: -2; }
-  header .langswitch { margin-left: auto; }
-  .langswitch a { padding: 6px 4px; }
+  /* Two lines: the nameplate with EN / ES and the config gear at its right, then the five tabs alone.
+   * The tabs get the whole second line, which is what lets all five fit a 390px phone; with the
+   * switch and a sixth word beside them they wrapped onto a third. Wrapping is safe here, unlike on
+   * desktop, because cards have no sticky thead that has to sit exactly --header-h below the masthead. */
+  header { flex-wrap: wrap; height: auto; row-gap: 2px; padding-block: 8px 5px; align-items: center; }
+  header h1 { order: -4; }
+  header .langswitch { order: -3; margin-left: auto; }
+  header .mast-config { order: -3; padding: 10px; margin-right: -10px; }
+  header .masthead-gap { flex: 0 0 100%; height: 0; order: -2; }
+  .langswitch a { padding: 8px 4px; }
+  /* The Spanish tabs are two letters longer than the English ones; a tighter gap keeps both on one line. */
+  header { column-gap: 9px; }
   .scopes { display: flex; }
   .scope { flex: 1; justify-content: center; padding: 10px 8px; }
 
@@ -2550,3 +2559,10 @@ details.order > summary .order-total { font-family: var(--mono); color: var(--te
   .order-table .col-lowest, .order-table .col-shelf { display: none; }
   .order-diff.order-shelf-sub { display: block; }
 }
+
+/* The smallest phones (360px): the five tabs fit one line only with the letters set closer. */
+@media (max-width: 380px) {
+  header { column-gap: 7px; }
+  header .sub { letter-spacing: 0.04em; }
+}
+
