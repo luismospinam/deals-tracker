@@ -517,6 +517,43 @@ class DealRepository(
 
     fun withTransaction(block: (Connection) -> Unit) = tx(block)
 
+    /**
+     * Active tracked clothes nobody has asked Claude about (`type_ai` is null, V46). Items added to the
+     * Electronics section are left out: they have no garment type. The caller keeps only the rows whose
+     * title names no type.
+     */
+    fun untypedTracked(sources: List<String>): List<com.luis.dealstracker.ask.AisleItem> =
+        if (sources.isEmpty()) emptyList() else ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT d.id, d.title, d.brand, d.category FROM deals d
+                 WHERE d.source = ANY (?) AND d.is_active AND d.type_ai IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM manual_items m WHERE m.asin = d.asin AND m.section = 'electronics')
+                 ORDER BY d.id
+                """.trimIndent(),
+            ).use { st ->
+                st.setArray(1, conn.createArrayOf("text", sources.toTypedArray()))
+                st.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(
+                            com.luis.dealstracker.ask.AisleItem(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), null),
+                        )
+                    }
+                }
+            }
+        }
+
+    /** Writes the type chosen for each row. Returns how many rows were written. */
+    fun saveTypes(types: Map<Long, String>): Int {
+        if (types.isEmpty()) return 0
+        return ds.connection.use { conn ->
+            conn.prepareStatement("UPDATE deals SET type_ai = ? WHERE id = ?").use { st ->
+                types.forEach { (id, type) -> st.setString(1, type); st.setLong(2, id); st.addBatch() }
+                st.executeBatch().sum()
+            }
+        }
+    }
+
     /** Every stored deal's raw category and title, for the `--recategorize` backfill. */
     fun allForCategorization(): List<Triple<Long, String?, String>> =
         ds.connection.use { conn ->
@@ -1569,6 +1606,7 @@ internal fun ResultSet.toDeal() = Deal(
     pinnedAt = getTimestamp("pinned_at")?.toInstant(),
     coShippingCheckedAt = getTimestamp("co_shipping_checked_at")?.toInstant(),
     pageValidAt = getTimestamp("page_valid_at")?.toInstant(),
+    typeAi = getString("type_ai"),
     // From the deal's own columns (V34), not an observation: every caller selects `d.*`.
     card = cardOfferOf(getBigDecimal("card_price"), getBigDecimal("card_percent"), getString("card_scope")),
     minCardPriceEver = getBigDecimal("obs_min_card_price"),

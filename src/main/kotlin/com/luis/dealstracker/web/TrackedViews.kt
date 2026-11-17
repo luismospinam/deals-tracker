@@ -154,10 +154,24 @@ internal enum class ProductType(val label: String, internal val nouns: List<Stri
          * size still says whether it is footwear, so that much is reported rather than discarded;
          * a letter size only says "a garment", which is not one of the buckets, so it stays OTHER.
          */
+        /**
+         * A stored row's type. The title decides when it names a garment; only when it names none
+         * ("Men's Tech 2.0 1/2 Zip", "Fleece Hoody") does the type Claude chose (`deals.type_ai`, V46)
+         * count, so a noun added to the lists later takes over from an old answer.
+         */
+        fun of(deal: Deal): ProductType =
+            of(deal.title).takeIf { it != OTHER }
+                ?: entries.firstOrNull { it.label == deal.typeAi }
+                ?: OTHER
+
         private fun fromSizeAlone(title: String): ProductType =
             if (sizeOf(title)?.firstOrNull()?.isDigit() == true) SHOES else OTHER
     }
 }
+
+/** The rows Claude is asked to type: those whose title names no garment and whose size is not a shoe's. */
+internal fun needingType(items: List<com.luis.dealstracker.ask.AisleItem>): List<com.luis.dealstracker.ask.AisleItem> =
+    items.filter { ProductType.of(it.title) == ProductType.OTHER }
 
 /**
  * How a tracked row got here: found by a search, or added by URL.
@@ -180,7 +194,10 @@ internal enum class TrackedOrigin(val label: String) {
      * pinned because adding one is already a deliberate "keep watching this", so making the operator
      * pin it a second time would only leave the list incomplete.
      */
-    PINNED("pinned");
+    PINNED("pinned"),
+
+    /** Rows first seen in the last [NEW_DAYS] days, however they came in: what the tab has started watching. */
+    NEW("new");
 
     /** The tag's text. [label] stays English because it is also the `origin=` URL value. */
     val display: String
@@ -188,6 +205,7 @@ internal enum class TrackedOrigin(val label: String) {
             MANUAL -> tr("added", "agregados")
             SEARCH -> tr("found", "encontrados")
             PINNED -> tr("pinned", "fijados")
+            NEW -> tr("new, last $NEW_DAYS days", "nuevos, últimos $NEW_DAYS días")
         }
 
     companion object {
@@ -195,6 +213,13 @@ internal enum class TrackedOrigin(val label: String) {
             entries.firstOrNull { it.label.equals(value?.trim(), ignoreCase = true) }
     }
 }
+
+/** How far back the "new" tag reaches. */
+internal const val NEW_DAYS = 5L
+
+/** Whether [deal] was first seen within [NEW_DAYS] days of [now]: the "new" tag's rule. */
+internal fun isNew(deal: Deal, now: java.time.Instant = java.time.Instant.now()): Boolean =
+    deal.firstSeenAt.isAfter(now.minus(java.time.Duration.ofDays(NEW_DAYS)))
 
 /** The section's name on the switch and in the add form. */
 internal val TrackedSection.display: String
@@ -400,7 +425,7 @@ private fun MAIN.searchesPanel(
     open: Boolean,
 ) {
     if (toggles.isEmpty()) return
-    val rowsByType = deals.groupingBy { ProductType.of(it.title) }.eachCount()
+    val rowsByType = deals.groupingBy { ProductType.of(it) }.eachCount()
     details("additem searches") {
         id = "searches"
         if (open) attributes["open"] = ""
@@ -594,7 +619,8 @@ private fun MAIN.brandPicker(
 }
 
 /**
- * "How it got here" tags: found by a search, or added by URL.
+ * "How it got here" tags: found by a search, or added by URL; the Pinned list; and "new", what was first
+ * seen in the last [NEW_DAYS] days, so a fresh batch from the searches can be looked over on its own.
  *
  * Tags rather than a dropdown, matching the type row: there are exactly two values and both fit.
  * Counted within the active brand for the same reason the type tags are — a tag that promises rows
@@ -617,6 +643,7 @@ private fun MAIN.originTags(
     val manual = inBrand.count { it.asin != null && it.asin in manualAsins }
     val found = inBrand.size - manual
     val pinned = inBrand.count { isPinnedOrAdded(it, manualAsins) }
+    val fresh = inBrand.count { isNew(it) }
 
     // Added and found only split when both exist; Pinned is offered as soon as there is anything on it,
     // since it is a list to go to rather than a way of slicing one.
@@ -626,6 +653,8 @@ private fun MAIN.originTags(
             add(TrackedOrigin.MANUAL to manual)
             add(TrackedOrigin.SEARCH to found)
         }
+        // Offered only when something is new, like Pinned: an empty "new" tag is a dead end.
+        if (fresh > 0) add(TrackedOrigin.NEW to fresh)
     }
     if (tags.isEmpty()) return
 
@@ -676,7 +705,7 @@ private fun MAIN.typeTags(
     val inBrand = deals.filter {
         brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase()
     }
-    val counts = inBrand.groupingBy { ProductType.of(it.title) }.eachCount()
+    val counts = inBrand.groupingBy { ProductType.of(it) }.eachCount()
 
     div("typetags") {
         span("typetags-label") { +tr("Type", "Tipo") }
@@ -1122,7 +1151,7 @@ internal fun withoutSwitchedOffSearches(
     val typesOff = toggles.groupBy { ProductType.of(it.second) }.filterValues { g -> g.none { it.third } }.keys
     return deals.filterNot { d ->
         if (d.asin != null && d.asin in manualAsins) return@filterNot false
-        val type = ProductType.of(d.title)
+        val type = ProductType.of(d)
         if (type in typesOff) return@filterNot true
         val brand = d.brand?.trim()?.lowercase() ?: return@filterNot false
         off.any { (b, t) -> brand == b && type == t }
@@ -1144,13 +1173,14 @@ internal fun trackedShown(
     sort: TrackedSort,
     showNoShip: Boolean = false,
     freeShip: Boolean = false,
+    now: java.time.Instant = java.time.Instant.now(),
 ): List<Deal> = deals
     // A verified "does not ship" is not a price worth watching, so it is hidden unless asked for.
     // Only a NO: an unchecked row stays, since it may well ship and hiding it would hide most of
     // the tab while the check catches up.
     .filter { showNoShip || it.coShipping != CoShipping.NO }
     .filter { !freeShip || it.freeShipToColombia }
-    .filter { selected.isEmpty() || ProductType.of(it.title) in selected }
+    .filter { selected.isEmpty() || ProductType.of(it) in selected }
     // Case-insensitive, for the same reason the picker groups that way: the stored casing
     // differs between a V12-backfilled row and a freshly fetched one.
     .filter { brand.isNullOrBlank() || it.brand?.trim()?.lowercase() == brand.trim().lowercase() }
@@ -1160,6 +1190,7 @@ internal fun trackedShown(
             TrackedOrigin.MANUAL -> it.asin != null && it.asin in manualAsins
             TrackedOrigin.SEARCH -> it.asin == null || it.asin !in manualAsins
             TrackedOrigin.PINNED -> isPinnedOrAdded(it, manualAsins)
+            TrackedOrigin.NEW -> isNew(it, now)
         }
     }
     .sortedWith(comparatorFor(sort))

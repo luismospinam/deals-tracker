@@ -308,6 +308,11 @@ data class Deal(
     /** When the retailer's own product page last gave a usable price (Amazon's page check). */
     val pageValidAt: Instant? = null,
     /**
+     * The garment type Claude chose for a tracked row whose title names none (V46): a `ProductType`
+     * label, `other` when it was asked and nothing fits, null when it was never asked.
+     */
+    val typeAi: String? = null,
+    /**
      * The latest reading's card-only price, kept on the deal by V34's trigger. Display only: no deal
      * rule reads it, since holding that particular card is not a given (see `V17__card_price`).
      */

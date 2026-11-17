@@ -53,6 +53,8 @@ class IngestService(
      * move a crawl window while the app runs (`LiveConfig`). Defaults to the boot-time [app].
      */
     private val liveApp: () -> AppConfig = { app },
+    /** Called after a provider's crawl is stored, before its run is marked finished. Must not throw. */
+    private val afterCrawl: (ProviderConfig) -> Unit = {},
 ) {
     private val app: AppConfig get() = liveApp()
 
@@ -193,6 +195,7 @@ class IngestService(
             val fetched = source.fetch(withWatchTerms(provider), app, http)
             val deals = applyAgeLimit(provider, applyCategoryExclusions(provider, applyExclusions(provider, fetched)))
             val report = ingest(provider, deals)
+            runCatching { afterCrawl(provider) }.onFailure { println("[${provider.id}] after-crawl step failed: ${it.message}") }
             repo.finishRun(runId, report.fetched, report.newDeals, null)
             println(report.summary())
             return report

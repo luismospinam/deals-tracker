@@ -262,6 +262,30 @@ class TrackedViewsTest {
         assertNull(TrackedOrigin.of(""))
     }
 
+    // --- new ---
+
+    @Test
+    fun `new lists what was first seen in the last five days, added or found`() {
+        val now = Instant.parse("2026-11-17T12:00:00Z")
+        val today = trackedDeal(price = "10", asin = "T1").copy(firstSeenAt = now.minusSeconds(3600))
+        val fourDays = trackedDeal(price = "20", asin = "A1").copy(firstSeenAt = now.minus(java.time.Duration.ofDays(4)))
+        val sixDays = trackedDeal(price = "30", asin = "O1").copy(firstSeenAt = now.minus(java.time.Duration.ofDays(6)))
+        val shown = trackedShown(
+            listOf(sixDays, fourDays, today), emptySet(), null, TrackedOrigin.NEW, setOf("A1"), TrackedSort.PRICE, now = now,
+        )
+        assertEquals(listOf("T1", "A1"), shown.map { it.asin }, "an added item counts too; one 6 days old does not")
+        assertTrue(isNew(today, now))
+        assertFalse(isNew(sixDays, now))
+        assertFalse(isNew(today.copy(firstSeenAt = now.minus(java.time.Duration.ofDays(NEW_DAYS))), now), "exactly five days is out")
+    }
+
+    @Test
+    fun `new parses from its label and says how far back it reaches, in both languages`() {
+        assertEquals(TrackedOrigin.NEW, TrackedOrigin.of("new"))
+        assertEquals("new, last 5 days", TrackedOrigin.NEW.display)
+        assertEquals("nuevos, últimos 5 días", com.luis.dealstracker.i18n.I18n.with(com.luis.dealstracker.i18n.Lang.ES) { TrackedOrigin.NEW.display })
+    }
+
     // --- pinned ---
 
     @Test
@@ -816,5 +840,47 @@ class TrackedViewsTest {
         val collapsed = collapseVariants(listOf(stalePinned, fresh), emptySet())
         assertEquals(listOf(1L), collapsed.rows.map { it.id })
         assertEquals(listOf(2L), collapsed.others[1L]?.map { it.id })
+    }
+
+    @Test
+    fun `a title that names no garment takes the type Claude chose`() {
+        val zip = trackedDeal("20.00").copy(title = "Men's Tech 2.0 1/2 Zip — M")
+        assertEquals(ProductType.OTHER, ProductType.of(zip), "not asked yet")
+        assertEquals(ProductType.HOODIES, ProductType.of(zip.copy(typeAi = "hoodies")))
+        assertEquals(ProductType.OTHER, ProductType.of(zip.copy(typeAi = "other")), "asked, nothing fits")
+        assertEquals(ProductType.OTHER, ProductType.of(zip.copy(typeAi = "socks")), "a name that is not a type is ignored")
+    }
+
+    @Test
+    fun `a title that names a garment keeps its type whatever Claude said`() {
+        val pants = trackedDeal("20.00").copy(title = "Men's Tiro 19 Track Pants — S", typeAi = "shirts")
+        assertEquals(ProductType.PANTS, ProductType.of(pants))
+    }
+
+    @Test
+    fun `the type tags count a row under the type Claude chose`() {
+        val typed = trackedDeal("20.00").copy(title = "Men's Tech 2.0 1/2 Zip — M", typeAi = "hoodies")
+        fun shown(type: ProductType) = trackedShown(listOf(typed), setOf(type), null, null, emptySet(), TrackedSort.DEFAULT)
+        assertEquals(listOf(typed), shown(ProductType.HOODIES))
+        assertEquals(emptyList(), shown(ProductType.OTHER))
+    }
+
+    @Test
+    fun `only rows with no garment in the title and no shoe size are sent to Claude`() {
+        fun item(id: Long, title: String) = com.luis.dealstracker.ask.AisleItem(id, title, "Nike", null, null)
+        val asked = needingType(
+            listOf(
+                item(1, "Men's Tech 2.0 1/2 Zip — M"),
+                item(2, "Men's Tiro 19 Track Pants — S"),
+                item(3, "Men's Pegasus 41 — 8"),
+                item(4, "Fleece Hoody — M"),
+            ),
+        )
+        assertEquals(listOf(1L, 4L), asked.map { it.id })
+    }
+
+    @Test
+    fun `the names Claude may answer with are the type tags`() {
+        assertEquals(ProductType.entries.map { it.label }, com.luis.dealstracker.ask.TRACKED_TYPES)
     }
 }

@@ -138,6 +138,8 @@ fun main(args: Array<String>) {
     val categorizer = Categorizer.load(projectDir)
     // Watch terms are injected rather than fetched by ingest, so a watch can steer what the
     // adapters go looking for without ingest knowing where watches are stored.
+    // Rung after a crawl of a tracked source; the loop that asks Claude for garment types listens.
+    val typeAsks = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     val ingest = IngestService(
         repo, registry, app, http, categorizer,
         liveApp = ::live,
@@ -699,6 +701,41 @@ fun main(args: Array<String>) {
                     .onFailure { println("[aisles] failed: ${it.message}") }
             }
             kotlinx.coroutines.withTimeoutOrNull(24 * 60 * 60_000L) { aislePins.receive() }
+        }
+    }
+
+    // Tracked clothes whose title names no garment get their type from Claude, once each: at boot for
+    // what is already there, then after every crawl of a tracked source.
+    val typeClassifier = run {
+        val cli = ClaudeCli(
+            executable = claudePath,
+            workDir = File(projectDir, "build/types"),
+            model = app.defaults.askModel,
+            effort = app.defaults.askEffort,
+            maxBudgetUsd = app.defaults.askMaxBudgetUsd,
+            systemPrompt = com.luis.dealstracker.ask.TYPE_SYSTEM_PROMPT,
+        )
+        com.luis.dealstracker.ask.AisleClassifier(
+            pending = { com.luis.dealstracker.web.needingType(repo.untypedTracked(trackingSources(live()))) },
+            save = repo::saveTypes,
+            ask = { question ->
+                val text = StringBuilder()
+                val outcome = cli.run(question, java.util.UUID.randomUUID().toString(), resume = false) { text.append(it) }
+                if (outcome.error != null) println("[types] claude failed: ${outcome.error}")
+                text.toString().takeIf { outcome.error == null && it.isNotBlank() }
+            },
+            aisles = com.luis.dealstracker.ask.TRACKED_TYPES,
+        )
+    }
+    scope.launch {
+        if (pollerEnabled) delay(90_000L) else typeAsks.receive()
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching { typeClassifier.run() }
+                    .onSuccess { if (it.asked > 0) println("[types] asked about ${it.asked} tracked item(s) with no type in the title: ${it.filed} row(s) filed, ${it.failedBatches} failed call(s)") }
+                    .onFailure { println("[types] failed: ${it.message}") }
+            }
+            typeAsks.receive()
         }
     }
 

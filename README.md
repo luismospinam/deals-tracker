@@ -507,6 +507,15 @@ The slickdeals provider's `excludeTitlePatterns` drop books (eBook, Kindle Editi
 audiobook, book sets) and movies (Blu-ray, DVD, Steelbook, "4K UHD + Digital", complete series). They
 match the format words, not the "Books & Media" category, which also holds TVs, pens and vinyl.
 
+### Types the title does not name
+
+The type tags (shoes, hoodies, boxers, pants, shirts, other) come from the nouns in the title. Amazon's
+search tiles truncate and abbreviate, so "Men's Tech 2.0 1/2 Zip" or "Mens Estro 19 JSY" names no
+garment and landed under `other`. Those rows are sent to Claude once each (`ask/TypeClassifier.kt`, at
+boot and after every crawl of a tracked source), and the answer is kept in `deals.type_ai` (V46).
+`other` is an answer too, so a title that says too little ("Men's Slim") is not asked about again. A
+title that does name a garment always wins over a stored answer.
+
 ## Watches — hunting one thing over weeks
 
 The feed answers "what is discounted?". A **watch** answers the question you actually have:
