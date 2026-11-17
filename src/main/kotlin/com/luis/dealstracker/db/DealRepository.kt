@@ -29,6 +29,14 @@ private const val NEARING_RETIREMENT =
 internal const val PINNED_RECHECK_DUE =
     "? > 0 AND d.pinned_at IS NOT NULL AND d.page_checked_at < now() - make_interval(hours => ?)"
 
+/**
+ * A row Amazon will not ship to Colombia is not read again unless it is pinned (2026-11-13). The tab hides
+ * those rows by default and a NO is never asked about twice, yet 133 of them were taking a page load every
+ * two days while the feed waited for its first check. Without page reads nothing vouches for the row, so
+ * `deactivateStale` retires it once the search stops returning it.
+ */
+internal const val WORTH_A_PAGE_READ = "(d.co_shipping <> 'NO' OR d.pinned_at IS NOT NULL)"
+
 data class UpsertResult(
     val dealId: Long,
     val isNew: Boolean,
@@ -1152,6 +1160,7 @@ class DealRepository(
                    AND NOT d.size_rejected
                    AND d.asin IS NOT NULL
                    AND d.source = ANY(?)
+                   AND $WORTH_A_PAGE_READ
                    AND (d.page_checked_at IS NULL
                         OR (? > 0 AND d.page_checked_at < now() - make_interval(days => ?))
                         OR ($PINNED_RECHECK_DUE)

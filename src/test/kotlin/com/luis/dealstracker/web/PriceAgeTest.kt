@@ -1,6 +1,7 @@
 package com.luis.dealstracker.web
 
 import com.luis.dealstracker.db.PINNED_RECHECK_DUE
+import com.luis.dealstracker.db.WORTH_A_PAGE_READ
 import com.luis.dealstracker.config.Defaults
 import java.time.Instant
 import kotlinx.html.div
@@ -48,6 +49,11 @@ class PriceAgeTest {
         assertTrue(PINNED_RECHECK_DUE.contains("d.pinned_at IS NOT NULL"))
         assertTrue(PINNED_RECHECK_DUE.contains("make_interval(hours => ?)"))
         assertTrue(PINNED_RECHECK_DUE.startsWith("? > 0"), "0 turns it off")
+    }
+
+    @Test
+    fun `a row that does not ship to Colombia is not re-read unless it is pinned`() {
+        assertEquals("(d.co_shipping <> 'NO' OR d.pinned_at IS NOT NULL)", WORTH_A_PAGE_READ)
     }
 
     @Test

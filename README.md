@@ -516,6 +516,12 @@ boot and after every crawl of a tracked source), and the answer is kept in `deal
 `other` is an answer too, so a title that says too little ("Men's Slim") is not asked about again. A
 title that does name a garment always wins over a stored answer.
 
+### Rows that do not ship to Colombia are not re-read
+
+A row with a "does not ship" verdict is hidden on the tab by default and its verdict is never asked for
+again, so its page is no longer re-read every two days unless it is pinned (`WORTH_A_PAGE_READ`). With
+no page read vouching for it, it is retired once the search stops returning it (`staleAfterHours`).
+
 ## Watches — hunting one thing over weeks
 
 The feed answers "what is discounted?". A **watch** answers the question you actually have:
