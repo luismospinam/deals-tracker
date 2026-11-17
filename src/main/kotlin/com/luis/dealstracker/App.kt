@@ -527,7 +527,20 @@ fun main(args: Array<String>) {
         val exitoSettings = SettingsRepository(Db.dataSource)
         var lastAttempt: java.time.Instant? = null
         var alertedOn: java.time.LocalDate? = null
+        var warnedEndingOn: java.time.LocalDate? = null
+        var signInGone = false
         while (true) {
+            // Days before the 30-day sign-in ends, once a day: signing in again then costs nothing, after it the
+            // cart button is already down.
+            runCatching {
+                val ends = exitoSettings.get(SettingsRepository.EXITO_SIGNIN_ENDS)?.let(java.time.Instant::parse)
+                val today = java.time.LocalDate.now()
+                if (warnedEndingOn != today && com.luis.dealstracker.exito.signInEndingSoon(ends, java.time.Instant.now())) {
+                    warnedEndingOn = today
+                    val (title, body) = com.luis.dealstracker.exito.signInEndingAlert(ends!!, java.time.ZoneId.systemDefault())
+                    opsAlert(title, body)
+                }
+            }
             val due = runCatching {
                 com.luis.dealstracker.exito.renewalDue(
                     java.time.Instant.now(), exitoSettings.get(SettingsRepository.EXITO_COOKIE), lastAttempt, java.time.ZoneId.systemDefault(),
@@ -537,7 +550,8 @@ fun main(args: Array<String>) {
                 val ran = withContext(Dispatchers.IO) {
                     runCatching {
                         println("[exito] renewing the login for the day")
-                        com.luis.dealstracker.exito.ExitoSessionProbe(headless = true, save = exitoSettings, renew = true).run()
+                        val probe = com.luis.dealstracker.exito.ExitoSessionProbe(headless = true, save = exitoSettings, renew = true)
+                        probe.run().also { signInGone = probe.signInGone }
                     }.onFailure { println("[exito] daily login renewal failed: ${it.message}") }.getOrDefault(true)
                 }
                 // A run turned away by a busy profile did nothing, so it is not an attempt: the next tick
@@ -550,14 +564,14 @@ fun main(args: Array<String>) {
                     val stillOld = runCatching {
                         com.luis.dealstracker.exito.renewalDue(java.time.Instant.now(), exitoSettings.get(SettingsRepository.EXITO_COOKIE), null, java.time.ZoneId.systemDefault())
                     }.getOrDefault(false)
-                    if (stillOld && alertedOn != today) {
+                    val runningOut = runCatching {
+                        com.luis.dealstracker.exito.loginRunningOut(exitoSettings.get(SettingsRepository.EXITO_COOKIE), java.time.Instant.now())
+                    }.getOrDefault(true)
+                    if (stillOld && runningOut && alertedOn != today) {
                         alertedOn = today
                         runCatching {
-                            opsAlert(
-                                "Exito login was not renewed",
-                                "The daily renewal ran and left the old login in place. The cart button and the order sync stop when it expires.\n" +
-                                    "Renew by hand: ./dt run --args=\"--exito-session --renew --save\" (a Chrome window opens; sign in if asked).",
-                            )
+                            val (title, body) = com.luis.dealstracker.exito.renewalFailedAlert(signInGone)
+                            opsAlert(title, body)
                         }
                     }
                 }

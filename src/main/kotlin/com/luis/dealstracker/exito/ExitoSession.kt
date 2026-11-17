@@ -117,9 +117,87 @@ internal fun parseBrowserCart(json: String): BrowserCart? = try {
     null
 }
 
+/** Whether [token] is still good at [now] and runs longer than the [saved] login: worth saving in its place. */
+internal fun outlastsSaved(token: String, saved: String?, now: Instant): Boolean {
+    val expiry = cookieExpiry(token) ?: return false
+    val savedExpiry = saved?.let(::cookieExpiry)
+    return expiry.isAfter(now) && (savedExpiry == null || expiry.isAfter(savedExpiry))
+}
+
+/**
+ * Whether a renewal that left the old login in place is worth an alert: only once the saved login is gone or
+ * has under [margin] left. A login with hours on it still works, and the hourly retry will renew it when
+ * VTEX ID next agrees to (see `refreshAfter`), so alerting earlier cries wolf.
+ */
+internal fun loginRunningOut(token: String?, now: Instant, margin: java.time.Duration = java.time.Duration.ofHours(2)): Boolean {
+    val expiry = token?.let(::cookieExpiry) ?: return true
+    return java.time.Duration.between(now, expiry) < margin
+}
+
+/** The by-hand command that opens a Chrome window to sign in to Exito again and save the login. */
+internal const val EXITO_SIGNIN_COMMAND = "./dt run --args=\"--exito-session --renew --save\""
+
+/**
+ * The alert sent when the daily renewal left the old login in place, worded by its cause. With no refresh token
+ * in the profile ([signInGone]), the 30-day sign-in has ended and only signing in again helps; the old wording
+ * ("renew by hand") read as a glitch to retry, on 2026-11-16 and 17, when it was the sign-in running out.
+ */
+internal fun renewalFailedAlert(signInGone: Boolean): Pair<String, String> =
+    if (signInGone) {
+        "Exito sign-in ended" to
+            "Exito's 30-day sign-in has run out, so the daily renewal has nothing to renew from. The cart button and the order sync stop until you sign in again.\n" +
+            "At the Mac: $EXITO_SIGNIN_COMMAND -- a Chrome window opens; sign in to Exito there."
+    } else {
+        "Exito login was not renewed" to
+            "The daily renewal ran and left the old login in place. The cart button and the order sync stop when it expires.\n" +
+            "Renew by hand: $EXITO_SIGNIN_COMMAND (a Chrome window opens; sign in if asked)."
+    }
+
+/**
+ * Whether to warn that the sign-in [ends] soon, so it can be renewed before the cart button stops rather than
+ * after: within [within] of [now], and not already over (that is [renewalFailedAlert]'s case).
+ */
+internal fun signInEndingSoon(ends: Instant?, now: Instant, within: java.time.Duration = java.time.Duration.ofDays(3)): Boolean =
+    ends != null && ends.isAfter(now) && java.time.Duration.between(now, ends) <= within
+
+/** [signInEndingSoon]'s message, with the day and time the sign-in ends in [zone]. */
+internal fun signInEndingAlert(ends: Instant, zone: java.time.ZoneId): Pair<String, String> {
+    val at = ends.atZone(zone)
+    val day = at.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM 'at' HH:mm", java.util.Locale.ENGLISH))
+    return "Exito sign-in ends soon" to
+        "Exito's 30-day sign-in ends $day. After that the daily renewal cannot keep the cart button working.\n" +
+        "Sign in again before then, at the Mac: $EXITO_SIGNIN_COMMAND -- a Chrome window opens; sign in to Exito there."
+}
+
+/** What a refresh answer with no verdict looked like, for the log: field names only, since values can be tokens. */
+internal fun refreshAnswerShape(contentType: String?, fields: Set<String>?): String =
+    if (fields == null) "not JSON (${contentType?.substringBefore(';') ?: "no content type"}): a check page, not VTEX ID"
+    else "JSON with fields ${fields.sorted()}"
+
 /** Cloudflare's interstitial, which a headless run is likelier to be served than a headed one. */
 internal fun looksLikeBotWall(title: String): Boolean =
     title.contains("just a moment", ignoreCase = true) || title.contains("attention required", ignoreCase = true)
+
+/**
+ * The flags Playwright adds that tell a site the browser is automated (`--enable-automation`, and the
+ * `navigator.webdriver` flag it turns on), left out. With them, Cloudflare's "I'm human" box looped forever
+ * on 2026-11-17: ticked, then shown again a few seconds later, so a sign-in could not be done in the window.
+ */
+internal val EXITO_HIDDEN_DEFAULT_ARGS = listOf("--enable-automation")
+internal val EXITO_EXTRA_ARGS = listOf("--disable-blink-features=AutomationControlled")
+
+/**
+ * How the Exito profile is opened. Always through Playwright's Chrome, never a plain Chrome window: Playwright
+ * keeps cookies under its own key (a mock keychain), so a login made in plain Chrome cannot be read here and
+ * is dropped the next time this opens the profile (seen on 2026-11-17).
+ */
+internal fun exitoLaunchOptions(headless: Boolean): BrowserType.LaunchPersistentContextOptions =
+    BrowserType.LaunchPersistentContextOptions()
+        .setChannel("chrome")
+        .setHeadless(headless)
+        .setViewportSize(1280, 900)
+        .setIgnoreDefaultArgs(EXITO_HIDDEN_DEFAULT_ARGS)
+        .setArgs(EXITO_EXTRA_ARGS)
 
 class ExitoSessionProbe(
     private val profileDir: String = EXITO_PROFILE_DIR,
@@ -133,6 +211,10 @@ class ExitoSessionProbe(
     private val renew: Boolean = false,
     private val now: () -> Instant = Instant::now,
 ) {
+    /** True once a run found no refresh token in the profile: the sign-in has ended, see [renewalFailedAlert]. */
+    var signInGone: Boolean = false
+        private set
+
     /** False when another run holds the profile and nothing was done, so the caller can try again soon. */
     fun run(): Boolean {
         val profile = File(profileDir).apply { mkdirs() }
@@ -151,7 +233,7 @@ class ExitoSessionProbe(
         Playwright.create().use { pw ->
             val ctx = pw.chromium().launchPersistentContext(
                 Paths.get(profile.absolutePath),
-                BrowserType.LaunchPersistentContextOptions().setChannel("chrome").setHeadless(headless).setViewportSize(1280, 900),
+                exitoLaunchOptions(headless),
             )
             try {
                 val page = ctx.pages().firstOrNull() ?: ctx.newPage()
@@ -184,10 +266,7 @@ class ExitoSessionProbe(
         Playwright.create().use { pw ->
             val ctx = pw.chromium().launchPersistentContext(
                 Paths.get(profile.absolutePath),
-                BrowserType.LaunchPersistentContextOptions()
-                    .setChannel("chrome")
-                    .setHeadless(headless)
-                    .setViewportSize(1280, 900),
+                exitoLaunchOptions(headless),
             )
             try {
                 if (dropLoginFirst) {
@@ -202,9 +281,25 @@ class ExitoSessionProbe(
                 page.navigate("https://www.exito.com/")
                 page.waitForLoadState()
                 if (looksLikeBotWall(page.title())) {
-                    println("[exito] Cloudflare is showing its check page (\"${page.title()}\"). " +
-                        "Run headed (without --headless) so you can clear it; the profile remembers.")
-                    return
+                    if (headless) {
+                        println("[exito] Cloudflare is showing its check page (\"${page.title()}\"). " +
+                            "Run headed (without --headless) so you can clear it; the profile remembers.")
+                        return
+                    }
+                    // Headed, the check usually clears by itself in a few seconds, or after one click on its
+                    // box. Returning at once (as this did until 2026-11-15) made the advice above impossible
+                    // to follow: the window closed before anyone could click.
+                    println("[exito] Cloudflare is showing its check page. Waiting for it to clear; tick its box in the window if it asks.")
+                    val deadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
+                    while (runCatching { looksLikeBotWall(page.title()) }.getOrDefault(true)) {
+                        if (System.currentTimeMillis() > deadline) {
+                            println("[exito] the Cloudflare check did not clear in time; nothing renewed.")
+                            return
+                        }
+                        page.waitForTimeout(1_000.0)
+                    }
+                    println("[exito] the Cloudflare check cleared.")
+                    runCatching { page.waitForLoadState() }
                 }
                 if (renew || ctx.cookies().none { it.name == EXITO_COOKIE_NAME }) refreshLogin(ctx)
                 if (!waitForLogin(ctx)) return
@@ -229,6 +324,15 @@ class ExitoSessionProbe(
         refreshLogin(ctx)
         val token = loginTokenFrom(ctx.cookies().map { CookieRow(it.name, it.domain, it.value) })
         if (token == null || !isFullDay(token, now())) {
+            // VTEX ID answers "Success" without a new token until `refreshAfter`, about 20 hours after the last
+            // one it issued. The profile may still hold a login newer than the saved one (2026-11-15: the saved
+            // login had expired at 06:11 while the profile's ran to 22:07), and that one is worth keeping.
+            val saved = save?.get(SettingsRepository.EXITO_COOKIE)
+            if (token != null && outlastsSaved(token, saved, now()) && accountAccepts(token)) {
+                println("[exito] no new login was issued, but the profile holds one that outlasts the saved one; it expires ${cookieExpiry(token)}")
+                save?.let { saveLogin(it, token); println("[exito] SAVED the login token (the saved cart id is untouched).") }
+                return true
+            }
             println("[exito] the refresh left no new login token; trying through the shop's page instead")
             return false
         }
@@ -250,20 +354,33 @@ class ExitoSessionProbe(
      * browser's cookies and its answer's `Set-Cookie` lands back in them. Only the status is printed.
      */
     private fun refreshLogin(ctx: BrowserContext) {
-        val hasRefresh = ctx.cookies().any { it.name == "vid_rt" }
-        if (!hasRefresh) {
-            println("[exito] no refresh token (vid_rt) in this profile, so there is nothing to renew from.")
+        val refresh = ctx.cookies().filter { it.name == "vid_rt" }.maxByOrNull { it.expires ?: 0.0 }
+        if (refresh == null) {
+            signInGone = true
+            println("[exito] no refresh token (vid_rt) in this profile, so there is nothing to renew from: the 30-day sign-in has ended. Sign in again.")
             return
+        }
+        // Its expiry is when the sign-in ends; kept so the app can warn days ahead. Only the date, never the value.
+        refresh.expires?.takeIf { it > 0 }?.let { secs ->
+            val ends = Instant.ofEpochSecond(secs.toLong())
+            println("[exito] the sign-in (refresh token) runs until $ends")
+            save?.let { runCatching { it.set(mapOf(SettingsRepository.EXITO_SIGNIN_ENDS to ends.toString())) } }
         }
         // GET answered 405 (2026-10-14): the endpoint takes a POST.
         val resp = ctx.request().post("https://tienda.exito.com/api/vtexid/refreshtoken/webstore")
         // Only the verdict field is printed, never the body: it can carry tokens.
-        val verdict = try {
-            cartJson.parseToJsonElement(resp.text()).jsonObject["authStatus"]?.jsonPrimitive?.contentOrNull
-        } catch (_: Exception) {
-            null
-        }
+        val body = runCatching { resp.text() }.getOrDefault("")
+        val fields = try { cartJson.parseToJsonElement(body).jsonObject } catch (_: Exception) { null }
+        val verdict = fields?.get("authStatus")?.jsonPrimitive?.contentOrNull
         println("[exito] asked VTEX ID to renew the login from the refresh token: HTTP ${resp.status()}, authStatus=$verdict")
+        // Why a 200 renewed nothing: the answer's shape, never its values. A page instead of JSON is Cloudflare.
+        if (verdict == null) println("[exito]   the answer was ${refreshAnswerShape(resp.headers()["content-type"], fields?.keys)}")
+        // Neither is a secret: a status word, and when VTEX ID will next agree to issue a token.
+        fields?.let { f ->
+            val status = runCatching { f["status"]?.jsonPrimitive?.contentOrNull }.getOrNull()
+            val after = runCatching { f["refreshAfter"]?.jsonPrimitive?.contentOrNull }.getOrNull()
+            if (status != null || after != null) println("[exito]   status=$status, refreshAfter=$after")
+        }
     }
 
     /**

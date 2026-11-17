@@ -114,4 +114,70 @@ class ExitoSessionTest {
         assertFalse(isFullDay(token(now.plus(java.time.Duration.ofHours(9))), now), "yesterday's token, still in the profile")
         assertFalse(isFullDay("not-a-token", now))
     }
+
+    @Test
+    fun `a refresh answer with no verdict is described by its shape, never its values`() {
+        val page = refreshAnswerShape("text/html; charset=UTF-8", null)
+        kotlin.test.assertTrue("not JSON (text/html)" in page && "check page" in page, page)
+        kotlin.test.assertEquals("JSON with fields [expiresIn, userId]", refreshAnswerShape("application/json", setOf("userId", "expiresIn")))
+        kotlin.test.assertTrue("no content type" in refreshAnswerShape(null, null))
+    }
+
+    /** 2026-11-15: the saved login had expired at 06:11 while the profile held one good until 22:07. */
+    @Test
+    fun `a login in the profile that outlasts the saved one is worth saving, even when it is not new`() {
+        val now = at("2026-11-15T09:30:00")
+        val saved = tokenIssued("2026-11-14T06:11:00")
+        val profile = tokenIssued("2026-11-14T22:07:00")
+        assertFalse(isFullDay(profile, now), "not a fresh renewal")
+        assertTrue(outlastsSaved(profile, saved, now))
+        assertTrue(outlastsSaved(profile, null, now), "nothing saved yet")
+        assertFalse(outlastsSaved(saved, profile, now), "the older one never replaces the newer")
+        assertFalse(outlastsSaved(profile, saved, at("2026-11-15T22:08:00")), "itself expired")
+        assertFalse(outlastsSaved("opaque", saved, now))
+    }
+
+    @Test
+    fun `a renewal that left the old login is only alerted once that login is running out`() {
+        val login = tokenIssued("2026-11-14T22:07:00")
+        assertFalse(loginRunningOut(login, at("2026-11-15T09:30:00")), "works for twelve more hours; the hourly retry will renew it")
+        assertTrue(loginRunningOut(login, at("2026-11-15T20:30:00")), "under two hours left")
+        assertTrue(loginRunningOut(login, at("2026-11-16T07:00:00")), "expired")
+        assertTrue(loginRunningOut(null, at("2026-11-15T09:30:00")))
+        assertTrue(loginRunningOut("opaque", at("2026-11-15T09:30:00")))
+    }
+
+    /** 2026-11-16: signed in 2026-10-17 03:06 UTC, and the refresh token was gone thirty days later. */
+    @Test
+    fun `the failure alert says the sign-in ended when there is no refresh token left`() {
+        val (gone, goneBody) = renewalFailedAlert(signInGone = true)
+        assertEquals("Exito sign-in ended", gone)
+        assertTrue("30-day sign-in has run out" in goneBody && "sign in to Exito there" in goneBody, goneBody)
+        assertTrue(EXITO_SIGNIN_COMMAND in goneBody)
+        val (stale, staleBody) = renewalFailedAlert(signInGone = false)
+        assertEquals("Exito login was not renewed", stale)
+        assertTrue(EXITO_SIGNIN_COMMAND in staleBody)
+        assertEquals("./dt run --args=\"--exito-session --renew --save\"", EXITO_SIGNIN_COMMAND)
+    }
+
+    @Test
+    fun `the sign-in is warned about in its last three days, not before and not after`() {
+        val ends = java.time.Instant.parse("2026-12-17T03:06:00Z")
+        assertFalse(signInEndingSoon(ends, ends.minus(java.time.Duration.ofDays(4))))
+        assertTrue(signInEndingSoon(ends, ends.minus(java.time.Duration.ofDays(3))))
+        assertTrue(signInEndingSoon(ends, ends.minus(java.time.Duration.ofHours(1))))
+        assertFalse(signInEndingSoon(ends, ends.plusSeconds(1)), "over: that is the failure alert's case")
+        assertFalse(signInEndingSoon(null, ends), "not known yet")
+        val (title, body) = signInEndingAlert(ends, zone)
+        assertEquals("Exito sign-in ends soon", title)
+        assertTrue("Wednesday 16 December at 22:06" in body, body)
+    }
+
+    @Test
+    fun `the Exito browser does not announce that it is automated`() {
+        val opts = exitoLaunchOptions(headless = false)
+        assertEquals(listOf("--enable-automation"), opts.ignoreDefaultArgs)
+        assertTrue("--disable-blink-features=AutomationControlled" in opts.args)
+        assertEquals("chrome", opts.channel, "Playwright's Chrome, whose cookie key the saved profile uses")
+    }
 }

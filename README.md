@@ -530,6 +530,19 @@ The pin answers with a toast saying what was found at the other store: green wit
 when that store does not sell it or is out of it. The row itself is the response body, so the notice
 travels in the `HX-Trigger` header (`pinNotice` in `web/GroceryViews.kt`). Chains with one store say nothing.
 
+### Exito login renewal: what a "Success" with no token means
+
+VTEX ID answers the refresh call with `status=Success` and a `refreshAfter` time, and issues no new token
+before that time (about 20 hours after the last one). So the 06:00 renewal can run and get nothing. When that
+happens the renewal keeps whichever login lasts longer, the saved one or the one already in the Chrome profile
+(`outlastsSaved`), and retries hourly. "Exito login was not renewed" is only sent once the saved login is
+expired or has under two hours left (`loginRunningOut`). The renewal itself has a limit: it runs on the
+profile's refresh token (`vid_rt`), which lasts 30 days from the last real sign-in and is not extended by
+renewing. Once it is gone the alert says "Exito sign-in ended" and only signing in again in the Chrome window
+helps; its end date is kept in `exito_signin_ends`, and "Exito sign-in ends soon" is sent once a day in its
+last three days. A headed `--exito-session --renew --save` now waits
+for Cloudflare's check page to clear instead of closing at once.
+
 ## Watches — hunting one thing over weeks
 
 The feed answers "what is discounted?". A **watch** answers the question you actually have:
