@@ -324,6 +324,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         script { unsafe { +CART_FEEDBACK_JS } }
         script { unsafe { +COUPON_COPY_JS } }
         script { unsafe { +AISLE_JS } }
+        script { unsafe { +THUMB_LOADER_JS } }
     }
     body {
         header {
@@ -990,7 +991,7 @@ private fun TR.dealRowBody(deal: Deal, note: String? = null, screen: FeedScreen 
 
         td(classes = "col-thumb") {
             val img = deal.imageUrl
-            if (img != null) img(classes = "thumb", src = img, alt = "") { attributes["loading"] = "lazy" } else div("thumb-blank") {}
+            if (img != null) thumbImg(img) else div("thumb-blank") {}
         }
 
         // Classed so it can host the heat gutter at narrow widths, where .col-thumb is

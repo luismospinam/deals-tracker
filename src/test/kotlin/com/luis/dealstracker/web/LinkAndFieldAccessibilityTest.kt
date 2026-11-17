@@ -42,15 +42,17 @@ class LinkAndFieldAccessibilityTest {
         assertTrue(bad.isEmpty(), "label without htmlFor:\n" + bad.joinToString("\n"))
     }
 
+    /**
+     * A row's thumbnail goes through `thumbImg` (Thumbs.kt), which defers it with `data-src` for the
+     * page's own loader. A view that writes the `<img>` itself would load 500 pictures at once.
+     */
     @Test
-    fun `product thumbnails load lazily`() {
-        val bad = views.flatMap { f ->
-            val lines = f.readLines()
-            lines.withIndex()
+    fun `product thumbnails are deferred through thumbImg`() {
+        val bad = views.filter { it.name != "Thumbs.kt" }.flatMap { f ->
+            f.readLines().withIndex()
                 .filter { (_, l) -> "img(classes = \"thumb\"" in l }
-                .filterNot { (i, _) -> lines.drop(i).take(2).any { "\"loading\"] = \"lazy\"" in it } }
                 .map { (i, l) -> "${f.name}:${i + 1}: ${l.trim()}" }
         }
-        assertTrue(bad.isEmpty(), "thumb img not lazy:\n" + bad.joinToString("\n"))
+        assertTrue(bad.isEmpty(), "thumb img written by hand, not thumbImg:\n" + bad.joinToString("\n"))
     }
 }

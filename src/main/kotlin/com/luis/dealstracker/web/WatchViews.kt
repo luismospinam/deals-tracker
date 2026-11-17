@@ -1298,10 +1298,10 @@ private fun TR.thumbCell(imageUrl: String?, href: String?) {
                 thumbLinkHidden()
                 attributes["target"] = "_blank"
                 attributes["rel"] = "noopener noreferrer"
-                img(classes = "thumb", src = imageUrl, alt = "") { attributes["loading"] = "lazy" }
+                thumbImg(imageUrl)
             }
         } else {
-            img(classes = "thumb", src = imageUrl, alt = "") { attributes["loading"] = "lazy" }
+            thumbImg(imageUrl)
         }
     }
 }

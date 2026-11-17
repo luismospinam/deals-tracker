@@ -1277,9 +1277,7 @@ private fun kotlinx.html.TBODY.trackedRow(
                     thumbLinkHidden()
                     attributes["target"] = "_blank"
                     attributes["rel"] = "noopener noreferrer"
-                    img(classes = "thumb", src = img, alt = "") {
-                        attributes["loading"] = "lazy"
-                    }
+                    thumbImg(img)
                 }
             }
         }

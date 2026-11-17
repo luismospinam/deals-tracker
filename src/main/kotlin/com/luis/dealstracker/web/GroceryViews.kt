@@ -1149,7 +1149,7 @@ internal fun TBODY.groceryRow(
                     thumbLinkHidden()
                     attributes["target"] = "_blank"
                     attributes["rel"] = "noopener noreferrer"
-                    img(classes = "thumb", src = src, alt = "") { attributes["loading"] = "lazy" }
+                    thumbImg(src)
                 }
             }
         }
