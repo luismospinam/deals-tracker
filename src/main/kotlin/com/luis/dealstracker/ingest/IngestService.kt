@@ -156,6 +156,32 @@ class IngestService(
 
     private val running = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /** What [runNow] did with a request. */
+    enum class ManualRun { STARTED, BUSY, UNKNOWN }
+
+    /**
+     * Crawls one provider now, whatever its schedule says: the "Sync now" button under a shelf tab,
+     * for when an order is about to be placed and the morning's prices are hours old.
+     *
+     * Takes the same [running] flag as [runScheduled], so a manual crawl never runs beside a scheduled
+     * one (two crawls of one host at once is exactly what the adjacent windows exist to avoid), and a
+     * second press while one is going is refused rather than queued. [launch] starts the crawl and
+     * returns at once -- a crawl takes minutes, a request should not; a parameter so a test can hold
+     * the crawl back and see the flag.
+     */
+    fun runNow(sourceId: String, launch: (suspend () -> Unit) -> Unit): ManualRun {
+        val provider = app.enabledProviders.firstOrNull { it.id == sourceId } ?: return ManualRun.UNKNOWN
+        if (!running.compareAndSet(false, true)) return ManualRun.BUSY
+        launch {
+            try {
+                runCatching { run(provider) }.onFailure { e -> println("[${provider.id}] manual sync failed: ${e.message}") }
+            } finally {
+                running.set(false)
+            }
+        }
+        return ManualRun.STARTED
+    }
+
     /**
      * Warns when the share of deals stuck in `Other` has drifted past the configured threshold.
      *

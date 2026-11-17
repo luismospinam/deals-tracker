@@ -1058,6 +1058,15 @@ Laureles when unset). The choice decides together:
 The purchase log keeps one reading per cart for the same reason. In Exito's own app or website the
 pickup store is still chosen by hand: those carts belong to the device and the tracker cannot reach them.
 
+### Sync now
+
+Each store in a shelf tab's **Last sync** table has a "Sync now" button (`POST /sync/{provider}`): the
+crawl of that one store, started at once, for when an order is about to be placed and the morning's
+prices are hours old. It takes the same lock as the scheduled crawls (`IngestService.runNow`), so
+there is never more than one crawl at a time: a press while any store is being read is refused with
+"Another store is being read right now", not queued. The button is replaced by the answer; reload
+after about five minutes for the new prices. A store that is being read shows no button.
+
 ## PriceSmart
 
 PriceSmart is the grocery tab's third chain, after Exito and Carulla, and covers two Medellín clubs:

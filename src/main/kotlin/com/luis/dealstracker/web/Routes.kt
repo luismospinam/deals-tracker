@@ -37,6 +37,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.response.header
 import io.ktor.server.request.receiveParameters
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respondBytes
 import io.ktor.server.request.uri
 import io.ktor.server.response.respondRedirect
@@ -988,6 +989,23 @@ fun Application.routes(
             // Empty body with an outerHTML swap removes the row, the same convention
             // respondRow uses when a deal vanishes mid-request.
             call.respondText("", ContentType.Text.Html)
+        }
+
+        // "Sync now" in a shelf tab's Last sync table: one store's crawl, started at once. Shelf
+        // providers only -- the feed's sources have /refresh -- and never two crawls at a time.
+        post("/sync/{source}") {
+            val source = call.parameters["source"].orEmpty()
+            val outcome = if (shelfSectionOf(app, source) == null) com.luis.dealstracker.ingest.IngestService.ManualRun.UNKNOWN
+            else ingest.runNow(source) { crawl -> scope.launch(Dispatchers.IO) { crawl() } }
+            println("[sync] manual sync of $source: $outcome")
+            call.respondText(syncNowAnswer(outcome), ContentType.Text.Html)
+        }
+
+        // What a page's own script saw go wrong (thumbnails that failed or stalled: THUMB_LOADER_JS).
+        // Only printed: the phone's browser cannot be watched from here, so it says what it saw.
+        post("/client-log") {
+            println("[client] " + clientLogLine(call.receiveText()))
+            call.respondText("", status = HttpStatusCode.NoContent)
         }
 
         post("/refresh") {

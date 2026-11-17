@@ -89,4 +89,46 @@ class RunWindowsTest {
         val next = nextWindowSlot(windows, provider.id, at("09:00"), zone)!!.atZone(zone).toLocalTime()
         assertTrue(!next.isBefore(LocalTime.of(10, 30)) && next.isBefore(LocalTime.of(11, 10)), "$next")
     }
+
+    // ---- runNow: the Sync now button ----
+
+    private fun serviceWith(vararg providers: ProviderConfig): IngestService {
+        val base = fakeAppConfig()
+        return IngestService(
+            repo = throwingRepo(),
+            registry = com.luis.dealstracker.sources.SourceRegistry(emptyList()),
+            app = com.luis.dealstracker.config.AppConfig(base.defaults, providers.toList(), base.db, null, null),
+            http = com.luis.dealstracker.sources.PoliteHttp("test", 0),
+            lastSuccess = { null },
+        )
+    }
+
+    @Test
+    fun `a manual sync of an unknown or paused provider starts nothing`() {
+        val s = serviceWith(provider, provider.copy(id = "carulla-grocery", enabled = false))
+        var launched = 0
+        assertEquals(IngestService.ManualRun.UNKNOWN, s.runNow("nope") { launched++ })
+        assertEquals(IngestService.ManualRun.UNKNOWN, s.runNow("carulla-grocery") { launched++ })
+        assertEquals(0, launched)
+    }
+
+    @Test
+    fun `a second manual sync is refused until the first has finished`() {
+        val s = serviceWith(provider, provider.copy(id = "exito-household"))
+        val held = mutableListOf<suspend () -> Unit>()
+        assertEquals(IngestService.ManualRun.STARTED, s.runNow("exito-grocery") { held += it })
+        assertEquals(IngestService.ManualRun.BUSY, s.runNow("exito-household") { held += it }, "never two crawls at once")
+        assertEquals(IngestService.ManualRun.BUSY, s.runNow("exito-grocery") { held += it })
+        assertEquals(1, held.size)
+        // The crawl itself fails here (no adapter is registered); the slot must be freed all the same.
+        kotlinx.coroutines.runBlocking { held.single()() }
+        assertEquals(IngestService.ManualRun.STARTED, s.runNow("exito-household") { held += it })
+    }
+
+    @Test
+    fun `a scheduled check does nothing while a manual sync holds the slot`() {
+        val s = serviceWith(provider)
+        s.runNow("exito-grocery") { }
+        assertEquals(emptyList(), kotlinx.coroutines.runBlocking { s.runScheduled() })
+    }
 }

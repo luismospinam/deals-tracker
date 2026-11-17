@@ -909,6 +909,23 @@ table.history tbody tr:hover { background: rgba(242, 118, 27, 0.05); }
   color: var(--text-faint);
 }
 .err { color: var(--bad); }
+/* Sync now: a quiet pill beside the store's name. The answer that replaces it wraps under the name. */
+.sync-store { margin-right: 10px; }
+.sync-now {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sync-now:hover { border-color: var(--accent-line); color: var(--text); }
+.sync-now:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sync-now:disabled { opacity: 0.5; cursor: progress; }
+.sync-answer { display: block; margin-top: 4px; max-width: 30ch; font-family: var(--sans, inherit); }
 /* A run that ended without error but brought back nothing: amber, like other facts that should
  * make you look twice, and never colour alone -- the cell also says "no items". */
 .runs .warn { color: var(--d-mid); cursor: help; }
@@ -1880,6 +1897,9 @@ td .price-age { display: block; margin-top: 3px; }
 
   /* Non-card tables that are narrow enough to keep, but scroll inside themselves if not. */
   .runs { overflow-x: auto; }
+  /* A thumb-sized target, on its own line under the store's name. */
+  .sync-store { display: block; margin: 0 0 6px; }
+  .sync-now { padding: 8px 12px; }
 }
 
 /* Tracked tab: "Manage searches". Groups of searches, each with a switch. The switch is a submit

@@ -1509,7 +1509,12 @@ private fun MAIN.syncFooter(lines: List<SyncLine>) {
                 lines.forEach { line ->
                     val st = line.status
                     tr {
-                        td { +line.store }
+                        // The button sits with the store's name, not in a column of its own at the far
+                        // end: on a phone this table scrolls sideways and only its first column shows.
+                        td {
+                            span("sync-store") { +line.store }
+                            if (!st.running) syncNowButton(st.source, line.store)
+                        }
                         td {
                             st.lastSuccess?.let {
                                 +clockTime(it)
@@ -1551,6 +1556,40 @@ private fun MAIN.syncFooter(lines: List<SyncLine>) {
                 }
             }
         }
+    }
+}
+
+/** The path of the manual crawl of one shelf provider: see [syncNowButton]. */
+internal fun syncPath(source: String): String = "/sync/" + source.encodeURLParameter()
+
+/**
+ * "Sync now": reads one store's prices at once instead of waiting for its next window. The button is
+ * replaced by what happened ([syncNowAnswer]); the table itself is not refreshed, since a crawl takes
+ * several minutes -- the answer says to reload.
+ */
+private fun kotlinx.html.TD.syncNowButton(source: String, store: String) {
+    button(classes = "sync-now") {
+        attributes["hx-post"] = syncPath(source)
+        attributes["hx-swap"] = "outerHTML"
+        attributes["hx-disabled-elt"] = "this"
+        attributes["aria-label"] = tr("Sync $store now", "Sincronizar $store ahora")
+        span { attributes["aria-hidden"] = "true"; +"▶" }
+        +tr(" Sync now", " Sincronizar")
+    }
+}
+
+/** What takes the button's place. Never colour alone: each outcome is a sentence. */
+internal fun syncNowAnswer(outcome: com.luis.dealstracker.ingest.IngestService.ManualRun): String = createHTML().span(
+    if (outcome == com.luis.dealstracker.ingest.IngestService.ManualRun.STARTED) "sync-answer" else "sync-answer err",
+) {
+    attributes["role"] = "status"
+    +when (outcome) {
+        com.luis.dealstracker.ingest.IngestService.ManualRun.STARTED ->
+            tr("Started — takes about 5 minutes. Reload to see the new prices.", "En curso — tarda unos 5 minutos. Recarga para ver los precios nuevos.")
+        com.luis.dealstracker.ingest.IngestService.ManualRun.BUSY ->
+            tr("Another store is being read right now. Try again in a few minutes.", "Se está leyendo otra tienda en este momento. Intenta de nuevo en unos minutos.")
+        com.luis.dealstracker.ingest.IngestService.ManualRun.UNKNOWN ->
+            tr("That store is not enabled.", "Esa tienda no está activa.")
     }
 }
 
