@@ -131,7 +131,13 @@ private val AISLE_ES = mapOf(
     "Baby food" to "Comida para bebé",
 )
 
-fun aisleLabel(name: String): String = tr(name, AISLE_ES[name] ?: name)
+/**
+ * English names that differ from the stored one. "Deli" stays the stored value (config/sources.yaml,
+ * `deals.grocery_group`, `deals.aisle_ai`, the `group` parameter) and is only shown differently.
+ */
+private val AISLE_EN = mapOf("Deli" to "Processed meats")
+
+fun aisleLabel(name: String): String = tr(AISLE_EN[name] ?: name, AISLE_ES[name] ?: name)
 
 /** [tr] for code that runs outside a render, where the language is known but not the thread's. */
 fun Lang.tr(en: String, es: String): String = if (this == Lang.ES) es else en

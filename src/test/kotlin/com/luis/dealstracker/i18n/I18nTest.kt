@@ -56,6 +56,14 @@ class I18nTest {
         assertEquals("Appliances", categoryLabel("Appliances"))
     }
 
+    /** "Deli" is the stored aisle; in English it reads "Processed meats", and no other aisle is renamed. */
+    @Test
+    fun `the Deli aisle is shown as Processed meats in English`() {
+        assertEquals("Processed meats", aisleLabel("Deli"))
+        assertEquals("Pantry", aisleLabel("Pantry"))
+        I18n.with(Lang.ES) { assertEquals("Charcutería", aisleLabel("Deli")) }
+    }
+
     /**
      * The banners have no browser to ask. A choice made with the switch is kept over whatever the
      * next browser happens to send, so opening the app on an English phone does not flip the Mac's
