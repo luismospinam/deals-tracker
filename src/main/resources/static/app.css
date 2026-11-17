@@ -1665,34 +1665,6 @@ a.store-alt:hover { color: var(--text); text-decoration-color: var(--text-dim); 
 .store-rival:hover { text-decoration: underline; }
 .store-rival.cheaper { color: var(--d-mid); font-weight: 600; }
 
-/* Pinned's cheapest split: one chip per chain, each a filter to that trip's list. */
-.shop-plan {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 10px;
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.shop-plan-h { font-weight: 600; margin-right: 4px; }
-.plan-stop {
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--text);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.plan-stop:hover { border-color: var(--accent); }
-.plan-stop.on { border-color: var(--accent-line); background: var(--accent-wash); color: var(--accent); }
-.plan-chain { font-weight: 600; }
-.plan-total { font-family: var(--mono); }
-.plan-note { font-size: var(--fs-sm); color: var(--good); }
-.plan-note.muted { color: var(--text-faint); }
-
 .grocery-search { gap: 8px; margin: 0 0 12px 12px; vertical-align: top; display: inline-flex; }
 .grocery-search input[type="search"] { min-width: 22rem; }
 .grocery-search .typetag { align-self: center; }
@@ -1806,6 +1778,8 @@ td .price-age { display: block; margin-top: 3px; }
     padding-inline: 12px;
   }
   .sorttags::-webkit-scrollbar { display: none; }
+  /* The phone has "Recently pinned" among its Sort chips. */
+  .listmode .recent-desk { display: none; }
   .sorttags .typetag { flex: none; white-space: nowrap; }
 
   .deals, .deals tbody, .deals tr, .deals td { display: block; }
@@ -2457,6 +2431,9 @@ a.sugg-title:hover { color: var(--accent); }
 .storepick button.typetag.on { background: var(--accent-wash); font-weight: 700; }
 .storepick button.typetag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .listmode { margin-bottom: 10px; }
+/* "Recently pinned" sits apart from the two layouts: it is an order, not a third layout. */
+.listmode .recent-desk { margin-left: 14px; }
+.pinned-when { color: var(--text-faint); }
 .aisles-tools { display: flex; justify-content: flex-end; margin: 0 0 8px; }
 .aisles-all {
   padding: 3px 10px;

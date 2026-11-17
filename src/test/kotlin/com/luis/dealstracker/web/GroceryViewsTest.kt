@@ -533,12 +533,13 @@ class GroceryViewsTest {
     }
 
     @Test
-    fun `Pinned has its own search box, keeping the cart and one-trip filters`() {
-        val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("leche"), "cart" to listOf("1"), "buy" to listOf("exito")))
-        assertEquals("/groceries?view=pinned&q=leche&cart=1&buy=exito", pinned.url())
+    fun `Pinned has its own search box, keeping the cart filter`() {
+        val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("leche"), "cart" to listOf("1")))
+        assertEquals("/groceries?view=pinned&q=leche&cart=1", pinned.url())
         val html = createHTML().main { groceryPage(listOf(row()), listOf("Pantry" to 1), pinned, listOf("carulla-grocery")) }
         assertTrue(html.contains("class=\"grocery-search\"") && html.contains("placeholder=\"Search your pinned items\""))
-        assertTrue(html.contains("name=\"cart\" value=\"1\"") && html.contains("name=\"buy\" value=\"exito\""), "a search keeps the trip it was made in")
+        assertTrue(html.contains("name=\"cart\" value=\"1\""), "a search keeps the cart filter it was made in")
+        assertFalse(html.contains("name=\"buy\""))
         assertTrue(html.contains("value=\"leche\""))
     }
 
@@ -581,7 +582,7 @@ class GroceryViewsTest {
 
     /** The Tajín case, 2026-11-03: Colombia $14 cheaper hid Laureles from a search for it. */
     @Test
-    fun `searching lists the product at each store, and the plan still counts it once`() {
+    fun `searching lists the product at each store`() {
         val raw = listOf(
             row(id = 1, source = "exito-grocery", product = "tajin", price = "6594", pinned = true),
             row(id = 2, source = "exito-colombia-grocery", product = "tajin", price = "6580", pinned = true),
@@ -589,7 +590,6 @@ class GroceryViewsTest {
         val split = storeRows(raw, stores, split = true)
         assertEquals(listOf("Exito Laureles", "Exito Colombia"), split.map { it.store })
         assertEquals(1, storeRows(raw, stores, split = false).size)
-        assertEquals(listOf(2L), onePerChain(split).map { it.deal.id }, "the plan takes the cheaper copy once")
 
         val pinned = GroceryControls.from(parametersOf("view" to listOf("pinned"), "q" to listOf("tajin")))
         val html = createHTML().main { groceryPage(split, listOf("Pantry" to 1), pinned, stores.keys.toList()) }
@@ -927,4 +927,143 @@ class GroceryViewsTest {
     private fun readStatus(source: String, started: Instant?, finished: Instant?) =
         com.luis.dealstracker.db.SyncStatus(source, started, finished, 100, null, finished, 100)
 
+    @Test
+    fun `each store in Last sync has a Sync now button that posts to its own crawl`() {
+        val now = Instant.now()
+        val html = syncFooterHtml(
+            readStatus("exito-grocery", now.minusSeconds(4000), now.minusSeconds(3700)),
+            readStatus("carulla-grocery", now.minusSeconds(9000), now.minusSeconds(8700)),
+        )
+        assertEquals(listOf("/sync/exito-grocery", "/sync/carulla-grocery"), Regex("hx-post=\"([^\"]+)\"").findAll(html).map { it.groupValues[1] }.toList())
+        assertTrue("aria-label=\"Sync exito grocery now\"" in html, "the button names its store")
+        assertTrue("hx-swap=\"outerHTML\"" in html && "hx-disabled-elt=\"this\"" in html)
+    }
+
+    @Test
+    fun `a store that is being read has no Sync now button`() {
+        val now = Instant.now()
+        val html = syncFooterHtml(
+            readStatus("exito-grocery", now.minusSeconds(120), null),
+            readStatus("carulla-grocery", now.minusSeconds(9000), now.minusSeconds(8700)),
+        )
+        assertEquals(listOf("/sync/carulla-grocery"), Regex("hx-post=\"([^\"]+)\"").findAll(html).map { it.groupValues[1] }.toList())
+        assertTrue("running since" in html)
+    }
+
+    @Test
+    fun `the answer to Sync now says what happened, in words`() {
+        val started = syncNowAnswer(com.luis.dealstracker.ingest.IngestService.ManualRun.STARTED)
+        assertTrue("Started" in started && "Reload" in started && "role=\"status\"" in started, started)
+        assertFalse("err" in started)
+        assertTrue("class=\"sync-answer err\"" in syncNowAnswer(com.luis.dealstracker.ingest.IngestService.ManualRun.BUSY) && "Another store is being read" in syncNowAnswer(com.luis.dealstracker.ingest.IngestService.ManualRun.BUSY))
+        assertTrue("not enabled" in syncNowAnswer(com.luis.dealstracker.ingest.IngestService.ManualRun.UNKNOWN))
+        com.luis.dealstracker.i18n.I18n.with(com.luis.dealstracker.i18n.Lang.ES) { assertTrue("En curso" in syncNowAnswer(com.luis.dealstracker.ingest.IngestService.ManualRun.STARTED)) }
+    }
+
+    // ---- Pinned: Recently pinned ----
+
+    @Test
+    fun `recently pinned puts the newest pin first, whatever the aisle or the discount`() {
+        val t = Instant.parse("2026-11-13T15:00:00Z")
+        val rows = listOf(
+            row(id = 1, title = "Arroz", usual = "40000").copy(pinnedAt = t.minusSeconds(86_400)),
+            row(id = 2, title = "Zanahoria").copy(pinnedAt = t),
+            row(id = 3, title = "Leche").copy(pinnedAt = t.minusSeconds(3600)),
+            row(id = 4, title = "Aceite").copy(pinnedAt = t.minusSeconds(3600)),
+        )
+        val controls = GroceryControls.from(parametersOf("view" to listOf("pinned"), "sort" to listOf("recent"), "list" to listOf("flat")))
+        assertEquals(GrocerySort.RECENT, controls.sort)
+        assertEquals(listOf(2L, 4L, 3L, 1L), groceryShown(rows, controls).map { it.deal.id }, "ties go by name")
+    }
+
+    @Test
+    fun `recently pinned is a Pinned sort only`() {
+        assertEquals(GrocerySort.BELOW, GroceryControls.from(parametersOf("sort" to listOf("recent"))).sort)
+        assertEquals(GrocerySort.NAME, GroceryControls.from(parametersOf("view" to listOf("all"), "sort" to listOf("recent"))).sort)
+    }
+
+    @Test
+    fun `the recently pinned chip opens one list, and a second tap returns to the default order`() {
+        val grouped = GroceryControls.from(parametersOf("view" to listOf("pinned")))
+        assertEquals("/groceries?view=pinned&sort=recent&list=flat", recentHref(grouped))
+        val on = GroceryControls.from(parametersOf("view" to listOf("pinned"), "sort" to listOf("recent"), "list" to listOf("flat")))
+        assertEquals("/groceries?view=pinned&list=flat", recentHref(on))
+    }
+
+    @Test
+    fun `pinned offers recently pinned and shows when each row was pinned`() {
+        val pinnedRow = row(pinned = true)
+        fun page(vararg params: Pair<String, List<String>>) = createHTML().main {
+            groceryPage(listOf(pinnedRow), listOf("Pantry" to 1), GroceryControls.from(parametersOf(*params)), listOf("carulla-grocery"), pinnedCount = 1)
+        }
+        val sorted = page("view" to listOf("pinned"), "sort" to listOf("recent"), "list" to listOf("flat"))
+        assertEquals(2, Regex(">Recently pinned<").findAll(sorted).count(), "one chip for the phone, one for the desktop")
+        assertTrue("typetag recent-desk on" in sorted)
+        assertTrue("class=\"pinned-when\">pinned " in sorted, "the row says what it is ranked by")
+        val default = page("view" to listOf("pinned"), "list" to listOf("flat"))
+        assertFalse("pinned-when" in default)
+        assertFalse("Recently pinned" in page("view" to listOf("all")), "not offered where nothing is pinned by date")
+    }
+
+    private val twoExitos = mapOf(
+        "exito-grocery" to GroceryStore("Exito Laureles", "exito"),
+        "exito-colombia-grocery" to GroceryStore("Exito Colombia", "exito"),
+        "carulla-grocery" to GroceryStore("Carulla Laureles", "carulla"),
+    )
+
+    @Test
+    fun `pinning says the other store of the chain has it too, with its price there`() {
+        val copies = listOf(
+            row(id = 1, source = "exito-grocery", product = "p", price = "6780"),
+            row(id = 2, source = "exito-colombia-grocery", product = "p", price = "4120"),
+        )
+        val notice = pinNotice(copies, 1, twoExitos)!!
+        assertEquals("ok", notice.kind)
+        assertTrue("Exito Colombia has it too" in notice.text && "4,120" in notice.text, notice.text)
+        assertFalse("Laureles" in notice.text, "names the other store, not the one just pinned at")
+        // Pinned from the Colombia row, it is Laureles that is the other store.
+        assertTrue("Exito Laureles" in pinNotice(copies, 2, twoExitos)!!.text)
+    }
+
+    @Test
+    fun `pinning warns when the other store does not sell it, or is out of it`() {
+        val alone = pinNotice(listOf(row(id = 1, source = "exito-grocery", product = "p")), 1, twoExitos)!!
+        assertEquals("warn", alone.kind)
+        assertTrue("Exito Colombia does not sell it" in alone.text && "if it shows up" in alone.text, alone.text)
+
+        val out = pinNotice(
+            listOf(
+                row(id = 1, source = "exito-grocery", product = "p"),
+                row(id = 2, source = "exito-colombia-grocery", product = "p", onShelf = false),
+            ),
+            1, twoExitos,
+        )!!
+        assertEquals("warn", out.kind)
+        assertTrue("Exito Colombia is out of it right now" in out.text, out.text)
+    }
+
+    @Test
+    fun `a chain with one store gets no pin notice`() {
+        assertNull(pinNotice(listOf(row(id = 1, source = "carulla-grocery")), 1, twoExitos))
+        assertNull(pinNotice(emptyList(), 1, twoExitos), "the row is gone")
+    }
+
+    @Test
+    fun `the pin notice is in Spanish too, and its header is plain ASCII`() {
+        val es = com.luis.dealstracker.i18n.I18n.with(com.luis.dealstracker.i18n.Lang.ES) {
+            pinNotice(
+                listOf(
+                    row(id = 1, source = "exito-grocery", product = "p"),
+                    row(id = 2, source = "exito-colombia-grocery", product = "p", price = "4120"),
+                ),
+                1, twoExitos,
+            )!!
+        }
+        assertTrue("Exito Colombia también lo tiene" in es.text, es.text)
+        val header = es.header()
+        assertTrue(header.all { it.code in 0x20..0x7e }, header)
+        assertTrue(header.startsWith("""{"pinNotice":{"kind":"ok","text":"Fijado. Exito Colombia tambi\u00e9n"""), header)
+        assertEquals("""{"pinNotice":{"kind":"warn","text":"a \"b\" \\"}}""", PinNotice("warn", "a \"b\" \\").header())
+        assertTrue("'pinNotice'" in PIN_NOTICE_JS && "textContent" in PIN_NOTICE_JS, "drawn as text, never as HTML")
+    }
 }

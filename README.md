@@ -780,11 +780,6 @@ is looked up. Exito and Carulla share ~4,400 barcodes; PriceSmart lists none, so
 Clicking the **Store** header (or the "Other chain" tag) sorts by how much cheaper the other chain
 is; that looks up every row in view rather than the page (~0.3s on All items).
 
-**Pinned** opens with the **cheapest split**: each pinned item assigned to the chain where it is
-cheapest today, one chip per chain with its item count and total, and what the split saves over
-buying each item at its own row's store. A chip filters the list to that trip (`?buy=carulla`) --
-by where the item is cheapest, unlike the Store filter, which goes by which store the row is from.
-
 The first full crawl of both stores, on 2026-09-24:
 
 | | items |

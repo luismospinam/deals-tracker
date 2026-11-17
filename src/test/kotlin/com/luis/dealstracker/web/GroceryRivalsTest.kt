@@ -146,78 +146,18 @@ class GroceryRivalsTest {
         assertEquals(rows.size, asked)
     }
 
+    /** The cheapest split and its `?buy=` filter were removed on 2026-11-13; an old link must still open. */
     @Test
-    fun `the controls carry the stop only on Pinned, and the old cheaper-elsewhere filter is gone`() {
+    fun `old cheaper-elsewhere and buy links open the plain Pinned view`() {
         val c = GroceryControls.from(io.ktor.http.parametersOf("view" to listOf("pinned"), "elsewhere" to listOf("1"), "buy" to listOf("Carulla")))
-        assertEquals("carulla", c.buyAt)
-        assertEquals("/groceries?view=pinned&buy=carulla", c.url(), "an old ?elsewhere=1 bookmark is dropped")
-        assertEquals("/groceries?view=all", c.url(view = GroceryView.ALL, sort = null))
-        val html = createHTML().main {
-            groceryPage(listOf(row(1, "exito-grocery", "1000")), listOf("Pantry" to 1), c.copy(view = GroceryView.ALL), stores.keys.toList())
-        }
-        assertFalse(html.contains("cheaper at another chain"), "no checkbox")
-        assertNull(GroceryControls.from(io.ktor.http.parametersOf("buy" to listOf("exito"))).buyAt, "Deals has no plan")
-    }
-
-    @Test
-    fun `an item is bought where it is cheapest, ties and no rival at its own store`() {
-        assertEquals("carulla" to BigDecimal("9000"), row(1, "exito-grocery", "10000").copy(rival = rival("carulla", "9000")).bestBuy())
-        assertEquals("exito" to BigDecimal("10000"), row(1, "exito-grocery", "10000").copy(rival = rival("carulla", "10000")).bestBuy())
-        assertEquals("exito" to BigDecimal("10000"), row(1, "exito-grocery", "10000").bestBuy())
-        assertEquals(
-            "carulla" to BigDecimal("12000"),
-            row(1, "exito-grocery", "10000", onShelf = false).copy(rival = rival("carulla", "12000")).bestBuy(),
-            "off its own shelf, the other chain is the only place to buy it",
-        )
-        assertNull(row(1, "exito-grocery", "10000", onShelf = false).bestBuy())
-    }
-
-    @Test
-    fun `the plan splits Pinned by cheapest chain, totals each trip and counts the saving`() {
-        val pinned = listOf(
-            row(1, "exito-grocery", "10000", pinned = true).copy(rival = rival("carulla", "9000")),        // Carulla, saves 1,000
-            row(2, "exito-grocery", "5000", pinned = true).copy(rival = rival("carulla", "6000")),         // Exito
-            row(3, "carulla-grocery", "3000", pinned = true),                                               // Carulla
-            row(4, "exito-grocery", "7000", pinned = true, onShelf = false).copy(rival = rival("carulla", "8000")), // Carulla, no saving
-            row(5, "pricesmart-americas-grocery", "20000", pinned = true, key = null),                    // PriceSmart
-            row(6, "exito-grocery", "4000", pinned = true, onShelf = false),                               // nowhere
-        )
-        val plan = shoppingPlan(pinned)!!
-        assertEquals(
-            listOf(
-                PlanStop("carulla", 3, BigDecimal("20000")),
-                PlanStop("exito", 1, BigDecimal("5000")),
-                PlanStop("pricesmart", 1, BigDecimal("20000")),
-            ),
-            plan.stops,
-        )
-        assertEquals(BigDecimal("1000"), plan.saving)
-        assertEquals(1, plan.unavailable)
-
-        val controls = GroceryControls(view = GroceryView.PINNED, groups = emptySet(), search = null, sort = GrocerySort.BELOW, buyAt = "carulla")
-        assertEquals(setOf(1L, 3L, 4L), groceryShown(pinned, controls).map { it.deal.id }.toSet(), "the Carulla trip, wherever the row is from")
-    }
-
-    @Test
-    fun `Pinned shows the plan with a link per trip and the saving`() {
+        assertEquals("/groceries?view=pinned", c.url())
         val pinned = listOf(
             row(1, "exito-grocery", "10000", pinned = true).copy(rival = rival("carulla", "9000")),
             row(2, "exito-grocery", "5000", pinned = true),
         )
-        val controls = GroceryControls(view = GroceryView.PINNED, groups = emptySet(), search = null, sort = GrocerySort.BELOW)
-        val html = createHTML().main {
-            groceryPage(
-                pinned, listOf("Pantry" to 2), controls, stores.keys.toList(), pinnedCount = 2,
-                chainCounts = listOf(Triple("exito", "Exito", 1), Triple("carulla", "Carulla", 1)),
-            )
-        }
-        val plan = html.substringAfter("shop-plan\"").substringBefore("</div>")
-        assertTrue("href=\"/groceries?view=pinned&amp;buy=carulla\"" in plan, plan)
-        assertTrue("Carulla" in plan && "\$9,000" in plan, plan)
-        assertTrue("Exito" in plan && "\$5,000" in plan, plan)
-        assertTrue("saves \$1,000" in plan, plan)
-        assertFalse("shop-plan" in createHTML().main {
-            groceryPage(pinned, listOf("Pantry" to 2), controls.copy(view = GroceryView.ALL), stores.keys.toList())
-        }, "only on Pinned")
+        assertEquals(setOf(1L, 2L), groceryShown(pinned, c).map { it.deal.id }.toSet(), "nothing is filtered by the old parameter")
+        val html = createHTML().main { groceryPage(pinned, listOf("Pantry" to 1), c, stores.keys.toList(), pinnedCount = 2) }
+        assertFalse(html.contains("Cheapest split") || html.contains("shop-plan"), "the section is gone")
+        assertFalse(html.contains("cheaper at another chain"), "no checkbox")
     }
 }
