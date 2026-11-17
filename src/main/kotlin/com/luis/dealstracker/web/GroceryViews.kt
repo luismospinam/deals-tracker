@@ -567,8 +567,10 @@ internal fun MAIN.groceryPage(
     storage: com.luis.dealstracker.db.StorageLine? = null,
     /** Chain id -> (display name, products on the shelf), for the store filter. */
     chainCounts: List<Triple<String, String, Int>> = emptyList(),
+    /** The order agent's panel, on Pinned only: today's cart and the feedback box. See [orderAgentPanel]. */
+    orderPanel: (FlowContent.() -> Unit)? = null,
 ) {
-    groceryBody(rows, groupCounts, controls, sources, pinnedCount, chainCounts)
+    groceryBody(rows, groupCounts, controls, sources, pinnedCount, chainCounts, orderPanel)
     // After the table, whichever early return the body took: "when were these prices read?" matters
     // most on exactly the screens that show nothing, like an empty Deals view or a first run.
     syncFooter(sync)
@@ -623,6 +625,7 @@ private fun MAIN.groceryBody(
     sources: List<String>,
     pinnedCount: Int,
     chainCounts: List<Triple<String, String, Int>>,
+    orderPanel: (FlowContent.() -> Unit)? = null,
 ) {
     if (controls.section == ShelfSection.HOUSEHOLD) p("tracked-intro") {
         +tr("Cleaning, paper and personal care, priced and stocked at ", "Aseo, papel y cuidado personal, con precio y existencias de ")
@@ -681,6 +684,8 @@ private fun MAIN.groceryBody(
     // Shopping happens from the shopping list: the cart buttons and the link to the cart they fill live on
     // Pinned only, not on Deals or All items, where an item is being browsed rather than bought.
     if (controls.view == GroceryView.PINNED) {
+        orderPanel?.invoke(this)
+        cartStoreSwitch(controls.url(page = controls.page))
         openCartSlot()
         cartableToggle(rows.count { it.pinnedAt != null && cartCopy(it) != null }, controls)
     }

@@ -88,10 +88,15 @@ fun Application.routes(
     purchaseLog: com.luis.dealstracker.agent.PurchaseLog? = null,
     /** The grocery agent, for Config's Agents section. Null in a copy that does not own the MCP server. */
     agents: com.luis.dealstracker.agent.AgentJobs? = null,
+    /** The order agent's carts, for its panel on Pinned. Null with no agents, which hides the panel. */
+    agentOrders: com.luis.dealstracker.agent.OrderRepository? = null,
     suggestions: com.luis.dealstracker.agent.SuggestionRepository = com.luis.dealstracker.agent.SuggestionRepository(com.luis.dealstracker.db.Db.dataSource),
 ) {
     // Read on every use: the Config tab changes it while the app runs (LiveConfig).
     val app: AppConfig by kotlin.properties.ReadOnlyProperty { _, _ -> LiveConfig.currentOr(bootApp) }
+    // Today's unordered agent cart at [store], which the 🛒 button and the Open cart link use while it lasts.
+    fun agentCartFor(store: com.luis.dealstracker.exito.CartStore): com.luis.dealstracker.agent.AgentOrder? =
+        runCatching { agentOrders?.openForStore(store, java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()) }.getOrNull()
     // First, before anything else looks at the request: nobody but this Mac gets in without a session.
     gate?.install(this)
     // Every request runs in its own language, wherever its coroutine resumes: see I18n.element.
@@ -541,7 +546,14 @@ fun Application.routes(
                     extraKinds = { row, ch -> if (newlyUnderUsual(row, ch)) setOf(DigestKind.NEW_DEAL) else emptySet() },
                 )
             }
-            val suggestionList = withContext(Dispatchers.IO) { runCatching { suggestions.open() }.getOrDefault(emptyList()) }
+            // The Ask panel and the agent's suggestions read the grocery stores only, so they stay on that tab.
+            val isGroceries = section == ShelfSection.GROCERIES
+            val suggestionList = if (!isGroceries) emptyList() else withContext(Dispatchers.IO) { runCatching { suggestions.open() }.getOrDefault(emptyList()) }
+            // The order agent's cart, on Pinned of the grocery tab: its shopping list is where buying happens.
+            val orderPanel = if (!isGroceries || controls.view != GroceryView.PINNED || agentOrders == null || agents == null) null
+            else withContext(Dispatchers.IO) { runCatching { agentOrders.recentRuns(limit = 6) }.getOrNull() }?.let { runs ->
+                OrderPanelModel(runs, agents.running, nextTimeOfDay(app.defaults.orderAgentTimes, java.time.Instant.now(), java.time.ZoneId.systemDefault()))
+            }
             // The trend line of each row on screen; a failure costs the lines, not the page.
             val trends = withContext(Dispatchers.IO) { runCatching { groceries.dailyPrices(groceryVisibleIds(rows, controls)) }.getOrDefault(emptyMap()) }
             call.respondPage {
@@ -555,8 +567,8 @@ fun Application.routes(
                         ),
                     )
                     digestBanner(digest, digestRange)
-                    suggestionsPanel(suggestionList)
-                    groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts)
+                    if (isGroceries) suggestionsPanel(suggestionList)
+                    groceryPage(rows, groups, controls, allSources, pinnedCount, sync, storage, chainCounts, orderPanel?.let { m -> { orderAgentPanel(m) } })
                 }
               }
             }
@@ -649,9 +661,32 @@ fun Application.routes(
             val id = call.parameters["id"]?.toLongOrNull()
                 ?: return@post call.respondText(tr("bad id", "id no válido"), status = HttpStatusCode.BadRequest)
             val deal = withContext(Dispatchers.IO) { repo.findById(id) }
-            val result = if (deal == null || deal.source != com.luis.dealstracker.exito.EXITO_CART_SOURCE) {
-                // Only Laureles has the button; a hand-made request for another store is refused, not guessed at.
-                com.luis.dealstracker.exito.CartResult.Refused("the cart button is for Exito Laureles items only")
+            // Read once for the whole request: the row must be the chosen store's, and the toast names it.
+            val buyingAt = com.luis.dealstracker.exito.MyCartStore.current
+            // Today's agent cart at this store, while it is not ordered: the one cart to pay, so the button adds there.
+            val agentCart = withContext(Dispatchers.IO) { agentCartFor(buyingAt) }
+            val result = if (deal == null || deal.source !in buyingAt.sources) {
+                // Only the store being bought at has the button; a request for another store's row -- a page
+                // drawn before the switch, or a hand-made one -- is refused, not added at the wrong store.
+                com.luis.dealstracker.exito.CartResult.Refused("the cart button is set to ${buyingAt.label}; reload the page")
+            } else if (agentCart != null && agentOrders != null) {
+                exitoCart.addTo(
+                    buyingAt, saved = agentCart.cartId, others = exitoCart.manualCartIds(),
+                    adopt = { agentOrders.setCart(agentCart.id, it) }, productId = deal.sourceDealId,
+                ).also { r ->
+                    if (r is com.luis.dealstracker.exito.CartResult.Added) withContext(Dispatchers.IO) {
+                        // One line per product: a second press is a second unit in Exito's cart, not a second line here.
+                        if (agentOrders.items(agentCart.id).none { it.productId == deal.sourceDealId }) {
+                            agentOrders.addItem(
+                                agentCart.id,
+                                com.luis.dealstracker.agent.AgentOrderItem(
+                                    deal.id, deal.sourceDealId, r.title ?: deal.title, deal.price, null, null, "",
+                                    addedBy = com.luis.dealstracker.agent.OPERATOR_ADDED,
+                                ),
+                            )
+                        }
+                    }
+                }
             } else {
                 exitoCart.add(deal.sourceDealId)
             }
@@ -662,12 +697,66 @@ fun Application.routes(
             if (result is com.luis.dealstracker.exito.CartResult.Added && purchaseLog != null) {
                 scope.launch(Dispatchers.IO) { runCatching { purchaseLog.syncExitoCart()?.let(::println) } }
             }
-            call.respondFragment { cartToast(result, deal?.title, exitoCart.cartLink(), lastSeen = deal?.lastSeenAt) }
+            val openLink = if (agentCart != null) orderOpenPath(agentCart.id) else openCartVia(exitoCart.cartLink())
+            call.respondFragment { cartToast(result, deal?.title, openLink, lastSeen = deal?.lastSeenAt, store = buyingAt) }
+        }
+
+        // Run now on the order agent's panel. Started in the background (a run takes a few minutes) and
+        // answered with the page, which shows it running until it is done.
+        post(ORDER_RUN_PATH) {
+            val jobs = agents ?: return@post call.respondText(tr("the order agent is off in this copy", "el agente de pedidos está apagado en esta copia"), status = HttpStatusCode.NotFound)
+            if (!jobs.running) {
+                // `store` (laureles, colombia) asks for the cart at that store; absent, the agent chooses.
+                val store = call.request.queryParameters["store"]?.let { k -> com.luis.dealstracker.exito.CartStore.entries.firstOrNull { it.key == k } }
+                scope.launch(Dispatchers.IO) { runCatching { println(jobs.runOrder("manual", store = store)) }.onFailure { println("[agent] order failed: ${it.message}") } }
+                // Let the run claim the runner, so the page it redirects to says "running".
+                repeat(20) { if (!jobs.running) kotlinx.coroutines.delay(50) }
+            }
+            call.respondRedirect(com.luis.dealstracker.agent.ORDER_PANEL_PATH)
+        }
+
+        post("/order-agent/runs/{id}/feedback") {
+            val repo = agentOrders ?: return@post call.respondText("", status = HttpStatusCode.NotFound)
+            val id = call.parameters["id"]?.toLongOrNull() ?: return@post call.respondText("", status = HttpStatusCode.BadRequest)
+            val text = call.receiveParameters()["feedback"]
+            val ok = withContext(Dispatchers.IO) { repo.saveFeedback(id, text) }
+            if (!ok) return@post call.respondText("", status = HttpStatusCode.NotFound)
+            call.respondFragment { feedbackFragment(id, text?.trim()?.take(1000)) }
+        }
+
+        // The agent's cart opens through here, as the 🛒 cart does: pickup at its store is checked first.
+        get("/order-agent/orders/{id}/open") {
+            val order = call.parameters["id"]?.toLongOrNull()?.let { id -> withContext(Dispatchers.IO) { agentOrders?.byId(id) } }
+            val cartId = order?.cartId ?: return@get call.respondRedirect(com.luis.dealstracker.agent.ORDER_PANEL_PATH)
+            withContext(Dispatchers.IO) { exitoCart.ensurePickup(order.store, cartId) }
+            call.respondRedirect(exitoCart.cartLinkFor(cartId))
+        }
+
+        // The "Buying at" switch on Pinned: which Exito the cart button buys at. Saved, so it survives a
+        // restart, and answered with a redirect back to the page, which is drawn again for the new store.
+        post(CART_STORE_PATH) {
+            val form = call.receiveParameters()
+            val store = com.luis.dealstracker.exito.CartStore.entries.firstOrNull { it.key == form["store"] }
+            if (store != null && store != com.luis.dealstracker.exito.MyCartStore.current) {
+                withContext(Dispatchers.IO) { settings.set(mapOf(SettingsRepository.EXITO_STORE to store.key)) }
+                com.luis.dealstracker.exito.MyCartStore.current = store
+                println("[exito-cart] now buying at ${store.label}")
+            }
+            call.respondRedirect(form["back"]?.takeIf { it.startsWith("/") && !it.startsWith("//") } ?: ShelfSection.GROCERIES.path)
         }
 
         // The Open cart link at the top of Groceries; an empty answer removes its slot until there is a cart.
         get("/groceries/exito-cart/link") {
-            call.respondFragment { openCartLink(exitoCart.cartLink()) }
+            // Today's agent cart at the store being bought at, while it is not ordered, is the cart; else the operator's own.
+            val agentCart = withContext(Dispatchers.IO) { agentCartFor(com.luis.dealstracker.exito.MyCartStore.current) }
+            call.respondFragment { openCartLink(agentCart?.let { orderOpenPath(it.id) } ?: openCartVia(exitoCart.cartLink())) }
+        }
+
+        // Both Open cart links come through here: the cart is set to Compra y Recoge first, since choosing it
+        // on Exito's site starts a new, empty cart instead of changing this one.
+        get(OPEN_CART_PATH) {
+            withContext(Dispatchers.IO) { exitoCart.ensurePickup() }
+            call.respondRedirect(exitoCart.cartLink() ?: ShelfSection.GROCERIES.path)
         }
 
         get("/groceries/exito-cart") {

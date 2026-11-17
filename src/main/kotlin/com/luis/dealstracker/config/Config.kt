@@ -278,6 +278,12 @@ data class Defaults(
      */
     val groceryAgentTimes: List<String> = listOf("08:15"),
     /**
+     * Local times the order agent fills a cart (`agent.OrderAgent`): after both Exito morning crawls
+     * (Colombia's window ends 08:30 and a crawl takes ~6 minutes), and before the morning-only
+     * promotions end at noon. Empty turns it off.
+     */
+    val orderAgentTimes: List<String> = listOf("08:45"),
+    /**
      * Hours between reads of the Exito account's order history (`exito.ExitoOrderSync`, V43). A normal
      * read is one request, so this is about how soon a new order shows, not load. 0 turns it off.
      */

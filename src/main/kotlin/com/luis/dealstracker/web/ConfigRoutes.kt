@@ -285,6 +285,8 @@ private fun fieldText(key: String): Pair<String, String> = when (key) {
         tr("Runs in a row with no results or an error before a source is reported broken. Scheduled crawls use 2.", "Corridas seguidas sin resultados o con error antes de reportar una fuente como caída. Los rastreos programados usan 2.")
     "groceryAgentTimes" -> tr("Grocery agent runs at", "El agente de mercado corre a las") to
         tr("After the morning crawl, so it reads today's prices. \"off\" turns it off.", "Después del rastreo de la mañana, para leer los precios de hoy. \"off\" lo apaga.")
+    "orderAgentTimes" -> tr("Order agent fills a cart at", "El agente de pedidos llena un carrito a las") to
+        tr("After both Exito morning crawls and before the morning promotions end. \"off\" turns it off.", "Después de los rastreos de la mañana de ambos Exito y antes de que terminen las promociones de la mañana. \"off\" lo apaga.")
     "agentModel" -> tr("Agent model", "Modelo de los agentes") to "haiku, sonnet, opus"
     "agentEffort" -> tr("Agent effort", "Esfuerzo de los agentes") to "low, medium, high"
     "agentMaxBudgetUsd" -> tr("Agent budget per run (US$)", "Presupuesto por corrida (US$)") to
@@ -482,6 +484,8 @@ private fun jobStatus(key: String, m: ConfigModel): String {
         "pruneHistoryAfterDays" -> if (d.pruneHistoryAfterDays == 0) tr("off", "apagado")
         else m.prunedAt?.let { tr("last ${relativeAgo(it)}", "último ${relativeAgo(it)}") } ?: tr("not run yet", "aún no ha corrido")
         "groceryAgentTimes" -> nextTimeOfDay(d.groceryAgentTimes, m.now, m.zone)?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }
+            ?: tr("off", "apagado")
+        "orderAgentTimes" -> nextTimeOfDay(d.orderAgentTimes, m.now, m.zone)?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }
             ?: tr("off", "apagado")
         "backupTimes" -> nextTimeOfDay(d.backupTimes, m.now, m.zone)?.let { tr("next ${clock(it, m)}", "próximo ${clock(it, m)}") }
             ?: tr("off", "apagado")

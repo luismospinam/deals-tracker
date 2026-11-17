@@ -658,9 +658,12 @@ fun main(args: Array<String>) {
     var agentDb: com.luis.dealstracker.agent.AgentDb? = null
     var mcpStarted = false
     val agentTools = com.luis.dealstracker.agent.AgentTools(Db.dataSource, { agentDb }, GroceryRepository(Db.dataSource), ::live)
+    // The order agent's carts, and its tools: the only ones besides `suggest` that change anything.
+    val agentOrders = com.luis.dealstracker.agent.OrderRepository(Db.dataSource)
+    val orderTools = com.luis.dealstracker.agent.OrderTools(Db.dataSource, GroceryRepository(Db.dataSource), agentOrders, exitoCart, ::live)
     runCatching {
         val token = com.luis.dealstracker.agent.mcpToken(File(projectDir, ".mcp-token"))
-        com.luis.dealstracker.agent.startMcpServer(com.luis.dealstracker.agent.McpServer(agentTools.tools(), log = ::println), token)
+        com.luis.dealstracker.agent.startMcpServer(com.luis.dealstracker.agent.McpServer(agentTools.tools() + orderTools.tools(), log = ::println), token)
         agentDb = runCatching { com.luis.dealstracker.agent.AgentDb.ensure(Db.dataSource, fileApp.db) }
             .onFailure { println("[mcp] read-only role not set up, the sql tool is off: ${it.message}") }.getOrNull()
         println("[mcp] http://${com.luis.dealstracker.agent.MCP_HOST}:${com.luis.dealstracker.agent.MCP_PORT}/mcp (token in .mcp-token)")
@@ -687,6 +690,17 @@ fun main(args: Array<String>) {
             }
         },
         baseUrl = "http://localhost:$port",
+        orders = agentOrders,
+        notifyOrder = { title, lines ->
+            com.luis.dealstracker.notify.Notifier.notify(title, lines.firstOrNull().orEmpty(), openUrl = "http://localhost:$port${com.luis.dealstracker.agent.ORDER_PANEL_PATH}", group = "agent")
+            (live().discordAgentsWebhook ?: live().discordGroceriesWebhook ?: live().discordWatchesWebhook)?.let {
+                com.luis.dealstracker.notify.DiscordWebhook(it).send(title, com.luis.dealstracker.notify.fitDescription(lines), "Deals Tracker · order agent", color = 0x2ECC71)
+            }
+        },
+        // The phone opens the post's link through the tunnel, whose address changes; cloudflared logs it.
+        publicUrl = { runCatching { com.luis.dealstracker.agent.tunnelUrl(File(projectDir, "logs/tunnel.log").readText()) }.getOrNull() },
+        // Orders are read every 12 hours; the agent reads them right before it judges yesterday's cart.
+        beforeOrderRun = { kotlinx.coroutines.runBlocking { println(exitoOrders.sync()) } },
     )
     if (pollerEnabled && mcpStarted) scope.launch {
         delay(2 * 60_000L)
@@ -802,7 +816,7 @@ fun main(args: Array<String>) {
         com.luis.dealstracker.web.sessionSecret(File(projectDir, ".session-secret")),
     )
     embeddedServer(Netty, host = host, port = port) {
-        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, groceryRepo, disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null, gate = gate, onGroceryPinned = { aislePins.trySend(Unit) })
+        routes(repo, watches, ingest, manualService, manualItems, app, categorizer, scope, ask, rates, groceryRepo, disabledSearches, com.luis.dealstracker.db.DailyChangeRepository(Db.dataSource), exitoCart, ops = ops, purchaseLog = purchaseLog, agents = if (mcpStarted) agentJobs else null, agentOrders = agentOrders, gate = gate, onGroceryPinned = { aislePins.trySend(Unit) })
     }.start(wait = true)
 }
 

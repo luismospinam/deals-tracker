@@ -332,6 +332,29 @@ Schedules.
 *Got it*, or *Dismiss* with an optional reason. The answers and reasons are what the next agent run
 reads. Open suggestions expire after 7 days.
 
+**The order agent** (`agent.OrderAgent`, `agent.OrderTools`, V47) fills one Exito cart each morning at
+`orderAgentTimes` (08:45, after both Exito morning crawls), for pickup and payment before noon. It runs like
+the grocery agent (`claude -p`, the same model, effort and budget), with its own tools:
+- `order_context`: what was bought on this weekday in the last 12 weeks, and every product bought before or
+  pinned that is on promotion today, priced at both Exitos (shelf, usual, held cards' prices, the promotion's
+  last day); and its own recent runs, with the operator's feedback and whether each cart was ordered.
+- `exito_prices`, `basket_totals`: the basket at each store, in cash and with each held card. One cart is one
+  store (one pickup point) and one payment, and card promotions do not stack, so it picks both for the whole cart.
+  Stores are compared on the items both sell (`shared_items_total`): a clearly cheaper store wins; within ~3%, the
+  one that sells more of the wanted items; and only when both sell the same items, Laureles.
+- `order_begin`, `order_add`: the only tools besides `suggest` that change anything. Each run gets a fresh cart
+  of its own (`agent_orders.cart_id`); the 🛒 button's carts are never touched, nor adopted. Adds go through
+  `ExitoCart.addTo`, so the cart is Compra y Recoge at the chosen store, as the 🛒 button's is.
+
+One unit of each product, no spending cap. A day with nothing on promotion makes no cart, which is expected.
+The result is the **Today's cart** panel on Groceries > Pinned: store, card to pay with, total, the saving against
+usual prices, each item with its reason, and **Open this cart**, which checks pickup and goes on to Exito (it works
+on the phone through the tunnel). Under it, a feedback box saved on the run (`agent_runs.feedback`), which the next
+runs read first, and the earlier runs. A ready cart posts a desktop banner and a Discord post (the agents' channel)
+linking to the panel through the tunnel's current address, read from `logs/tunnel.log`. A morning slept through is
+skipped rather than run in the afternoon, when the morning promotions are over; **Run now** works at any time.
+A cart is "ordered" once an Exito order carries its `cart_id`.
+
 ## UI
 
 Styles live in `src/main/resources/static/app.css`, served via Ktor `staticResources` —
