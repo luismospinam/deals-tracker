@@ -145,6 +145,16 @@ fun main(args: Array<String>) {
         liveApp = ::live,
         watchTerms = { watches.activeSearchTerms() },
         linkWatchDeals = { watches.linkSourced(it) },
+        // A shelf crawl may bring a pinned product's copy at another store for the first time: it is
+        // pinned too, so Pinned shows it at whichever store is being bought at.
+        afterCrawl = { provider ->
+            // New tracked rows may have a title that names no garment: ask about them (see TypeClassifier).
+            if (provider.id in trackingSources(live())) typeAsks.trySend(Unit)
+            com.luis.dealstracker.web.shelfSectionOf(live(), provider.id)?.let { section ->
+                val n = GroceryRepository(Db.dataSource).inheritPins(com.luis.dealstracker.web.grocerySources(live(), section))
+                if (n > 0) println("[${provider.id}] $n store copies of pinned products pinned too")
+            }
+        },
     )
     // Env override on top of defaults.httpPort, so a second copy can run alongside the usual
     // one -- a worktree or a branch under test -- without editing committed config and having

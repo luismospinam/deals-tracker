@@ -522,6 +522,14 @@ A row with a "does not ship" verdict is hidden on the tab by default and its ver
 again, so its page is no longer re-read every two days unless it is pinned (`WORTH_A_PAGE_READ`). With
 no page read vouching for it, it is retired once the search stops returning it (`staleAfterHours`).
 
+### Pinning says what the chain's other store has
+
+A grocery pin covers every store of the chain: `setPinned` pins each copy that exists, and `inheritPins`
+pins a copy that appears later. So pinning at Exito Laureles also pins the product at Exito Colombia.
+The pin answers with a toast saying what was found at the other store: green with its price there, amber
+when that store does not sell it or is out of it. The row itself is the response body, so the notice
+travels in the `HX-Trigger` header (`pinNotice` in `web/GroceryViews.kt`). Chains with one store say nothing.
+
 ## Watches — hunting one thing over weeks
 
 The feed answers "what is discounted?". A **watch** answers the question you actually have:

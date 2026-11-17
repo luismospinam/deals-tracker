@@ -531,6 +531,35 @@ class GroceryRepository(private val ds: DataSource) {
     }
 
     /** How many rows are pinned, for the Pinned tab's badge. */
+    /**
+     * Gives a product's unpinned store copies the pin of a pinned copy, with its AI aisle, among
+     * [sources] (one tab's stores). A pin is stored per copy, and [setPinned] pins every copy that exists
+     * at the time; a copy that appears later -- a store crawled for the first time, or one that starts
+     * stocking the product -- would otherwise be missing from Pinned, its count and its cart button.
+     * Run after each shelf crawl. Returns how many rows took a pin.
+     */
+    fun inheritPins(sources: List<String>): Int {
+        if (sources.isEmpty()) return 0
+        return ds.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE deals d SET pinned_at = p.pinned_at, aisle_ai = COALESCE(d.aisle_ai, p.aisle_ai)
+                FROM (
+                    SELECT DISTINCT ON (merchant, source_deal_id) merchant, source_deal_id, pinned_at, aisle_ai
+                    FROM deals WHERE source = ANY (?) AND pinned_at IS NOT NULL
+                    ORDER BY merchant, source_deal_id, pinned_at
+                ) p
+                WHERE d.source = ANY (?) AND d.pinned_at IS NULL
+                  AND d.source_deal_id = p.source_deal_id AND d.merchant IS NOT DISTINCT FROM p.merchant
+                """.trimIndent(),
+            ).use { st ->
+                val arr = conn.createArrayOf("text", sources.toTypedArray())
+                st.setArray(1, arr); st.setArray(2, arr)
+                st.executeUpdate()
+            }
+        }
+    }
+
     fun pinnedCount(sources: List<String>): Int {
         if (sources.isEmpty()) return 0
         return ds.connection.use { conn ->

@@ -589,7 +589,7 @@ fun Application.routes(
             val fromDetail = call.request.queryParameters["view"] == DETAIL_VIEW
             val split = call.request.queryParameters["split"] == "1"
             val view = GroceryView.of(call.request.queryParameters["view"])
-            val sources = grocerySources(app)
+            var notice: PinNotice? = null
             val row = withContext(Dispatchers.IO) {
                 // The one pin endpoint serves both shelf tabs. The section is read off the row's own
                 // provider first -- setPinned always changes the row it is given, whatever sources it is
@@ -599,15 +599,19 @@ fun Application.routes(
                 // Re-merged, so the swapped row still shows the cheaper store and the other one's price; in a
                 // search's one-row-per-store table, this store's row alone, as it was shown.
                 else {
-                    val stores = groceryStores(app)
-                    val fresh = if (split) labelStores(groceries.rows(GroceryFilter(sources, ids = listOf(id))), stores)
-                    else mergeStores(groceries.rows(GroceryFilter(sources, id = id)), stores)
+                    val sources = grocerySources(app, section)
+                    val stores = groceryStores(app, section)
+                    val copies = groceries.rows(GroceryFilter(sources, id = id))
+                    if (pinned) notice = pinNotice(copies, id, stores)
+                    val fresh = if (split) labelStores(copies.filter { it.deal.id == id }, stores)
+                    else mergeStores(copies, stores)
                     fresh.firstOrNull()?.let { row ->
                         withRivals(listOf(row), groceries.shelfPrices(listOfNotNull(row.deal.matchKey), sources), stores).first()
                     }
                 }
             } ?: return@post call.respondText(tr("no such item", "no existe ese producto"), status = HttpStatusCode.NotFound)
             if (pinned) onGroceryPinned()
+            notice?.let { call.response.header("HX-Trigger", it.header()) }
             val trends = withContext(Dispatchers.IO) { runCatching { groceries.dailyPrices(listOf(row.deal.id)) }.getOrDefault(emptyMap()) }
             call.respondFragment {
                 when {

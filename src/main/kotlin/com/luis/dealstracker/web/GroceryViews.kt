@@ -1582,3 +1582,63 @@ internal fun grocerySyncLines(
 
 // `cardChip` lives in Views.kt: the Groceries tab and each watch's "Matching now" table both
 // render it, and two copies would let the wording drift between them.
+
+/** What the toast says after a pin, about the chain's other stores. `kind` is the toast's colour class. */
+internal data class PinNotice(val kind: String, val text: String) {
+    /**
+     * The `HX-Trigger` header value that raises [PIN_NOTICE_EVENT] with this notice. Headers are not safe
+     * for accents ("Éxito", "también"), so everything outside printable ASCII goes out as a JSON escape.
+     */
+    fun header(): String {
+        fun json(s: String) = buildString {
+            append('"')
+            s.forEach { c ->
+                when {
+                    c == '"' || c == '\\' -> append('\\').append(c)
+                    c.code in 0x20..0x7e -> append(c)
+                    else -> append("\\u%04x".format(c.code))
+                }
+            }
+            append('"')
+        }
+        return """{"$PIN_NOTICE_EVENT":{"kind":${json(kind)},"text":${json(text)}}}"""
+    }
+}
+
+internal const val PIN_NOTICE_EVENT = "pinNotice"
+
+/**
+ * After pinning the row [shownId]: whether the chain's other stores sell the product too. A pin already
+ * covers every store of the chain (see `GroceryRepository.setPinned` and `inheritPins`), so this only says
+ * what was found there -- green with the price when every other store has it, amber when one does not.
+ *
+ * [copies] are every store's copy of the product, [stores] the tab's stores. Null for a chain with one
+ * store (Carulla, PriceSmart), where there is nothing to say.
+ */
+internal fun pinNotice(copies: List<GroceryRow>, shownId: Long, stores: Map<String, GroceryStore>): PinNotice? {
+    val shown = copies.firstOrNull { it.deal.id == shownId } ?: return null
+    val chain = stores[shown.deal.source]?.chain ?: return null
+    val siblings = stores.filter { (id, store) -> store.chain == chain && id != shown.deal.source }
+    if (siblings.isEmpty()) return null
+    val parts = siblings.map { (id, store) ->
+        val copy = copies.firstOrNull { it.deal.source == id }
+        when {
+            copy == null -> false to tr(
+                "${store.label} does not sell it. It will be pinned there too if it shows up.",
+                "${store.label} no lo vende. Quedará fijado allí también si aparece.",
+            )
+            !copy.onShelf -> false to tr(
+                "${store.label} is out of it right now. It stays pinned there for when it is back.",
+                "${store.label} no lo tiene en este momento. Queda fijado allí para cuando vuelva.",
+            )
+            else -> true to tr(
+                "${store.label} has it too, at ${formatMoney(copy.deal.price, copy.deal.currency)}.",
+                "${store.label} también lo tiene, a ${formatMoney(copy.deal.price, copy.deal.currency)}.",
+            )
+        }
+    }
+    return PinNotice(
+        kind = if (parts.all { it.first }) "ok" else "warn",
+        text = tr("Pinned. ", "Fijado. ") + parts.joinToString(" ") { it.second },
+    )
+}

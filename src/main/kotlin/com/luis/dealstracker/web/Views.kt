@@ -311,6 +311,24 @@ document.addEventListener('htmx:afterRequest', function (e) {
 });
 """
 
+/**
+ * Shows the toast a grocery pin answers with (see `pinNotice`). The pin's response body is the table row, so
+ * the notice travels in the `HX-Trigger` header and is drawn here, as text, into the same `#toast` the cart uses.
+ */
+internal const val PIN_NOTICE_JS = """
+document.addEventListener('$PIN_NOTICE_EVENT', function (e) {
+  var box = document.getElementById('toast'), d = e.detail || {};
+  if (!box || !d.text) return;
+  var t = document.createElement('div'), s = document.createElement('span');
+  t.className = 'toast toast-' + (d.kind === 'warn' ? 'warn' : 'ok');
+  t.setAttribute('role', 'status');
+  s.className = 'toast-text';
+  s.textContent = d.text;
+  t.appendChild(s);
+  box.replaceChildren(t);
+});
+"""
+
 fun HTML.page(title: String, block: MAIN.() -> Unit) {
     head {
         meta(charset = "utf-8")
@@ -322,6 +340,7 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
         link(rel = "stylesheet", href = "/static/app.css?v=$CSS_VERSION")
         script(src = "https://unpkg.com/htmx.org@1.9.12") {}
         script { unsafe { +CART_FEEDBACK_JS } }
+        script { unsafe { +PIN_NOTICE_JS } }
         script { unsafe { +COUPON_COPY_JS } }
         script { unsafe { +AISLE_JS } }
         script { unsafe { +THUMB_LOADER_JS } }
