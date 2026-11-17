@@ -250,4 +250,115 @@ class AgeLimitTest {
         val result = service.applyExclusions(amazon, (dropped + kept).map { deal(it, null) }).map { it.title }
         assertEquals(kept, result)
     }
+
+    /** Mirrors the amazon provider's shoe rules in config/sources.yaml. */
+    private val shoes = ProviderConfig(
+        id = "amazon",
+        type = "amazon",
+        listOptions = mapOf(
+            "excludeShoeTitlePatterns" to listOf("\\bwrestl", "\\bgolf", "\\bbasketball"),
+            "excludeShoeBrands" to listOf("Wilson"),
+        ),
+    )
+
+    @Test
+    fun `baseball items of any type are not tracked`() {
+        val rules = service.exclusions(ProviderConfig(id = "amazon", type = "amazon", listOptions = mapOf("excludeTitlePatterns" to listOf("\\bbaseball"))))
+        assertTrue(rules.matches("Men's Utility Baseball Pants 22 — S", "adidas"))
+        assertTrue(rules.matches("Men's FuelCell 4040 V7 Metal Baseball Shoe — 8", "New Balance"))
+        assertTrue(!rules.matches("Men's Tiro 19 Track Pants — S", "adidas"))
+    }
+
+    @Test
+    fun `pajamas and sleepwear are not tracked, lounge pants are`() {
+        val pattern = "p[ay]jama|\\bpjs?\\b|\\bsleepwear\\b|\\bsleep (pants?|shorts?|bottoms?|shirts?|sets?)\\b"
+        val rules = service.exclusions(ProviderConfig(id = "amazon", type = "amazon", listOptions = mapOf("excludeTitlePatterns" to listOf(pattern))))
+        listOf(
+            "Men Soft Classic Plaid Joggers Comfy Pajama Pants — S",
+            "Mens Flannel Pajamas 3 Pack — S",
+            "Men's Cotton Lounge Pants, Sleep PJ Bottoms — S",
+            "Men's Pyjama Set — M",
+            "Men's Fleece Sleep Pants — S",
+        ).forEach { assertTrue(rules.matches(it, null), it) }
+        listOf(
+            "Men's French Terry Lounge Pant with Dual Band and Drawcord — S",
+            "Men's Tiro 19 Track Pants — S",
+        ).forEach { assertTrue(!rules.matches(it, null), it) }
+    }
+
+    /** Mirrors the slickdeals provider's book and movie patterns in config/sources.yaml. */
+    private val noBooksOrMovies = service.exclusions(
+        ProviderConfig(id = "slickdeals", type = "rss-slickdeals", listOptions = mapOf("excludeTitlePatterns" to listOf("\\be-?books?\\b(?! reader)", "\\bkindle (edition|e-?book|book)|\\baudiobooks?\\b|\\baudible (audiobook|membership|credit|plus|premium)", "\\b(hardcover|paperback|manga|graphic novel)s?\\b|\\b\\d+-book\\b|\\bcomplete box(ed)? set\\b", "blu[- ]?ray(?! (player|drive|burner))|\\bdvds?\\b(?! (player|drive|burner))|\\bsteelbook", "\\b4k( uhd| ultra hd)? ?\\+ ?(digital|blu)|\\+ ?digital\\b|\\bdigital (hd|4k|uhd|movie|film)\\b", "\\b(complete series|movie collection|\\d-movie|\\d-film|criterion collection)\\b"))),
+    )
+
+    @Test
+    fun `books and movies are kept off the feed`() {
+        listOf(
+            "\$1.99 | The Creative Act: A Way of Being (eBook) by Rick Rubin",
+            "1Q84 by Haruki Murakami (eBook) \$2",
+            "The School for Good and Evil: The Complete 6-Book Collection (Kindle Edition) \$5.99",
+            "DC Cinematic Universe: A Celebration of DC at the Movies Hardcover Book \$12.06",
+            "Colleen Hoover 3-Book Boxed Set (Reminders of Him, Layla, Regretting You) \$20.66",
+            "Demon Slayer: Kimetsu no Yaiba Complete Box Set: Includes volumes 1-23 \$126.62",
+            "V for Vendetta (4K Ultra HD + Blu-ray + Digital) \$12.99 Amazon.com",
+            "Mortal Kombat II (4K UHD + Digital) \$12.99 + Free Shipping w/ Prime",
+            "Invasion of the Body Snatchers (4K UHD + Blu Ray) \$19.88",
+            "Downton Abbey: The Grand Finale: Collector's Edition (DVD) at Amazon",
+            "John Wick: Titans of Cult Steelbook Edition (4K Ultra HD Amazon Exclusive) at Amazon",
+        ).forEach { assertTrue(noBooksOrMovies.matches(it, null), it) }
+    }
+
+    @Test
+    fun `devices and TVs are not mistaken for books or movies`() {
+        listOf(
+            "2026 XTeink X4 Pro - 4.3in e-book Reader w/ front light \$84",
+            "Kindle Paperwhite 16GB \$129.99",
+            "Sony UBP-X700 4K Ultra HD Blu-ray Player \$198",
+            "75\" TCL QM8L Series 4K UHD 144Hz SQD-Mini LED Google TV (2026) ~\$1400 + Free S&H",
+            "Cuisinart 10-Egg Cooker with water-measure control and audible alert \$34.99",
+            "Regina Spektor \"Begin to Hope\" (Vinyl LP + MP3 Album) \$17.32",
+            "36-Count Uniball 207 Retractable Gel Pens \$14.98",
+        ).forEach { assertTrue(!noBooksOrMovies.matches(it, null), it) }
+    }
+
+    @Test
+    fun `wrestling, golf and basketball shoes are not tracked`() {
+        val rules = service.exclusions(shoes)
+        listOf(
+            "Men's Mat Wizard 5 Wrestling Shoes — 8",
+            "Mens Wrestle Pro — 8",
+            "Men's Tech Response 3.0 Golf Shoes — 8",
+            "Mens S2G Spikeless Golfing — 8.5",
+            "Men's Own The Game 3 Basketball Shoes — 8",
+        ).forEach { assertTrue(rules.matches(it, "adidas"), it) }
+    }
+
+    @Test
+    fun `the shoe rules leave clothes and other shoes alone`() {
+        val rules = service.exclusions(shoes)
+        listOf(
+            "Men's Ultimate365 Print Golf Polo Shirt — M",
+            "Men's Therma-Fit Showtime Basketball Hoodie — M",
+            "Sport Basketball Pants Men's — S",
+            "Men's Revolution 8 Road Running Shoes — 8",
+            "Men's Golf Shoes",
+        ).forEach { assertTrue(!rules.matches(it, "Nike"), it) }
+    }
+
+    @Test
+    fun `a shoe brand is excluded for shoes only, whatever its case`() {
+        val rules = service.exclusions(shoes)
+        assertTrue(rules.matches("Rush Pro 4.5 Wide Toe Box — 8", "WILSON"))
+        assertTrue(!rules.matches("Men's Team Performance Tee — M", "Wilson"), "a Wilson shirt stays")
+        assertTrue(!rules.matches("Rush Pro 4.5 Wide Toe Box — 8", null))
+    }
+
+    @Test
+    fun `shoe rules are applied at ingest`() {
+        val kept = service.applyExclusions(
+            shoes,
+            listOf("Men's Tech Response 3.0 Golf Shoes — 8", "Men's Golf Polo — M", "Men's Daily 4.0 Sneakers — 8").map { deal(it, null) },
+        )
+        assertEquals(listOf("Men's Golf Polo — M", "Men's Daily 4.0 Sneakers — 8"), kept.map { it.title })
+    }
 }

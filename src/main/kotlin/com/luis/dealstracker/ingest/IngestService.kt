@@ -238,16 +238,35 @@ class IngestService(
      * even when permitted. Surfacing them wastes the manual shipping check.
      */
     internal fun applyExclusions(provider: ProviderConfig, deals: List<RawDeal>): List<RawDeal> {
-        val patterns = excludePatterns(provider)
-        if (patterns.isEmpty()) return deals
+        val rules = exclusions(provider)
+        if (rules.isEmpty) return deals
 
-        val (excluded, kept) = deals.partition { deal -> patterns.any { it.containsMatchIn(deal.title) } }
+        val (excluded, kept) = deals.partition { deal -> rules.matches(deal.title, deal.brand) }
         if (excluded.isNotEmpty()) {
             // Report rather than drop silently, so an over-broad pattern is visible.
             println("[${provider.id}] ${excluded.size} excluded by title patterns (e.g. ${excluded.take(2).map { it.title.take(48) }})")
         }
         return kept
     }
+
+    /**
+     * Everything that disqualifies a deal for [provider]: its `excludeTitlePatterns`, plus two lists
+     * that apply to SHOES only -- `excludeShoeTitlePatterns` and `excludeShoeBrands` -- so "golf" can
+     * drop golf shoes while the golf polos stay. Shared by ingest and `--purge-excluded`.
+     */
+    fun exclusions(provider: ProviderConfig): Exclusions =
+        Exclusions(
+            titles = excludePatterns(provider),
+            shoeTitles = compile(provider, "excludeShoeTitlePatterns"),
+            shoeBrands = provider.list("excludeShoeBrands").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet(),
+        )
+
+    private fun compile(provider: ProviderConfig, key: String): List<Regex> =
+        provider.list(key).mapNotNull { pattern ->
+            runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }
+                .onFailure { println("[${provider.id}] bad $key regex '$pattern': ${it.message}") }
+                .getOrNull()
+        }
 
     /**
      * Drops deals filed under one of the provider's `excludeCategories`, matched against the TOP level
@@ -313,12 +332,7 @@ class IngestService(
      * Used for both ingest filtering and the `--purge-excluded` cleanup, so the two can
      * never disagree about what counts as excluded.
      */
-    fun excludePatterns(provider: ProviderConfig): List<Regex> =
-        provider.list("excludeTitlePatterns").mapNotNull { pattern ->
-            runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }
-                .onFailure { println("[${provider.id}] bad excludeTitlePatterns regex '$pattern': ${it.message}") }
-                .getOrNull()
-        }
+    fun excludePatterns(provider: ProviderConfig): List<Regex> = compile(provider, "excludeTitlePatterns")
 
     internal fun ingest(provider: ProviderConfig, deals: List<RawDeal>): IngestReport {
         if (deals.isEmpty()) return IngestReport(provider.id)
@@ -470,4 +484,24 @@ internal fun tileContradictsPage(
 ): Boolean {
     if (page == null || pageCurrency == null || page.signum() <= 0 || tileCurrency != pageCurrency) return false
     return (tile - page).abs().toDouble() / page.toDouble() > PAGE_PRICE_TOLERANCE
+}
+
+/**
+ * A provider's exclusion rules. The shoe rules apply only to a row whose size is a shoe size: the
+ * Amazon adapter appends the size after " — ", and a size that starts with a digit is footwear (the
+ * same rule the Tracked tab's type tags use).
+ */
+class Exclusions(
+    private val titles: List<Regex>,
+    private val shoeTitles: List<Regex> = emptyList(),
+    private val shoeBrands: Set<String> = emptySet(),
+) {
+    val isEmpty: Boolean get() = titles.isEmpty() && shoeTitles.isEmpty() && shoeBrands.isEmpty()
+
+    fun matches(title: String, brand: String?): Boolean =
+        titles.any { it.containsMatchIn(title) } ||
+            (isShoe(title) && (shoeTitles.any { it.containsMatchIn(title) } || brand?.trim()?.lowercase() in shoeBrands))
+
+    private fun isShoe(title: String): Boolean =
+        title.contains(" — ") && title.substringAfterLast(" — ").trim().firstOrNull()?.isDigit() == true
 }

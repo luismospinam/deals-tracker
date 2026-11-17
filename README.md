@@ -494,6 +494,19 @@ The size → child-ASIN mapping is cached in `build/amazon-size-cache.tsv` (giti
 delete) because it is a fact about the catalogue rather than about price. That makes the steady
 state roughly one request per tracked item.
 
+### Shoes that are never tracked
+
+`excludeShoeTitlePatterns` and `excludeShoeBrands` on the amazon provider drop a result at ingest, like
+`excludeTitlePatterns`, but only when the row is a shoe (its size starts with a digit). Today: wrestling,
+golf and basketball shoes, and any shoe by Wilson. Baseball items and pajamas of any type are in `excludeTitlePatterns`. Golf polos and basketball hoodies are untouched.
+`--purge-excluded --source amazon` applies the same rules to stored rows (it deletes their history).
+
+### Books and movies are kept off the feed
+
+The slickdeals provider's `excludeTitlePatterns` drop books (eBook, Kindle Edition, hardcover, paperback,
+audiobook, book sets) and movies (Blu-ray, DVD, Steelbook, "4K UHD + Digital", complete series). They
+match the format words, not the "Books & Media" category, which also holds TVs, pens and vinyl.
+
 ## Watches — hunting one thing over weeks
 
 The feed answers "what is discounted?". A **watch** answers the question you actually have:

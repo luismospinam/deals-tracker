@@ -221,6 +221,15 @@ providers:
         - "\\b(gatorade|soylent|protein powder)\\b"
         # Supplements and OTC medicine -- restricted for international shipping.
         - "\\b(vitamins?|multivitamin|supplements?|antacid|antihistamine|ibuprofen)\\b"
+        # Books and movies (added 2026-11-13): not wanted on the feed. Formats rather than the
+        # "Books & Media" category, which also holds TVs ("4K UHD"), pens and vinyl. An e-book READER
+        # and a Blu-ray PLAYER are devices and stay; "audible alert" on an egg cooker is not Audible.
+        - "\\be-?books?\\b(?! reader)"
+        - "\\bkindle (edition|e-?book|book)|\\baudiobooks?\\b|\\baudible (audiobook|membership|credit|plus|premium)"
+        - "\\b(hardcover|paperback|manga|graphic novel)s?\\b|\\b\\d+-book\\b|\\bcomplete box(ed)? set\\b"
+        - "blu[- ]?ray(?! (player|drive|burner))|\\bdvds?\\b(?! (player|drive|burner))|\\bsteelbook"
+        - "\\b4k( uhd| ultra hd)? ?\\+ ?(digital|blu)|\\+ ?digital\\b|\\bdigital (hd|4k|uhd|movie|film)\\b"
+        - "\\b(complete series|movie collection|\\d-movie|\\d-film|criterion collection)\\b"
 
   - id: exito
     type: vtex
@@ -989,6 +998,18 @@ providers:
         # "Hoodie for Men & Women" and unisex stay -- the lookahead skips any title that also says men.
         # `wom[ae]n` has no leading \\b on purpose: titles run words together ("ShoesWoman").
         - "^(?!.*\\b(men|mens|men's|unisex)\\b).*(wom[ae]n|wmns|\\b(ladies|girls?)\\b)"
+        # Baseball gear of any type (added 2026-11-13): pants, cleats, jerseys.
+        - "\\bbaseball"
+        # Pajamas and sleepwear (added 2026-11-13). "Lounge pants" alone are sweatpants and stay.
+        - "p[ay]jama|\\bpjs?\\b|\\bsleepwear\\b|\\bsleep (pants?|shorts?|bottoms?|shirts?|sets?)\\b"
+      # Shoes not worth tracking (added 2026-11-13). These two lists apply to SHOES only -- a row whose
+      # size starts with a digit -- so golf polos and basketball hoodies stay.
+      excludeShoeTitlePatterns:
+        - "\\bwrestl"        # wrestling, wrestle
+        - "\\bgolf"          # golf, golfing
+        - "\\bbasketball"
+      excludeShoeBrands:
+        - "Wilson"
       # NOTE the key is `trackSearches`, not `searches`, and that is deliberate.
       #
       # IngestService merges every enabled watch's terms into every provider's `searches`.

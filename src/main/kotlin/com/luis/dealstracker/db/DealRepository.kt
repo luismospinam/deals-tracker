@@ -558,12 +558,12 @@ class DealRepository(
         }
 
     /** Titles currently stored for a source, used by the `--purge-excluded` preview. */
-    fun titlesFor(source: String): List<Pair<Long, String>> =
+    fun titlesFor(source: String): List<Triple<Long, String, String?>> =
         ds.connection.use { conn ->
-            conn.prepareStatement("SELECT id, title FROM deals WHERE source = ? ORDER BY id").use { st ->
+            conn.prepareStatement("SELECT id, title, brand FROM deals WHERE source = ? ORDER BY id").use { st ->
                 st.setString(1, source)
                 st.executeQuery().use { rs ->
-                    buildList { while (rs.next()) add(rs.getLong("id") to rs.getString("title")) }
+                    buildList { while (rs.next()) add(Triple(rs.getLong("id"), rs.getString("title"), rs.getString("brand"))) }
                 }
             }
         }

@@ -802,11 +802,11 @@ private fun purgeExcluded(
     app.providers
         .filter { onlySource == null || it.id == onlySource }
         .forEach { provider ->
-            val patterns = ingest.excludePatterns(provider)
-            if (patterns.isEmpty()) return@forEach
+            val rules = ingest.exclusions(provider)
+            if (rules.isEmpty) return@forEach
 
             val matches = repo.titlesFor(provider.id)
-                .filter { (_, title) -> patterns.any { it.containsMatchIn(title) } }
+                .filter { (_, title, brand) -> rules.matches(title, brand) }
             if (matches.isEmpty()) {
                 println("[${provider.id}] nothing to purge")
                 return@forEach
