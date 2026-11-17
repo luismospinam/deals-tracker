@@ -419,6 +419,83 @@ providers:
         - "mercado/alimentacion-para-bebes = Baby food"
       aisleOverrides: ["Carnes especiales = Meat & fish"]
 
+  # The HOUSEHOLD tab (2026-11-13): cleaning, paper and personal care at Exito Laureles -- toilet paper
+  # and toothpaste, the things bought beside the food. The same adapter and store as exito-grocery, but
+  # `section: household` puts its rows on /household rather than /groceries (web.ShelfSection), with
+  # their own aisles. Laureles only for now: these rarely differ between the two Exitos.
+  #
+  # In stock at Laureles on 2026-11-13: aseo-del-hogar 2,128; cuidado-personal's oral 601, capilar
+  # 3,234 (over the 2,500 cap, so split into its children), corporal 2,016, solar 1,029, bebés 316,
+  # íntima 230, pañitos 72 -- about 9,600 in all. NOT crawled: cuidado-personal/salud-y-medicamentos
+  # (4,354, medicines and vitamins) and mercado/mascotas (3,240).
+  - id: exito-household
+    type: vtex-grocery
+    enabled: true
+    baseUrl: "https://www.exito.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      regionSeller: "exitocol037"
+      storeLabel: "Exito Laureles"
+      chain: "exito"
+      section: "household"
+      staleAfterHours: "60"
+    listOptions:
+      # Twice a day, right after exito-colombia-grocery's windows: all three providers are the one
+      # host, www.exito.com, and adjacent windows keep their crawls apart.
+      runWindows: ["08:35-09:15", "18:35-19:15"]
+      categories:
+        - "mercado/aseo-del-hogar = Laundry & cleaning"
+        - "cuidado-personal/cuidado-oral = Oral care"
+        - "cuidado-personal/cuidado-capilar = Hair"
+        - "cuidado-personal/cuidado-corporal = Body"
+        - "cuidado-personal/proteccion-solar-y-repelentes = Sun & repellent"
+        - "cuidado-personal/higiene-para-bebes-y-ninos = Baby care"
+        - "cuidado-personal/higiene-intima = Intimate care"
+        - "cuidado-personal/panitos-y-panuelos = Paper"
+      # Aseo del hogar is one crawl, filed by the store's own subcategory names. What is not named
+      # here (detergents, softeners, dish soap, shoe polish) stays under Laundry & cleaning.
+      aisleOverrides:
+        - "Papel higiénico = Paper"
+        - "Servilletas y toallas de cocina = Paper"
+        - "Implementos para la limpieza = Cleaning tools"
+        - "Ambientadores e insecticidas = Air & pests"
+        - "Desechables, velas y carbón = Disposables"
+
+  # The same aisles at Exito Colombia (2026-11-13), for buying there: the cart button follows the
+  # "Buying at" switch on Pinned (exito.CartStore), and a store can only be bought at if it is crawled.
+  # With both, the household tab shows a product once at the cheaper Exito, as the grocery tab does.
+  - id: exito-colombia-household
+    type: vtex-grocery
+    enabled: true
+    baseUrl: "https://www.exito.com"
+    currency: COP
+    coShippingDefault: "YES"
+    options:
+      regionSeller: "exitocol031"
+      storeLabel: "Exito Colombia"
+      chain: "exito"
+      section: "household"
+      staleAfterHours: "60"
+    listOptions:
+      # After exito-household's windows: the fourth crawl of the one host, www.exito.com.
+      runWindows: ["09:20-10:00", "19:20-20:00"]
+      categories:
+        - "mercado/aseo-del-hogar = Laundry & cleaning"
+        - "cuidado-personal/cuidado-oral = Oral care"
+        - "cuidado-personal/cuidado-capilar = Hair"
+        - "cuidado-personal/cuidado-corporal = Body"
+        - "cuidado-personal/proteccion-solar-y-repelentes = Sun & repellent"
+        - "cuidado-personal/higiene-para-bebes-y-ninos = Baby care"
+        - "cuidado-personal/higiene-intima = Intimate care"
+        - "cuidado-personal/panitos-y-panuelos = Paper"
+      aisleOverrides:
+        - "Papel higiénico = Paper"
+        - "Servilletas y toallas de cocina = Paper"
+        - "Implementos para la limpieza = Cleaning tools"
+        - "Ambientadores e insecticidas = Air & pests"
+        - "Desechables, velas y carbón = Disposables"
+
   - id: carulla-grocery
     type: vtex-grocery
     enabled: true

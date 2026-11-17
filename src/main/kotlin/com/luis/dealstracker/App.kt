@@ -671,23 +671,43 @@ fun main(args: Array<String>) {
     // boot (which is also how the pins made before V45 get theirs), then whenever something is pinned,
     // and once a day for anything a failed call left behind. Never the unpinned shelf.
     val groceryRepo = GroceryRepository(Db.dataSource)
-    val aisleCli = ClaudeCli(
-        executable = claudePath,
-        workDir = File(projectDir, "build/aisles"),
-        model = app.defaults.askModel,
-        effort = app.defaults.askEffort,
-        maxBudgetUsd = app.defaults.askMaxBudgetUsd,
-        systemPrompt = com.luis.dealstracker.ask.AISLE_SYSTEM_PROMPT,
-    )
-    val aisles = com.luis.dealstracker.ask.AisleClassifier(
-        pending = groceryRepo::unfiledPinned,
-        save = groceryRepo::saveAisles,
-        ask = { prompt ->
-            val text = StringBuilder()
-            val outcome = aisleCli.run(prompt, java.util.UUID.randomUUID().toString(), resume = false) { text.append(it) }
-            if (outcome.error != null) println("[aisles] claude failed: ${outcome.error}")
-            text.toString().takeIf { outcome.error == null && it.isNotBlank() }
-        },
+    // One classifier per shelf: the food aisles and the household ones are different lists, so each
+    // gets its own prompt, its own providers' rows and its own work folder.
+    fun aisleClassifier(
+        name: String,
+        section: com.luis.dealstracker.web.ShelfSection,
+        prompt: String,
+        names: List<String>,
+    ): com.luis.dealstracker.ask.AisleClassifier {
+        val cli = ClaudeCli(
+            executable = claudePath,
+            workDir = File(projectDir, "build/$name"),
+            model = app.defaults.askModel,
+            effort = app.defaults.askEffort,
+            maxBudgetUsd = app.defaults.askMaxBudgetUsd,
+            systemPrompt = prompt,
+        )
+        return com.luis.dealstracker.ask.AisleClassifier(
+            pending = { groceryRepo.unfiledPinned(com.luis.dealstracker.web.grocerySources(app, section)) },
+            save = groceryRepo::saveAisles,
+            ask = { question ->
+                val text = StringBuilder()
+                val outcome = cli.run(question, java.util.UUID.randomUUID().toString(), resume = false) { text.append(it) }
+                if (outcome.error != null) println("[$name] claude failed: ${outcome.error}")
+                text.toString().takeIf { outcome.error == null && it.isNotBlank() }
+            },
+            aisles = names,
+        )
+    }
+    val aisleClassifiers = listOf(
+        "aisles" to aisleClassifier(
+            "aisles", com.luis.dealstracker.web.ShelfSection.GROCERIES,
+            com.luis.dealstracker.ask.AISLE_SYSTEM_PROMPT, com.luis.dealstracker.ask.GROCERY_AISLES,
+        ),
+        "household-aisles" to aisleClassifier(
+            "household-aisles", com.luis.dealstracker.web.ShelfSection.HOUSEHOLD,
+            com.luis.dealstracker.ask.HOUSEHOLD_AISLE_SYSTEM_PROMPT, com.luis.dealstracker.ask.HOUSEHOLD_AISLES,
+        ),
     )
     val aislePins = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     scope.launch {
@@ -696,9 +716,11 @@ fun main(args: Array<String>) {
             // A few seconds' grace, so pinning five things in a row is one question rather than five.
             delay(15_000L)
             withContext(Dispatchers.IO) {
-                runCatching { aisles.run() }
-                    .onSuccess { if (it.asked > 0) println("[aisles] asked about ${it.asked} pinned product(s): ${it.filed} row(s) filed, ${it.moved} moved to another aisle, ${it.failedBatches} failed call(s)") }
-                    .onFailure { println("[aisles] failed: ${it.message}") }
+                aisleClassifiers.forEach { (name, classifier) ->
+                    runCatching { classifier.run() }
+                        .onSuccess { if (it.asked > 0) println("[$name] asked about ${it.asked} pinned product(s): ${it.filed} row(s) filed, ${it.moved} moved to another aisle, ${it.failedBatches} failed call(s)") }
+                        .onFailure { println("[$name] failed: ${it.message}") }
+                }
             }
             kotlinx.coroutines.withTimeoutOrNull(24 * 60 * 60_000L) { aislePins.receive() }
         }

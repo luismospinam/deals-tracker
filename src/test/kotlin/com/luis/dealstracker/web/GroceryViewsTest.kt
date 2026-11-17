@@ -826,4 +826,105 @@ class GroceryViewsTest {
         val summary = pinnedPage(rows).substringAfter("data-aisle=\"Drinks\"").substringBefore("</summary>")
         assertTrue(summary.contains("<span class=\"aisle-low-n\">1</span> at lowest"))
     }
+
+    // ---- The household tab: the same screen over other providers (ShelfSection) ----
+
+    private fun shelfApp(): com.luis.dealstracker.config.AppConfig {
+        val base = com.luis.dealstracker.ingest.fakeAppConfig()
+        fun p(id: String, type: String, options: Map<String, String> = emptyMap(), enabled: Boolean = true) =
+            com.luis.dealstracker.config.ProviderConfig(id = id, type = type, enabled = enabled, options = options)
+        return com.luis.dealstracker.config.AppConfig(
+            defaults = base.defaults,
+            providers = listOf(
+                p("exito-grocery", "vtex-grocery", mapOf("storeLabel" to "Exito Laureles", "chain" to "exito")),
+                p("pricesmart-americas-grocery", "pricesmart"),
+                p("exito-household", "vtex-grocery", mapOf("storeLabel" to "Exito Laureles", "chain" to "exito", "section" to "household")),
+                p("carulla-household", "vtex-grocery", mapOf("section" to "Household"), enabled = false),
+                p("exito", "vtex", mapOf("section" to "household")),
+            ),
+            db = base.db, mlClientId = null, mlClientSecret = null,
+        )
+    }
+
+    @Test
+    fun `a provider marked household feeds that tab and no longer the grocery one`() {
+        val app = shelfApp()
+        assertEquals(listOf("exito-grocery", "pricesmart-americas-grocery"), grocerySources(app))
+        assertEquals(listOf("exito-household"), grocerySources(app, ShelfSection.HOUSEHOLD), "disabled and non-shelf providers stay out")
+        assertEquals(setOf("exito-grocery", "pricesmart-americas-grocery"), groceryStores(app).keys)
+        assertEquals(
+            GroceryStore("Exito Laureles", "exito"),
+            groceryStores(app, ShelfSection.HOUSEHOLD).getValue("exito-household"),
+        )
+    }
+
+    /** The pin endpoint is shared, so it must tell which tab a row is from by its provider. */
+    @Test
+    fun `a row's tab is read off its provider`() {
+        val app = shelfApp()
+        assertEquals(ShelfSection.GROCERIES, shelfSectionOf(app, "exito-grocery"))
+        assertEquals(ShelfSection.HOUSEHOLD, shelfSectionOf(app, "exito-household"))
+        assertNull(shelfSectionOf(app, "carulla-household"), "a disabled provider's rows cannot be pinned")
+        assertNull(shelfSectionOf(app, "exito"), "the feed's Exito is not a shelf provider")
+        assertNull(shelfSectionOf(app, null))
+    }
+
+    @Test
+    fun `an unknown or missing section is groceries`() {
+        fun p(section: String?) = com.luis.dealstracker.config.ProviderConfig(
+            id = "x", type = "vtex-grocery", options = section?.let { mapOf("section" to it) }.orEmpty(),
+        )
+        assertEquals(ShelfSection.GROCERIES, ShelfSection.of(p(null)))
+        assertEquals(ShelfSection.GROCERIES, ShelfSection.of(p("pets")))
+        assertEquals(ShelfSection.HOUSEHOLD, ShelfSection.of(p(" Household ")))
+    }
+
+    @Test
+    fun `the household tab's links stay on the household tab`() {
+        val c = GroceryControls.from(parametersOf("view" to listOf("all"), "q" to listOf("crema dental")), ShelfSection.HOUSEHOLD)
+        assertEquals("/household?view=all&q=crema%20dental", c.url())
+        assertEquals("/household", c.url(view = GroceryView.DEALS, sort = null, search = null))
+        assertEquals("/groceries?view=all", GroceryControls.from(parametersOf("view" to listOf("all"))).url())
+    }
+
+    @Test
+    fun `the household page has three views, no Orders, and searches itself`() {
+        val html = createHTML().main {
+            groceryPage(
+                listOf(row(source = "exito-household", title = "Crema dental COLGATE (150 ml)")), listOf("Oral care" to 1),
+                GroceryControls.from(parametersOf(), ShelfSection.HOUSEHOLD), listOf("exito-household"),
+            )
+        }
+        val scopes = html.substringAfter("<div class=\"scopes\">").substringBefore("</div>")
+        assertEquals(listOf("Deals", "All items", "Pinned"), Regex(">([A-Za-z ]+)<").findAll(scopes).map { it.groupValues[1] }.filter { it.isNotBlank() }.toList())
+        assertFalse(ORDERS_PATH in html, "Orders belong to the grocery tab")
+        assertFalse("scopes-4" in html)
+        assertTrue("action=\"/household\"" in html, "the search posts back to this tab")
+        assertFalse("href=\"/groceries" in html, "no link leaves for the grocery tab")
+        assertTrue("Cleaning, paper and personal care" in html)
+        assertFalse("PriceSmart" in html, "the grocery tab's intro is not shown")
+    }
+
+    @Test
+    fun `the household aisles have Spanish names`() {
+        com.luis.dealstracker.i18n.I18n.with(com.luis.dealstracker.i18n.Lang.ES) {
+            com.luis.dealstracker.ask.HOUSEHOLD_AISLES.forEach { aisle ->
+                assertTrue(com.luis.dealstracker.i18n.aisleLabel(aisle) != aisle, "$aisle has no Spanish label")
+            }
+            assertEquals("Cuidado oral", com.luis.dealstracker.i18n.aisleLabel("Oral care"))
+        }
+    }
+
+    // ---- Sync now ----
+
+    private fun syncFooterHtml(vararg statuses: com.luis.dealstracker.db.SyncStatus): String = createHTML().main {
+        groceryPage(
+            emptyList(), listOf("Pantry" to 1), GroceryControls.from(parametersOf()), statuses.map { it.source },
+            sync = statuses.map { SyncLine(it.source.replace('-', ' '), it, null, null as String?) },
+        )
+    }.substringAfter("grocery-sync")
+
+    private fun readStatus(source: String, started: Instant?, finished: Instant?) =
+        com.luis.dealstracker.db.SyncStatus(source, started, finished, 100, null, finished, 100)
+
 }

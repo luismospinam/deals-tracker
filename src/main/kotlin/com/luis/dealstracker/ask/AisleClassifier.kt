@@ -8,6 +8,9 @@ package com.luis.dealstracker.ask
  * is ~27,000, and the Pinned view is the one grouped by aisle. A row is asked about once -- the answer
  * is kept in `deals.aisle_ai` (V45) and a null there is what "not asked yet" means, so a newly pinned
  * item is picked up by the next [AisleClassifier.run] and nothing else is.
+ *
+ * There are two shelves with two lists of aisles -- food, and household and personal care -- so there
+ * are two classifiers, each given its own providers' rows, its own prompt and its own list.
  */
 
 /** The aisles, by the names the rest of the app stores and translates (`i18n.aisleLabel`). */
@@ -40,6 +43,37 @@ What goes where:
 - Frozen: ice cream, frozen vegetables, frozen potatoes, frozen ready meals and breaded products.
 - Prepared: fresh ready-to-eat meals.
 - Baby food: formula and food made for babies.
+
+File a product by what it is, not by the store category beside it, which is a hint and is sometimes wrong.
+
+You get one product per line: number, title, brand, store category, separated by tabs.
+Answer with one line per product and nothing else: the number, a tab, the aisle. No heading, no notes.
+""".trimIndent()
+
+/** The household tab's aisles (`web.ShelfSection.HOUSEHOLD`): cleaning, paper and personal care. */
+val HOUSEHOLD_AISLES = listOf(
+    "Paper", "Laundry & cleaning", "Cleaning tools", "Air & pests", "Disposables",
+    "Oral care", "Hair", "Body", "Sun & repellent", "Baby care", "Intimate care",
+)
+
+val HOUSEHOLD_AISLE_SYSTEM_PROMPT = """
+You file household and personal-care products from Colombian stores (titles are in Spanish) under one aisle each.
+
+The aisles, exactly as they must be written:
+${HOUSEHOLD_AISLES.joinToString("\n") { "- $it" }}
+
+What goes where:
+- Paper: toilet paper, kitchen towels, napkins, tissues, wet wipes for adults.
+- Laundry & cleaning: detergent, fabric softener, bleach, dish soap, degreasers, floor and surface cleaners, shoe polish.
+- Cleaning tools: brooms, mops, sponges, cloths, gloves, bin bags, brushes, buckets.
+- Air & pests: air fresheners, insecticides.
+- Disposables: disposable plates, cups and cutlery, foil and film, candles, matches, charcoal.
+- Oral care: toothpaste, toothbrushes, mouthwash, floss.
+- Hair: shampoo, conditioner, hair treatments, dye, styling products.
+- Body: soap, body wash, deodorant, lotion, shaving, face care, hand sanitiser.
+- Sun & repellent: sunscreen, after-sun, insect repellent for the skin.
+- Baby care: nappies, baby wipes, baby shampoo and creams.
+- Intimate care: sanitary pads, tampons, panty liners, intimate wash, incontinence products.
 
 File a product by what it is, not by the store category beside it, which is a hint and is sometimes wrong.
 
@@ -95,6 +129,8 @@ class AisleClassifier(
     private val save: (Map<Long, String>) -> Int,
     private val ask: (String) -> String?,
     private val batchSize: Int = 60,
+    /** The names an answer may use; anything else is dropped. Must be the list the asked prompt gives. */
+    private val aisles: List<String> = GROCERY_AISLES,
 ) {
     data class Result(val asked: Int, val filed: Int, val moved: Int, val failedBatches: Int)
 
@@ -117,7 +153,7 @@ class AisleClassifier(
                 failed++
                 return@forEach
             }
-            val rows = aislesByRow(batch, parseAisleAnswer(answer))
+            val rows = aislesByRow(batch, parseAisleAnswer(answer, aisles))
             filed += save(rows)
             moved += rows.count { (id, aisle) -> before[id] != aisle }
         }

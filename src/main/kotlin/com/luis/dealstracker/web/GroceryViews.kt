@@ -45,9 +45,35 @@ import kotlinx.html.tr
 import kotlinx.html.stream.createHTML
 import java.math.BigDecimal
 
-/** The providers the grocery tab reads: every enabled one of a [GROCERY_TYPES] type. */
-internal fun grocerySources(app: AppConfig): List<String> =
-    app.enabledProviders.filter { it.type in GROCERY_TYPES }.map { it.id }.sorted()
+/**
+ * The two screens built on a store's shelf: food, and what is bought beside it (toilet paper,
+ * toothpaste, detergent). Same crawler, same rows, same deal rule -- but a separate tab, so the
+ * shopping list for dinner is not mixed with the one for the bathroom.
+ *
+ * A provider says which it feeds with `options.section: household`; without it, it is groceries. The
+ * split is by provider, so every query that already takes a list of sources keeps the two apart.
+ */
+internal enum class ShelfSection(val key: String, val path: String) {
+    GROCERIES("groceries", "/groceries"),
+    HOUSEHOLD("household", "/household");
+
+    companion object {
+        fun of(provider: com.luis.dealstracker.config.ProviderConfig): ShelfSection =
+            entries.firstOrNull { it.key.equals(provider.options["section"]?.trim(), ignoreCase = true) } ?: GROCERIES
+    }
+}
+
+/** The enabled shelf providers of one [section], in config order. */
+private fun shelfProviders(app: AppConfig, section: ShelfSection) =
+    app.enabledProviders.filter { it.type in GROCERY_TYPES && ShelfSection.of(it) == section }
+
+/** The tab a row of [source] belongs on, or null when it is not an enabled shelf provider's. */
+internal fun shelfSectionOf(app: AppConfig, source: String?): ShelfSection? =
+    ShelfSection.entries.firstOrNull { source != null && source in grocerySources(app, it) }
+
+/** The providers a shelf tab reads: every enabled one of a [GROCERY_TYPES] type in its [section]. */
+internal fun grocerySources(app: AppConfig, section: ShelfSection = ShelfSection.GROCERIES): List<String> =
+    shelfProviders(app, section).map { it.id }.sorted()
 
 internal const val GROCERY_TYPE = "vtex-grocery"
 
@@ -69,9 +95,9 @@ internal val GROCERY_TYPES: Set<String> get() = com.luis.dealstracker.sources.GR
  */
 internal data class GroceryStore(val label: String, val chain: String)
 
-internal fun groceryStores(app: AppConfig): Map<String, GroceryStore> =
-    app.enabledProviders.filter { it.type in GROCERY_TYPES }.associate { p ->
-        val fallback = p.id.removeSuffix("-grocery")
+internal fun groceryStores(app: AppConfig, section: ShelfSection = ShelfSection.GROCERIES): Map<String, GroceryStore> =
+    shelfProviders(app, section).associate { p ->
+        val fallback = p.id.removeSuffix("-grocery").removeSuffix("-household")
         p.id to GroceryStore(
             label = p.options["storeLabel"]?.takeIf { it.isNotBlank() } ?: fallback.replaceFirstChar { it.uppercase() },
             chain = p.options["chain"]?.takeIf { it.isNotBlank() } ?: fallback,
@@ -178,8 +204,8 @@ internal fun withRivals(rows: List<GroceryRow>, prices: List<ShelfPrice>, stores
 
 /**
  * Whether [controls] needs a rival on every row in view rather than the page's: sorting by the other
- * chain's price ranks rows that are not on screen yet, and Pinned's shopping plan totals
- * the whole list.
+ * chain's price ranks rows that are not on screen yet, and Pinned by aisle is not paged, so every
+ * pinned row is on screen.
  */
 internal fun needsAllRivals(controls: GroceryControls): Boolean =
     controls.sort == GrocerySort.RIVAL || controls.view == GroceryView.PINNED
@@ -345,6 +371,8 @@ internal data class GroceryControls(
      * Off by default, so Pinned opens grouped by aisle ([grouped]).
      */
     val flat: Boolean = false,
+    /** Which tab this is: every link the page builds stays on it. */
+    val section: ShelfSection = ShelfSection.GROCERIES,
 ) {
     /** Pinned shows its rows grouped by aisle, each aisle an accordion: see [pinnedAisles]. */
     val grouped: Boolean get() = view == GroceryView.PINNED && !flat
@@ -374,13 +402,14 @@ internal data class GroceryControls(
             if (flat && view == GroceryView.PINNED) add("list=flat")
             if (page > 1) add("page=$page")
         }
-        return if (params.isEmpty()) "/groceries" else "/groceries?" + params.joinToString("&")
+        return if (params.isEmpty()) section.path else section.path + "?" + params.joinToString("&")
     }
 
     companion object {
-        fun from(params: io.ktor.http.Parameters): GroceryControls {
+        fun from(params: io.ktor.http.Parameters, section: ShelfSection = ShelfSection.GROCERIES): GroceryControls {
             val view = GroceryView.of(params["view"])
             return GroceryControls(
+                section = section,
                 view = view,
                 groups = params["group"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty(),
                 search = params["q"]?.trim()?.takeIf { it.isNotEmpty() },
@@ -591,7 +620,9 @@ internal fun MAIN.groceryPage(
  * sits in this strip: it is another way of looking at the groceries, not another tab.
  */
 internal fun FlowContent.groceryScopes(controls: GroceryControls, pinnedCount: Int, ordersOn: Boolean) {
-    div("scopes scopes-4") {
+    // Orders are the grocery tab's: the household tab has the three views and no fourth button.
+    val withOrders = controls.section == ShelfSection.GROCERIES
+    div(if (withOrders) "scopes scopes-4" else "scopes") {
         GroceryView.entries.forEach { v ->
             val on = !ordersOn && v == controls.view
             a(href = controls.url(view = v, sort = null, search = null), classes = if (on) "scope on" else "scope") {
@@ -601,7 +632,7 @@ internal fun FlowContent.groceryScopes(controls: GroceryControls, pinnedCount: I
                 if (v == GroceryView.PINNED && pinnedCount > 0) span("scope-count") { +"$pinnedCount" }
             }
         }
-        a(href = ORDERS_PATH, classes = if (ordersOn) "scope on" else "scope") {
+        if (withOrders) a(href = ORDERS_PATH, classes = if (ordersOn) "scope on" else "scope") {
             if (ordersOn) attributes["aria-current"] = "page"
             +tr("Orders", "Pedidos")
         }
@@ -616,7 +647,14 @@ private fun MAIN.groceryBody(
     pinnedCount: Int,
     chainCounts: List<Triple<String, String, Int>>,
 ) {
-    p("tracked-intro") {
+    if (controls.section == ShelfSection.HOUSEHOLD) p("tracked-intro") {
+        +tr("Cleaning, paper and personal care, priced and stocked at ", "Aseo, papel y cuidado personal, con precio y existencias de ")
+        span("strong") { +tr("Exito Laureles and Colombia", "Exito Laureles y Colombia") }
+        +tr(
+            ". Medicines are left out. A deal here means at least ${GroceryRow.DEAL_PERCENT}% under the item's own usual price — the median of its daily prices over the last 30 days — never the store's \"before\" price. Last sync, at the bottom, has the times the store is read.",
+            ". No incluye medicamentos. Aquí una oferta significa al menos ${GroceryRow.DEAL_PERCENT}% por debajo del precio habitual del propio producto — la mediana de sus precios diarios de los últimos 30 días — nunca el precio \"antes\" de la tienda. Última sincronización, al final, tiene las horas en que se lee la tienda.",
+        )
+    } else p("tracked-intro") {
         +tr(
             "Exito, Carulla and PriceSmart's grocery aisles, priced and stocked at ",
             "Los pasillos de mercado de Exito, Carulla y PriceSmart, con precio y existencias de ",
@@ -672,10 +710,14 @@ private fun MAIN.groceryBody(
 
     // On Pinned too: with 150+ staples, "where is the milk on my list?" needs a search as much as browsing does.
     searchBox(
-        action = "/groceries",
+        action = controls.section.path,
         value = controls.search,
         clearHref = controls.url(search = null),
-        placeholder = if (controls.view == GroceryView.PINNED) tr("Search your pinned items", "Buscar en tus fijados") else "leche | huevos | !aceite",
+        placeholder = when {
+            controls.view == GroceryView.PINNED -> tr("Search your pinned items", "Buscar en tus fijados")
+            controls.section == ShelfSection.HOUSEHOLD -> "crema dental | papel higiénico | !suavizante"
+            else -> "leche | huevos | !aceite"
+        },
         carry = buildMap {
             put("view", controls.view.key)
             if (controls.groups.isNotEmpty() && controls.view != GroceryView.PINNED) put("group", controls.groups.sorted().joinToString(","))
@@ -1522,10 +1564,11 @@ internal fun grocerySyncLines(
     statuses: List<SyncStatus>,
     now: java.time.Instant = java.time.Instant.now(),
     zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    section: ShelfSection = ShelfSection.GROCERIES,
 ): List<SyncLine> {
-    val stores = groceryStores(app)
+    val stores = groceryStores(app, section)
     val bySource = statuses.associateBy { it.source }
-    return app.enabledProviders.filter { it.type in GROCERY_TYPES }.mapNotNull { p ->
+    return shelfProviders(app, section).mapNotNull { p ->
         val status = bySource[p.id] ?: return@mapNotNull null
         val windows = com.luis.dealstracker.ingest.runWindows(p)
         val hours = com.luis.dealstracker.ingest.runAtHours(p)

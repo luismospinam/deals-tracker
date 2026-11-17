@@ -193,11 +193,19 @@ class PinnedAlerts(
 ) {
     private val times get() = parseSlotTimes(timesFn())
 
-    /** Pinned groceries on sale now, deepest first, each at its chain's cheaper store. */
-    fun groceriesOnSale(): List<GroceryRow> {
-        val rows = groceries.rows(GroceryFilter(grocerySources(app), pinnedOnly = true))
-        return pinnedGroceryDeals(mergeStores(rows, groceryStores(app)))
-    }
+    /**
+     * Pinned shelf items on sale now, deepest first, each at its chain's cheaper store. Both shelves in
+     * the one list: pinned toothpaste under its usual price is the same news as pinned milk. Merged per
+     * section, since a product is one row per chain within a tab, not across the two.
+     */
+    fun groceriesOnSale(): List<GroceryRow> =
+        pinnedGroceryDeals(
+            com.luis.dealstracker.web.ShelfSection.entries.flatMap { section ->
+                val sources = grocerySources(app, section)
+                if (sources.isEmpty()) emptyList()
+                else mergeStores(groceries.rows(GroceryFilter(sources, pinnedOnly = true)), groceryStores(app, section))
+            },
+        )
 
     /** Pinned or added tracked items (clothes and electronics alike) that are on sale now, deepest first. */
     fun trackedOnSale(): List<TrackedDeal> {

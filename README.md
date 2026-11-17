@@ -1009,9 +1009,37 @@ list:
 | Store | Category | In stock at Laureles, 2026-09-24 |
 |---|---|---|
 | Exito | `mercado/mascotas` | 3,310 |
-| Exito | `mercado/aseo-del-hogar` | 2,336 |
-| Exito | `cuidado-personal`, `vinos-y-licores` | not counted |
+| Exito | `cuidado-personal/salud-y-medicamentos` | 4,354 (2026-11-13) |
+| Exito | `vinos-y-licores` | not counted |
 | Carulla | `mascotas`, `aseo-del-hogar`, `salud-y-belleza`, `vinos-y-licores` | not counted |
+
+Exito's `mercado/aseo-del-hogar` and the rest of `cuidado-personal` were on this list until
+2026-11-13; they are now the Household tab, below.
+
+### Household
+
+**Household** (`/household`) is a second tab over the same machinery: cleaning, paper and personal
+care at Exito Laureles -- toilet paper, toothpaste, detergent. It is a tab of its own so the shopping
+list for the kitchen is not mixed with the one for the bathroom.
+
+- **One option makes it.** The provider `exito-household` is an ordinary `vtex-grocery` provider with
+  `options.section: household` (`web.ShelfSection`). The grocery tab, the Ask panel, the agent and the
+  suggestions read the providers without that option; the household tab reads the ones with it. Every
+  query already takes a list of sources, so nothing else tells the two apart.
+- **Same page.** Deals, All items and Pinned, the usual-price rule, the 30-day line, card prices and
+  the Exito cart button are the grocery tab's (`groceryPage`), with links that stay on `/household`.
+  There is no Orders button: `/groceries/orders` already lists every Exito order, and a household
+  line counts there from the day its item has a usual price.
+- **Its own aisles**: Paper, Laundry & cleaning, Cleaning tools, Air & pests, Disposables, Oral care,
+  Hair, Body, Sun & repellent, Baby care, Intimate care. `aseo-del-hogar` is one crawl, filed by the
+  store's subcategory names through `aisleOverrides`. Pinned items are filed by Claude as groceries
+  are, by a second `AisleClassifier` with this list and its own prompt (`HOUSEHOLD_AISLES`).
+- **Pinned items on sale** go in the same twice-daily Discord post as pinned groceries.
+- **Crawled twice a day**, 08:35-09:15 and 18:35-19:15, after the two grocery Exitos: all are the
+  one host. About 9,600 products. A deal needs a few days of history, as on Groceries.
+
+Exito Colombia has its own household provider, `exito-colombia-household` (09:20-10:00 and
+19:20-20:00), so the tab shows each product once at the cheaper Exito, as Groceries does.
 
 ## PriceSmart
 

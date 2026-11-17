@@ -489,13 +489,15 @@ fun Application.routes(
          * the drift `DealScore` exists to prevent. The subcategory filter IS pushed to SQL, since it
          * is a plain column and the one that makes a full-catalogue view small.
          */
-        get("/groceries") {
-            val stores = groceryStores(app)
-            val controls = GroceryControls.from(call.request.queryParameters)
+        // One handler for both shelf tabs: /groceries and /household differ only in which providers they read.
+        ShelfSection.entries.forEach { section ->
+        get(section.path) {
+            val stores = groceryStores(app, section)
+            val controls = GroceryControls.from(call.request.queryParameters, section)
             // The store filter narrows the sources read, so the aisle counts, the pinned badge and the
             // rows all describe the chosen stores. The sync footer keeps every store: it is about the
             // crawls, not the page's selection.
-            val allSources = grocerySources(app)
+            val allSources = grocerySources(app, section)
             val sources = sourcesForChains(stores, controls.chains)
             val chainCounts = withContext(Dispatchers.IO) {
                 val counts = groceries.chainProductCounts(stores.mapValues { it.value.chain })
@@ -511,13 +513,13 @@ fun Application.routes(
                 }
                 // Rivals come from every grocery store, not just the filtered ones: "Exito only" still
                 // wants to know what Carulla charges.
-                val merged = withRivalsFor(storeRows(groceries.rows(filter), stores, splitByStore(controls)), controls, stores) { keys ->
+                val merged = withRivalsFor(storeRows(groceries.rows(filter), stores, splitByStore(controls), preferredSources(controls)), controls, stores) { keys ->
                     groceries.shelfPrices(keys, allSources)
                 }
                 Triple(merged, groceries.groups(sources), groceries.pinnedCount(sources))
             }
             val (sync, storage) = withContext(Dispatchers.IO) {
-                grocerySyncLines(app, groceries.syncStatus(allSources)) to runCatching { groceries.storage() }.getOrNull()
+                grocerySyncLines(app, groceries.syncStatus(allSources), section = section) to runCatching { groceries.storage() }.getOrNull()
             }
             // The same filter the table uses (stores, aisles, search, Pinned), so the banner describes
             // the rows on screen. Only the listings that moved are loaded with their usual price, so
@@ -543,8 +545,8 @@ fun Application.routes(
             val trends = withContext(Dispatchers.IO) { runCatching { groceries.dailyPrices(groceryVisibleIds(rows, controls)) }.getOrDefault(emptyMap()) }
             call.respondPage {
               PriceTrends.with(trends) {
-                page(tr("Groceries — Deals Tracker", "Mercado — Deals Tracker")) {
-                    askPanel(
+                page(if (isGroceries) tr("Groceries — Deals Tracker", "Mercado — Deals Tracker") else tr("Household — Deals Tracker", "Aseo — Deals Tracker")) {
+                    if (isGroceries) askPanel(
                         "groceries",
                         tr(
                             "e.g. what meat is well under its usual price this week?",
@@ -557,6 +559,7 @@ fun Application.routes(
                 }
               }
             }
+        }
         }
 
         // Groceries > Orders: a view of the Groceries tab, reached from its Deals / All items / Pinned strip.
@@ -587,7 +590,11 @@ fun Application.routes(
             val view = GroceryView.of(call.request.queryParameters["view"])
             val sources = grocerySources(app)
             val row = withContext(Dispatchers.IO) {
-                if (groceries.setPinned(id, pinned, sources).isEmpty()) null
+                // The one pin endpoint serves both shelf tabs. The section is read off the row's own
+                // provider first -- setPinned always changes the row it is given, whatever sources it is
+                // passed -- and the row is then pinned and re-read among that section's providers alone.
+                val section = shelfSectionOf(app, repo.findById(id)?.source)
+                if (section == null || groceries.setPinned(id, pinned, grocerySources(app, section)).isEmpty()) null
                 // Re-merged, so the swapped row still shows the cheaper store and the other one's price; in a
                 // search's one-row-per-store table, this store's row alone, as it was shown.
                 else {
@@ -721,7 +728,7 @@ fun Application.routes(
             val history = withContext(Dispatchers.IO) { repo.priceHistory(id) }
             val elsewhere = withContext(Dispatchers.IO) { repo.sameProductElsewhere(deal) }
             val pinnable = deal.source in trackingSources(app)
-            val groceryPinnable = deal.source in grocerySources(app)
+            val groceryPinnable = ShelfSection.entries.any { deal.source in grocerySources(app, it) }
             call.respondPage {
                 page(deal.title) {
                     dealDetail(

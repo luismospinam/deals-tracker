@@ -129,6 +129,18 @@ private val AISLE_ES = mapOf(
     "Frozen" to "Congelados",
     "Prepared" to "Comidas preparadas",
     "Baby food" to "Comida para bebé",
+    // The household tab's aisles.
+    "Paper" to "Papel",
+    "Laundry & cleaning" to "Lavado y limpieza",
+    "Cleaning tools" to "Implementos de aseo",
+    "Air & pests" to "Ambientadores e insecticidas",
+    "Disposables" to "Desechables",
+    "Oral care" to "Cuidado oral",
+    "Hair" to "Cabello",
+    "Body" to "Cuerpo",
+    "Sun & repellent" to "Protección solar y repelentes",
+    "Baby care" to "Higiene del bebé",
+    "Intimate care" to "Higiene íntima",
 )
 
 /**

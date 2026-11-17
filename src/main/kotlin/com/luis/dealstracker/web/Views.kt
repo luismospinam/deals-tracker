@@ -345,6 +345,8 @@ fun HTML.page(title: String, block: MAIN.() -> Unit) {
             // Its own tab for the same reason as tracked: a different question ("cheaper than this
             // item usually is at my store?") with different columns -- unit price, usual price.
             span("sub") { a(href = "/groceries") { +tr("groceries", "mercado") } }
+            // The same screen over a different shelf (cleaning, paper, personal care): see ShelfSection.
+            span("sub") { a(href = "/household") { +tr("household", "aseo") } }
             span("sub") { a(href = "/watches") { +tr("watches", "búsquedas") } }
             // Settings that used to need an editor and a restart: cards held, job times, sources paused.
             // Holds the right rail apart from the nameplate, so the serif sits alone

@@ -503,11 +503,12 @@ class GroceryRepository(private val ds: DataSource) {
      * Pinned groceries nobody has filed yet (`aisle_ai` is null, V45): what [com.luis.dealstracker.ask.AisleClassifier]
      * asks about. Unpinned rows are never returned, so the shelf's other ~27,000 products cost nothing.
      */
-    fun unfiledPinned(): List<com.luis.dealstracker.ask.AisleItem> = ds.connection.use { conn ->
+    fun unfiledPinned(sources: List<String>): List<com.luis.dealstracker.ask.AisleItem> = ds.connection.use { conn ->
         conn.prepareStatement(
             "SELECT id, title, brand, category, grocery_group FROM deals " +
-                "WHERE pinned_at IS NOT NULL AND grocery_group IS NOT NULL AND aisle_ai IS NULL ORDER BY id",
+                "WHERE source = ANY (?) AND pinned_at IS NOT NULL AND grocery_group IS NOT NULL AND aisle_ai IS NULL ORDER BY id",
         ).use { st ->
+            st.setArray(1, conn.createArrayOf("text", sources.toTypedArray()))
             st.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) add(
