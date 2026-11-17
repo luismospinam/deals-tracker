@@ -652,7 +652,7 @@ fun Application.routes(
             }
             if (result == com.luis.dealstracker.exito.CartResult.SoldOut && deal != null) {
                 withContext(Dispatchers.IO) { groceries.markSoldOut(deal.id) }
-                println("[exito-cart] ${deal.sourceDealId} sold out at Laureles; marked off the shelf until the next crawl")
+                println("[exito-cart] ${deal.sourceDealId} sold out at ${buyingAt.short}; marked off the shelf until the next crawl")
             }
             if (result is com.luis.dealstracker.exito.CartResult.Added && purchaseLog != null) {
                 scope.launch(Dispatchers.IO) { runCatching { purchaseLog.syncExitoCart()?.let(::println) } }

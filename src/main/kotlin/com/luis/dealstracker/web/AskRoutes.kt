@@ -288,7 +288,7 @@ internal fun askContextFor(
             else GroceryFilter(sources, controls.groups.toList(), controls.search),
         )
         // Rivals as the page loads them, so the other-chain sort orders the same rows here.
-        val merged = withRivalsFor(storeRows(rows, stores, splitByStore(controls)), controls, stores) { groceries.shelfPrices(it, grocerySources(app)) }
+        val merged = withRivalsFor(storeRows(rows, stores, splitByStore(controls), preferredSources(controls)), controls, stores) { groceries.shelfPrices(it, grocerySources(app)) }
         val shown = groceryShown(merged, controls)
         AskContext(
             label = "groceries (${controls.view.label.lowercase()}" +

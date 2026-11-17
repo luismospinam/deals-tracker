@@ -590,11 +590,20 @@ fun main(args: Array<String>) {
     // The cart button is Exito Laureles only; its seller is that store's own, read from config so the
     // two cannot drift apart.
     val laureles = app.providers.firstOrNull { it.id == com.luis.dealstracker.exito.EXITO_CART_SOURCE }
+    // Which Exito the button buys at: Laureles until the switch on Pinned says otherwise. Each store's
+    // seller is read from its own provider in config, so the cart and the crawl cannot drift apart.
+    com.luis.dealstracker.exito.MyCartStore.current =
+        com.luis.dealstracker.exito.CartStore.of(SettingsRepository(Db.dataSource).get(SettingsRepository.EXITO_STORE))
+    println("[exito-cart] buying at ${com.luis.dealstracker.exito.MyCartStore.current.label}")
     val exitoCart = com.luis.dealstracker.exito.ExitoCart(
         http,
         SettingsRepository(Db.dataSource),
         baseUrl = laureles?.baseUrl ?: "https://www.exito.com",
         seller = laureles?.options?.get("regionSeller") ?: "exitocol037",
+        store = { com.luis.dealstracker.exito.MyCartStore.current },
+        sellerOf = { store ->
+            app.providers.firstOrNull { it.id in store.sources }?.options?.get("regionSeller")?.takeIf { it.isNotBlank() } ?: store.seller
+        },
     )
 
     // What was bought: the tracker's Exito cart, read every 30 minutes and right after a cart-button add.

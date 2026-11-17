@@ -1041,6 +1041,23 @@ list for the kitchen is not mixed with the one for the bathroom.
 Exito Colombia has its own household provider, `exito-colombia-household` (09:20-10:00 and
 19:20-20:00), so the tab shows each product once at the cheaper Exito, as Groceries does.
 
+### Buying at Laureles or Colombia
+
+The cart button buys at one Exito at a time. **Buying at: Exito Laureles | Exito Colombia**, on the
+Pinned view of both shelf tabs, chooses which (`exito.CartStore`, saved as `app_settings.exito_store`,
+Laureles when unset). The choice decides together:
+
+- which store's copy of a row gets the cart button, and the "only items I can add" filter;
+- the seller the add is priced and stocked at, and the **pickup store**: Exito reads it from the
+  digits of that seller, sent with every add (`exitocol037` -> Laureles, `exitocol031` -> Colombia);
+- **which cart**. Each store has its own (`exito_cart_id`, `exito_cart_id.colombia`), because an
+  Exito cart has one pickup store. A store's first add asks Exito for a new cart (`forceNewCart`),
+  and a cart id that is the other store's is never adopted. Switching back and forth keeps both carts
+  as they were. "Open Exito … cart" opens the chosen store's.
+
+The purchase log keeps one reading per cart for the same reason. In Exito's own app or website the
+pickup store is still chosen by hand: those carts belong to the device and the tracker cannot reach them.
+
 ## PriceSmart
 
 PriceSmart is the grocery tab's third chain, after Exito and Carulla, and covers two Medellín clubs:

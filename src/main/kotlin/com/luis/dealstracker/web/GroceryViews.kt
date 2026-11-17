@@ -132,7 +132,16 @@ internal fun chainNames(stores: Map<String, GroceryStore>): Map<String, String> 
  * that store today is not the cheaper option. Pinned-ness is the chain's, not the store's: a product
  * shows as pinned if any of its copies is. Ties go to the store listed first in config.
  */
-internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStore>): List<GroceryRow> {
+internal fun mergeStores(
+    rows: List<GroceryRow>,
+    stores: Map<String, GroceryStore>,
+    /**
+     * Sources whose copy leads when it is on the shelf, whatever it costs: on Pinned, the Exito being
+     * bought at ([com.luis.dealstracker.exito.MyCartStore]), so each row shows the price that store
+     * charges and the cart button sits on the row it adds. The other store's price stays beneath.
+     */
+    prefer: Set<String> = emptySet(),
+): List<GroceryRow> {
     val order = stores.keys.withIndex().associate { (i, id) -> id to i }
     return labelStores(rows, stores)
         .groupBy { Triple(stores[it.deal.source]?.chain ?: it.deal.source, it.deal.merchant, it.deal.sourceDealId) }
@@ -140,6 +149,7 @@ internal fun mergeStores(rows: List<GroceryRow>, stores: Map<String, GroceryStor
         .map { copies ->
             val ranked = copies.sortedWith(
                 compareByDescending<GroceryRow> { it.onShelf }
+                    .thenByDescending { it.deal.source in prefer }
                     .thenBy { it.deal.price }
                     .thenBy { order[it.deal.source] ?: Int.MAX_VALUE },
             )
@@ -167,13 +177,12 @@ internal fun splitByStore(controls: GroceryControls): Boolean =
     com.luis.dealstracker.db.SearchQuery.parse(controls.search).include.isNotEmpty()
 
 /** [mergeStores], or one row per store when [split]. */
-internal fun storeRows(rows: List<GroceryRow>, stores: Map<String, GroceryStore>, split: Boolean): List<GroceryRow> =
-    if (split) labelStores(rows, stores) else mergeStores(rows, stores)
+internal fun storeRows(rows: List<GroceryRow>, stores: Map<String, GroceryStore>, split: Boolean, prefer: Set<String> = emptySet()): List<GroceryRow> =
+    if (split) labelStores(rows, stores) else mergeStores(rows, stores, prefer)
 
-/** One copy per product per chain, the one [mergeStores] would lead with: on the shelf first, then cheapest. */
-internal fun onePerChain(rows: List<GroceryRow>): List<GroceryRow> =
-    rows.groupBy { Triple(it.chain.ifEmpty { it.deal.source }, it.deal.merchant, it.deal.sourceDealId) }.values
-        .map { copies -> copies.sortedWith(compareByDescending<GroceryRow> { it.onShelf }.thenBy { it.deal.price }).first() }
+/** The store a view leads with: on Pinned, the shopping list, the Exito being bought at; elsewhere none, so the cheaper store. */
+internal fun preferredSources(controls: GroceryControls): Set<String> =
+    if (controls.view == GroceryView.PINNED) com.luis.dealstracker.exito.MyCartStore.current.sources else emptySet()
 
 /**
  * Each row's cheapest on-shelf copy at ANOTHER chain, by barcode, as [GroceryRow.rival].
@@ -1221,9 +1230,14 @@ internal fun TBODY.groceryRow(
             cardLabel(tr("Store", "Tienda"))
             span("size-chip") {
                 if (row.others.isNotEmpty()) {
-                    title = tr(
+                    // On Pinned the row may show the store being bought at rather than the cheaper one.
+                    val cheapest = row.others.none { it.onShelf && it.deal.price < deal.price }
+                    title = if (cheapest) tr(
                         "Cheapest of ${row.others.size + 1} stores stocking it",
                         "La más barata de ${row.others.size + 1} tiendas que lo tienen",
+                    ) else tr(
+                        "The store you are buying at; another store's price is beneath",
+                        "La tienda donde estás comprando; el precio de otra tienda está debajo",
                     )
                 }
                 +row.store.ifEmpty { storeName(deal.source) }

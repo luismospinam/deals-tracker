@@ -6,6 +6,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -140,6 +141,20 @@ class PoliteHttp(
         url: String,
         body: String,
         extraHeaders: Map<String, String> = emptyMap(),
+    ): Result = sendJson(io.ktor.http.HttpMethod.Post, url, body, extraHeaders)
+
+    /** [postJson] as a PUT, which VTEX's checkout wants for an order form's custom data. */
+    suspend fun putJson(
+        url: String,
+        body: String,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): Result = sendJson(io.ktor.http.HttpMethod.Put, url, body, extraHeaders)
+
+    private suspend fun sendJson(
+        verb: io.ktor.http.HttpMethod,
+        url: String,
+        body: String,
+        extraHeaders: Map<String, String>,
     ): Result {
         throttle(Url(url).host)
 
@@ -147,7 +162,8 @@ class PoliteHttp(
         var lastError: Exception? = null
         while (attempt < maxRetries) {
             try {
-                val response: HttpResponse = client.post(url) {
+                val response: HttpResponse = client.request(url) {
+                    method = verb
                     header("User-Agent", userAgent)
                     header("Accept-Language", "es-CO,es;q=0.9,en;q=0.8")
                     extraHeaders.forEach { (k, v) -> header(k, v) }
@@ -170,7 +186,7 @@ class PoliteHttp(
                 delay(backoffMillis(attempt))
             }
         }
-        throw lastError ?: IllegalStateException("POST $url failed after $maxRetries attempts")
+        throw lastError ?: IllegalStateException("${verb.value} $url failed after $maxRetries attempts")
     }
 
     /** Caches a 2xx body that came with a validator; anything else drops what was cached for [url]. */

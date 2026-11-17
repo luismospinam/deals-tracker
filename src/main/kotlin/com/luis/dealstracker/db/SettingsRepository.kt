@@ -112,5 +112,14 @@ class SettingsRepository(private val ds: DataSource) {
 
         /** The shopper's own cart id (the `checkout.vtex.com` cookie's `__ofid`), which the cart button adds to. */
         const val EXITO_CART_ID = "exito_cart_id"
+
+        /**
+         * When the Exito sign-in itself ends: the expiry of the profile's 30-day refresh token (`vid_rt`), as an
+         * ISO instant. Daily renewals cannot extend it; past it, only signing in again in the browser does.
+         */
+        const val EXITO_SIGNIN_ENDS = "exito_signin_ends"
+
+        /** Which Exito store the cart button buys at: an `exito.CartStore` key. Absent means Laureles. */
+        const val EXITO_STORE = "exito_store"
     }
 }

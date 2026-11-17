@@ -2,6 +2,7 @@ package com.luis.dealstracker.exito
 
 import java.time.Instant
 import java.util.Base64
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -171,11 +172,170 @@ class ExitoCartTest {
         assertEquals(listOf("501548", "1", "2"), listOf(item["id"], item["seller"], item["quantity"]).map { it.toString().trim('"') })
     }
 
+    /** 2026-11-17: Exito began answering 400 "orderFormId is required" to a site add without it. */
+    @Test
+    fun `the site add carries the cart id once there is one`() {
+        val with = cartJson.parseToJsonElement(siteAddPayload(CartSku("61110", "1", "x"), 1, "exitocol037", orderFormId = "abc")) as kotlinx.serialization.json.JsonObject
+        assertEquals("\"abc\"", with["orderFormId"].toString())
+        val without = cartJson.parseToJsonElement(siteAddPayload(CartSku("61110", "1", "x"), 1, "exitocol037")) as kotlinx.serialization.json.JsonObject
+        assertFalse("orderFormId" in without)
+    }
+
+    @Test
+    fun `a refusal is logged by its codes and availability, never the whole cart`() {
+        val note = refusalNote(
+            """{"items":[{"availability":"available"},{"availability":"withoutPriceFulfillment"}],
+               "messages":[{"code":"withoutPriceFulfillment","text":"no está disponible"}],
+               "clientProfileData":{"email":"someone@example.com"}}""",
+        )
+        assertTrue("withoutPriceFulfillment: no está disponible" in note && "availability [available, withoutPriceFulfillment]" in note, note)
+        assertFalse("example.com" in note, "the shopper's details stay out of the log")
+        assertEquals(" (message: orderFormId is required)", refusalNote("""{"message":"orderFormId is required"}"""))
+        assertEquals("", refusalNote(null))
+        assertEquals("", refusalNote("{}"))
+    }
+
     @Test
     fun `delivery channels are read from the lines, and an unreadable body has none`() {
         val body = """{"shippingData":{"logisticsInfo":[{"selectedDeliveryChannel":"delivery"},{"selectedDeliveryChannel":"delivery"},{"selectedDeliveryChannel":"pickup-in-point"}]}}"""
         assertEquals(listOf("delivery", "pickup-in-point"), deliveryChannels(body))
         assertEquals(emptyList(), deliveryChannels("not json"))
         assertEquals(emptyList(), deliveryChannels(null))
+    }
+
+    @Test
+    fun `the log names the pickup point a cart's lines have selected, and nothing else about it`() {
+        val body = """{"shippingData":{"logisticsInfo":[
+            {"selectedSla":"pk-031","selectedDeliveryChannel":"pickup-in-point","slas":[
+                {"id":"home","pickupStoreInfo":{"friendlyName":null}},
+                {"id":"pk-031","pickupStoreInfo":{"friendlyName":"Éxito Colombia","address":{"street":"Cra 66"}}}]},
+            {"selectedSla":"pk-031","slas":[{"id":"pk-031","pickupStoreInfo":{"friendlyName":"Éxito Colombia"}}]},
+            {"selectedSla":null,"slas":[]}]}}"""
+        assertEquals(listOf("Éxito Colombia"), pickupPoints(body))
+        assertEquals(emptyList(), pickupPoints("""{"shippingData":null}"""))
+        assertEquals(emptyList(), pickupPoints("<html>"))
+        assertEquals(emptyList(), pickupPoints(null))
+    }
+
+    @Test
+    fun `a store with no cart yet asks Exito for a new one`() {
+        assertEquals("https://www.exito.com/api/checkout/pub/orderForm?forceNewCart=true", orderFormUrl("https://www.exito.com", null))
+        assertEquals("https://www.exito.com/api/checkout/pub/orderForm", orderFormUrl("https://www.exito.com", "abc"))
+    }
+
+    @Test
+    fun `another store's cart is never taken for this one`() {
+        assertTrue(isOtherStoresCart("laureles-cart", listOf("laureles-cart", null)))
+        assertFalse(isOtherStoresCart("new-cart", listOf("laureles-cart", null)))
+        assertFalse(isOtherStoresCart("new-cart", listOf(null)))
+        assertFalse(isOtherStoresCart("", listOf("")))
+    }
+
+    /** Shaped like the order form Exito answered on 2026-11-17 once the cart had an address near Laureles. */
+    private fun formWith(selected: String?, channel: String?, lines: Int = 2) = """
+        {"shippingData":{"logisticsInfo":[${(0 until lines).joinToString(",") { i -> """
+          {"itemIndex":$i,"selectedDeliveryChannel":${channel?.let { "\"$it\"" } ?: "null"},"selectedSla":${selected?.let { "\"$it\"" } ?: "null"},
+           "slas":[
+             {"id":"Domicilio_Programado","deliveryChannel":"delivery"},
+             {"id":"CompraRecoge_Programado (ptorecogida_037)","deliveryChannel":"pickup-in-point","pickupPointId":"exitocol037_ptorecogida_037",
+              "pickupStoreInfo":{"friendlyName":"Exito Laureles","address":{"street":"Cra. 81","number":"37-100","postalCode":"050031","geoCoordinates":[-75.6,6.24]}}}
+           ]}""" }}]}}
+    """.trimIndent()
+
+    @Test
+    fun `the store's pickup option is found by its pickup point, not by its name`() {
+        val (sla, address) = pickupSlaFor(formWith(null, null), "exitocol037")!!
+        assertEquals("CompraRecoge_Programado (ptorecogida_037)", sla)
+        assertEquals("\"Cra. 81\"", address["street"].toString())
+        assertNull(pickupSlaFor(formWith(null, null), "exitocol031"), "Colombia is not listed in a cart placed at Laureles")
+        assertNull(pickupSlaFor("{}", "exitocol037"))
+        assertNull(pickupSlaFor(null, "exitocol037"))
+    }
+
+    @Test
+    fun `a cart is pickup at a store only when every line says so`() {
+        val sla = "CompraRecoge_Programado (ptorecogida_037)"
+        assertTrue(isPickupAt(formWith(sla, "pickup-in-point"), "exitocol037"))
+        assertFalse(isPickupAt(formWith(sla, "pickup-in-point"), "exitocol031"), "another store")
+        assertFalse(isPickupAt(formWith(null, "delivery"), "exitocol037"), "the state seen on 2026-11-17: delivery, no option chosen")
+        assertFalse(isPickupAt(formWith("Domicilio_Programado", "delivery"), "exitocol037"))
+        assertFalse(isPickupAt("""{"shippingData":{"logisticsInfo":[]}}""", "exitocol037"), "an empty cart has nothing set")
+        assertEquals(2, logisticsCount(formWith(null, null)))
+    }
+
+    @Test
+    fun `setting pickup first places the cart near the store, then picks the option for every line`() {
+        val search = cartJson.parseToJsonElement(pickupSearchBody(CartStore.LAURELES)).jsonObject
+        val addr = (search["selectedAddresses"] as kotlinx.serialization.json.JsonArray)[0].jsonObject
+        assertEquals("\"search\"", addr["addressType"].toString())
+        assertEquals("[-75.602029,6.246248]", addr["geoCoordinates"].toString(), "longitude first, as VTEX wants")
+
+        val (sla, _) = pickupSlaFor(formWith(null, null), "exitocol037")!!
+        val select = cartJson.parseToJsonElement(pickupSelectBody(sla, CartStore.LAURELES, 3)).jsonObject
+        val lines = select["logisticsInfo"] as kotlinx.serialization.json.JsonArray
+        assertEquals(3, lines.size)
+        lines.forEachIndexed { i, l ->
+            assertEquals("$i", l.jsonObject["itemIndex"].toString())
+            assertEquals("\"pickup-in-point\"", l.jsonObject["selectedDeliveryChannel"].toString())
+            assertEquals("\"$sla\"", l.jsonObject["selectedSla"].toString())
+        }
+        val picked = (select["selectedAddresses"] as kotlinx.serialization.json.JsonArray)[0].jsonObject
+        assertEquals("\"search\"", picked["addressType"].toString())
+        assertEquals("\"Carrera 81 # 37 - 100\"", picked["street"].toString(), "the street as Exito's store picker writes it")
+        assertEquals("\"Exito Laureles\"", picked["complement"].toString(), "the store's name: how the checkout tells a pickup from a home")
+        assertEquals("\"0\"", picked["number"].toString())
+        assertEquals("\"05001\"", picked["postalCode"].toString())
+        assertEquals("[-75.602029,6.246248]", picked["geoCoordinates"].toString())
+    }
+
+
+    @Test
+    fun `a refusal gives the message about that item, not the oldest message in the cart`() {
+        val form = cartJson.parseToJsonElement(
+            """{"items":[{"id":"61438","name":"PAPAYA PORCIONADA TARRINA  300  gr","availability":"cannotBeDelivered"}],
+               "messages":[{"code":"withoutPriceFulfillment","text":"El ítem PINA PORCIONADA TARRINA  300  gr no está disponible","status":"error"},
+                           {"code":"cannotBeDelivered","text":"El ítem PAPAYA PORCIONADA TARRINA  300  gr no pudo ser enviado","status":"error"}]}""",
+        ).jsonObject
+        assertEquals("El ítem PAPAYA PORCIONADA TARRINA  300  gr no pudo ser enviado", unavailableReason(form, CartSku("61438", "exitocol031", "Papaya")))
+        val r = interpretAdd(200, form.toString(), CartSku("99", "exitocol031", "Sandia Tarrina 300 gr"))
+        assertEquals(CartResult.Refused(""), r, "nothing in the cart is about this item, so no borrowed reason")
+        assertEquals("Mango is not available at this store", unavailableReason(cartJson.parseToJsonElement("""{"items":[],"messages":[]}""").jsonObject, CartSku("1", "1", "Mango")))
+    }
+
+    /** 2026-11-17: without these, a pickup cart opened in Exito's checkout as home delivery. */
+    @Test
+    fun `the checkout data is what Exito's own site writes, and is written only when missing`() {
+        val body = cartJson.parseToJsonElement(checkoutFieldsBody()).jsonObject
+        assertEquals("\"15\"", body["channelId"].toString())
+        assertEquals("\"1\"", body["salesChannel"].toString())
+        assertEquals("\"Sin bolsa\"", body["bagName"].toString())
+        assertFalse("idSlotInstaleap" in body, "the pickup slot is the shopper's to choose at checkout")
+        assertTrue(hasCheckoutFields("""{"customData":{"customApps":[{"id":"order","fields":{"channelId":"15"}}]}}"""))
+        assertFalse(hasCheckoutFields("""{"customData":{"customApps":[]}}"""))
+        assertFalse(hasCheckoutFields("""{"customData":null}"""))
+    }
+
+    /** 2026-11-17: only the address the store picker saved made Exito's checkout open the cart as Compra y Recoge. */
+    @Test
+    fun `the account's saved pickup address for the store is used when the cart lists one`() {
+        val form = """{"shippingData":{"availableAddresses":[
+            {"addressId":"home1","addressType":"residential","street":"Calle 1","complement":"Apto 2"},
+            {"addressId":"lau","addressType":"search","street":"Carrera 81 # 37 - 100","number":"0","complement":"Exito Laureles"},
+            {"addressId":"col","addressType":"search","street":"Carrera 66 # 49 - 01","number":"0","complement":"Exito Colombia"}]}}"""
+        assertEquals("\"col\"", pickupAddress(CartStore.COLOMBIA, form)["addressId"].toString())
+        assertEquals("\"lau\"", pickupAddress(CartStore.LAURELES, form)["addressId"].toString())
+        val built = pickupAddress(CartStore.COLOMBIA, """{"shippingData":{"availableAddresses":[]}}""")
+        assertFalse("addressId" in built)
+        assertEquals("\"Exito Colombia\"", built["complement"].toString())
+        assertEquals("[-75.58298,6.255477]", built["geoCoordinates"].toString())
+    }
+
+    @Test
+    fun `a cart is ready for pickup only with the store's pickup address, not just its pickup option`() {
+        fun form(complement: String?) = """{"shippingData":{"address":{"addressType":"search","complement":${complement?.let { "\"$it\"" } ?: "null"}},
+            "logisticsInfo":[{"selectedDeliveryChannel":"pickup-in-point","selectedSla":"CompraRecoge_Programado (ptorecogida_031)"}]}}"""
+        assertTrue(pickupReady(form("Exito Colombia"), CartStore.COLOMBIA))
+        assertFalse(pickupReady(form(null), CartStore.COLOMBIA), "the bare address the checkout read as home delivery")
+        assertFalse(pickupReady(form("Exito Colombia"), CartStore.LAURELES), "another store's pickup")
     }
 }

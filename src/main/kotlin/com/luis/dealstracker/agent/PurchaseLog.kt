@@ -42,11 +42,14 @@ class PurchaseLog(
 ) {
     /** Reads the cart and logs what changed since the last read. Returns a log line, or null for no change. */
     suspend fun syncExitoCart(): String? {
+        // Asked before the cart is read, and used for both the read and the write: each store has its own
+        // cart and its own last reading, so a switch of store is never read as a cart emptied and refilled.
+        val snapshotKey = cart.snapshotKey()
         val now = cart.contents() ?: return null
-        val before = settings.get(SettingsRepository.EXITO_CART_SNAPSHOT)?.let { runCatching { json.decodeFromString<CartSnapshot>(it) }.getOrNull() }
+        val before = settings.get(snapshotKey)?.let { runCatching { json.decodeFromString<CartSnapshot>(it) }.getOrNull() }
         val changes = cartChanges(before, now)
         changes.forEach { c -> if (c.delta > 0) record(c.line, c.delta, now.cartId) else unrecord(c.line.productId, -c.delta, now.cartId) }
-        settings.set(mapOf(SettingsRepository.EXITO_CART_SNAPSHOT to json.encodeToString(CartSnapshot.serializer(), CartSnapshot(now.cartId, now.lines.associate { it.productId to it.quantity }))))
+        settings.set(mapOf(snapshotKey to json.encodeToString(CartSnapshot.serializer(), CartSnapshot(now.cartId, now.lines.associate { it.productId to it.quantity }))))
         if (changes.isEmpty()) return null
         return "[purchases] exito cart: " + changes.joinToString { "${if (it.delta > 0) "+" else ""}${it.delta} ${it.line.name.take(40)}" }
     }
@@ -55,12 +58,17 @@ class PurchaseLog(
         conn.prepareStatement(
             """
             INSERT INTO purchases (deal_id, source, product_id, title, quantity, unit_price, currency, origin, cart_id)
-            SELECT (SELECT id FROM deals WHERE source = ? AND source_deal_id = ? ORDER BY id LIMIT 1), ?, ?, ?, ?, ?, 'COP', 'exito_cart', ?
+            SELECT (SELECT id FROM deals WHERE source = ANY (?) AND source_deal_id = ? ORDER BY (source = ANY (?)) DESC, id LIMIT 1), ?, ?, ?, ?, ?, 'COP', 'exito_cart', ?
             """.trimIndent(),
         ).use { st ->
-            st.setString(1, EXITO_CART_SOURCE); st.setString(2, line.productId)
-            st.setString(3, EXITO_CART_SOURCE); st.setString(4, line.productId); st.setString(5, line.name)
-            st.setInt(6, quantity); st.setBigDecimal(7, line.unitPrice); st.setString(8, cartId)
+            // The row may be the grocery tab's or the household tab's; `purchases.source` stays the cart's
+            // one name either way, since that is what [unrecord] looks a line up by.
+            st.setArray(1, conn.createArrayOf("text", com.luis.dealstracker.exito.EXITO_CART_SOURCES.toTypedArray()))
+            st.setString(2, line.productId)
+            // The row of the store being bought at first: its price is the one that was paid.
+            st.setArray(3, conn.createArrayOf("text", cart.storeSources().toTypedArray()))
+            st.setString(4, EXITO_CART_SOURCE); st.setString(5, line.productId); st.setString(6, line.name)
+            st.setInt(7, quantity); st.setBigDecimal(8, line.unitPrice); st.setString(9, cartId)
             st.executeUpdate()
         }
     }

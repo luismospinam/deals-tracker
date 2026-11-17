@@ -2,7 +2,8 @@ package com.luis.dealstracker.web
 
 import com.luis.dealstracker.db.GroceryRow
 import com.luis.dealstracker.exito.CartResult
-import com.luis.dealstracker.exito.EXITO_CART_SOURCE
+import com.luis.dealstracker.exito.CartStore
+import com.luis.dealstracker.exito.MyCartStore
 import com.luis.dealstracker.exito.cookieExpiry
 import com.luis.dealstracker.i18n.tr
 import kotlinx.html.ButtonType
@@ -23,15 +24,13 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * The Exito Laureles copy of a row, if it has one on the shelf -- the only copy the cart button acts on.
- *
- * A row shows its chain's cheaper store, so when Exito Colombia is cheaper the Laureles copy sits in
- * [GroceryRow.others]. The button still belongs to the row (the shopper wants Laureles' item), but it
- * must carry the Laureles copy's id, never the displayed store's: a Colombia id would be refused, and a
- * Colombia price must not be added under a Laureles button.
+ * The row itself when it is the Exito store being bought at ([MyCartStore], Laureles unless switched) and
+ * on the shelf -- the only row the cart button sits on. Never another copy beneath it: a button on a row
+ * that says "Exito Laureles" must add at Laureles. Pinned leads with that store's copy wherever it has one
+ * ([preferredSources]), so the rows that can be bought there are the rows that say so.
  */
-internal fun cartCopy(row: GroceryRow): GroceryRow? =
-    (listOf(row) + row.others).firstOrNull { it.deal.source == EXITO_CART_SOURCE && it.onShelf }
+internal fun cartCopy(row: GroceryRow, store: CartStore = MyCartStore.current): GroceryRow? =
+    row.takeIf { it.deal.source in store.sources && it.onShelf }
 
 /**
  * The toast for one add-to-cart attempt, as a fragment for `#toast`. A success carries [cartLink] when the
@@ -43,10 +42,11 @@ internal fun cartToast(
     cartLink: String? = null,
     /** When the row was last seen in stock, for the sold-out message: the crawl it came from. */
     lastSeen: java.time.Instant? = null,
+    store: CartStore = MyCartStore.current,
 ): String {
     val (kind, text) = when (result) {
         is CartResult.Added -> "ok" to buildString {
-            append(tr("Added to your Exito cart", "Agregado a tu carrito de Exito"))
+            append(tr("Added to your Exito ${store.short} cart", "Agregado a tu carrito de Exito ${store.short}"))
             (result.title ?: title)?.let { append(": ").append(it.take(60)) }
             if (result.quantity > 1) append(" ×${result.quantity}")
         }
@@ -64,7 +64,7 @@ internal fun cartToast(
             tr("Exito did not add it: ", "Exito no lo agregó: ") + result.reason
         }
         CartResult.SoldOut -> "warn" to buildString {
-            append(tr("Laureles is sold out of it right now", "Laureles no tiene unidades en este momento"))
+            append(tr("${store.short} is sold out of it right now", "${store.short} no tiene unidades en este momento"))
             lastSeen?.let {
                 val at = it.atZone(java.time.ZoneId.systemDefault()).toLocalTime().let { t -> "%02d:%02d".format(t.hour, t.minute) }
                 append(tr(" (it had stock at the $at check)", " (tenía unidades en la revisión de las $at)"))
@@ -93,7 +93,8 @@ internal fun kotlinx.html.FlowContent.cartButton(row: GroceryRow) {
         // What the button says about itself afterwards; see CART_FEEDBACK_JS.
         attributes["data-done"] = tr("✓ Added", "✓ Agregado")
         attributes["data-fail"] = tr("! Check", "! Revisa")
-        title = tr("Add one to your Exito cart (Laureles)", "Agregar uno a tu carrito de Exito (Laureles)")
+        val at = MyCartStore.current.short
+        title = tr("Add one to your Exito cart ($at)", "Agregar uno a tu carrito de Exito ($at)")
         +tr("🛒 cart", "🛒 carrito")
     }
 }
@@ -163,12 +164,44 @@ internal fun exitoCartPanel(token: String?, cartId: String?, now: Instant = Inst
     }
 
 /** The Open cart link for the top of Groceries, or nothing until the tracker has a cart. */
-internal fun openCartLink(link: String?): String =
+internal fun openCartLink(link: String?, store: CartStore = MyCartStore.current): String =
     if (link == null) ""
     else createHTML(prettyPrint = false).a(href = link, target = "_blank", classes = "open-cart") {
         id = "open-cart"
-        +tr("🛒 Open Exito cart", "🛒 Abrir carrito Exito")
+        // Named: there is a cart per store, and this opens the one being bought at.
+        +tr("🛒 Open Exito ${store.short} cart", "🛒 Abrir carrito Exito ${store.short}")
     }
+
+/** The tracker's own door to the cart: it sets Compra y Recoge, then sends the browser on to Exito. */
+internal const val OPEN_CART_PATH = "/groceries/exito-cart/open"
+
+/** The href an Open cart link uses: the tracker's door when there is a cart, nothing when there is none. */
+internal fun openCartVia(cartLink: String?): String? = cartLink?.let { OPEN_CART_PATH }
+
+/** Where the store switch posts. */
+internal const val CART_STORE_PATH = "/exito-store"
+
+/**
+ * "Buying at: Laureles | Colombia", above the cart link on Pinned. A plain form that posts and comes
+ * back to [back]: the whole page has to be drawn again, since the cart buttons, the "can add" count and
+ * the cart link all follow the store. The choice is said in words and `aria-pressed`, not colour alone.
+ */
+internal fun kotlinx.html.FlowContent.cartStoreSwitch(back: String, current: CartStore = MyCartStore.current) {
+    form(action = CART_STORE_PATH, method = kotlinx.html.FormMethod.post, classes = "typetags storepick") {
+        input(type = InputType.hidden, name = "back") { value = back }
+        span("typetags-label") { +tr("Buying at", "Comprando en") }
+        CartStore.entries.forEach { store ->
+            val on = store == current
+            button(type = ButtonType.submit, name = "store", classes = if (on) "typetag on" else "typetag") {
+                value = store.key
+                attributes["aria-pressed"] = on.toString()
+                title = if (on) tr("The cart button adds from ${store.label}, for pickup there", "El botón de carrito agrega desde ${store.label}, para recoger allí")
+                else tr("Switch the cart button to ${store.label}: its own cart, picked up there", "Cambiar el botón de carrito a ${store.label}: su propio carrito, para recoger allí")
+                +"Exito ${store.short}"
+            }
+        }
+    }
+}
 
 /** Where the Open cart link lands: loaded after the page, so the page query never reads the cart id. */
 internal fun kotlinx.html.FlowContent.openCartSlot() {

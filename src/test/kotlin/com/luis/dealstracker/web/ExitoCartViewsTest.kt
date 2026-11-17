@@ -53,14 +53,13 @@ class ExitoCartViewsTest {
         }
     }
 
+    /** A button on a row that says one store must add at that store, never at the copy beneath it. */
     @Test
-    fun `a laureles copy hidden behind a cheaper colombia row still gets its own button`() {
+    fun `a row showing the other store gets no button, even with a copy of this store beneath`() {
         val laureles = row(10, "exito-grocery")
         val shown = row(11, "exito-colombia-grocery", others = listOf(laureles))
-        assertEquals(laureles, cartCopy(shown))
-        val out = html { cartButton(shown) }
-        assertTrue("/groceries/10/cart" in out)
-        assertFalse("/groceries/11/cart" in out)
+        assertNull(cartCopy(shown))
+        assertFalse("cart-btn" in html { cartButton(shown) })
     }
 
     @Test
@@ -133,6 +132,120 @@ class ExitoCartViewsTest {
         val pinned = groceryRowFragment(row(1, "exito-grocery").copy(pinnedAt = Instant.EPOCH), GroceryView.PINNED)
         assertTrue("hx-confirm" in pinned)
         assertTrue("/groceries/1/unpin" in pinned)
+    }
+
+    /** The household tab is the same store and seller, so its rows go in the same cart. */
+    @Test
+    fun `a household row at Exito Laureles gets the cart button too`() {
+        val toothpaste = row(7, "exito-household")
+        assertEquals(toothpaste, cartCopy(toothpaste))
+        val button = html { cartButton(toothpaste) }
+        assertTrue("cart-btn" in button && "/groceries/7/cart" in button, button)
+        assertNull(cartCopy(row(8, "exito-colombia-grocery")), "the other Exito has no button while buying at Laureles")
+        assertNull(cartCopy(row(9, "exito-household", onShelf = false)))
+        assertEquals(setOf("exito-grocery", "exito-household"), com.luis.dealstracker.exito.CartStore.LAURELES.sources)
+    }
+
+    // ---- Buying at: Laureles or Colombia ----
+
+    private fun <T> buyingAt(store: com.luis.dealstracker.exito.CartStore, block: () -> T): T {
+        val before = com.luis.dealstracker.exito.MyCartStore.current
+        com.luis.dealstracker.exito.MyCartStore.current = store
+        try { return block() } finally { com.luis.dealstracker.exito.MyCartStore.current = before }
+    }
+
+    @Test
+    fun `the cart button follows the store being bought at`() {
+        val colombia = row(8, "exito-colombia-grocery")
+        val laureles = row(9, "exito-grocery")
+        assertEquals(laureles, cartCopy(laureles))
+        assertNull(cartCopy(colombia))
+        buyingAt(com.luis.dealstracker.exito.CartStore.COLOMBIA) {
+            assertEquals(colombia, cartCopy(colombia))
+            assertNull(cartCopy(laureles), "Laureles has no button while buying at Colombia")
+            assertEquals(row(7, "exito-colombia-household"), cartCopy(row(7, "exito-colombia-household")))
+            val button = html { cartButton(colombia) }
+            assertTrue("/groceries/8/cart" in button && "(Colombia)" in button, button)
+        }
+        assertTrue("/groceries/9/cart" in html { cartButton(laureles) }, "and back to Laureles afterwards")
+    }
+
+    /** Pinned leads with the store being bought at, so the rows that can be bought there say so. */
+    @Test
+    fun `pinned shows the chosen store's copy even when the other Exito is cheaper`() {
+        val stores = mapOf(
+            "exito-grocery" to GroceryStore("Exito Laureles", "exito"),
+            "exito-colombia-grocery" to GroceryStore("Exito Colombia", "exito"),
+        )
+        fun copy(id: Long, source: String, price: String) =
+            row(id, source).copy(deal = row(id, source).deal.copy(sourceDealId = "p1", price = java.math.BigDecimal(price)))
+        val rows = listOf(copy(1, "exito-grocery", "9000"), copy(2, "exito-colombia-grocery", "10000"))
+        assertEquals("exito-grocery", mergeStores(rows, stores).single().deal.source, "browsing: the cheaper store")
+        val pinned = GroceryControls.from(io.ktor.http.parametersOf("view" to listOf("pinned")))
+        buyingAt(com.luis.dealstracker.exito.CartStore.COLOMBIA) {
+            val shown = storeRows(rows, stores, split = false, prefer = preferredSources(pinned)).single()
+            assertEquals("exito-colombia-grocery", shown.deal.source)
+            assertEquals(listOf(1L), shown.others.map { it.deal.id }, "Laureles' price stays beneath")
+            assertEquals(2L, cartCopy(shown)?.deal?.id)
+            assertTrue(groceryRowFragment(shown, GroceryView.PINNED).contains("The store you are buying at"))
+            assertEquals(emptySet(), preferredSources(GroceryControls.from(io.ktor.http.parametersOf("view" to listOf("all")))))
+        }
+        // Off the shelf at the chosen store: the row shows where it can be had, and has no button.
+        val soldOut = listOf(copy(1, "exito-grocery", "9000"), copy(2, "exito-colombia-grocery", "10000").copy(onShelf = false))
+        buyingAt(com.luis.dealstracker.exito.CartStore.COLOMBIA) {
+            val shown = storeRows(soldOut, stores, split = false, prefer = preferredSources(pinned)).single()
+            assertEquals("exito-grocery", shown.deal.source)
+            assertNull(cartCopy(shown))
+        }
+    }
+
+    @Test
+    fun `each store has its own cart and its own purchase-log reading`() {
+        val stores = com.luis.dealstracker.exito.CartStore.entries
+        assertEquals("exito_cart_id", com.luis.dealstracker.exito.CartStore.LAURELES.cartIdKey, "Laureles keeps the cart it already had")
+        assertEquals("exito_cart_id.colombia", com.luis.dealstracker.exito.CartStore.COLOMBIA.cartIdKey)
+        assertEquals(stores.size, stores.map { it.cartIdKey }.toSet().size)
+        assertEquals(stores.size, stores.map { it.snapshotKey }.toSet().size)
+        assertEquals(listOf("037", "031"), stores.map { it.seller.filter(Char::isDigit) }, "the pickup store's code")
+        assertTrue(stores.flatMap { it.sources }.let { it.size == it.toSet().size }, "no provider belongs to two stores")
+    }
+
+    @Test
+    fun `an unknown saved store is Laureles`() {
+        assertEquals(com.luis.dealstracker.exito.CartStore.COLOMBIA, com.luis.dealstracker.exito.CartStore.of(" Colombia "))
+        assertEquals(com.luis.dealstracker.exito.CartStore.LAURELES, com.luis.dealstracker.exito.CartStore.of(null))
+        assertEquals(com.luis.dealstracker.exito.CartStore.LAURELES, com.luis.dealstracker.exito.CartStore.of("envigado"))
+    }
+
+    @Test
+    fun `the switch names both stores, marks the one in force, and comes back to the page`() {
+        val sw = html { cartStoreSwitch("/groceries?view=pinned&q=leche") }
+        assertTrue("action=\"/exito-store\"" in sw && "method=\"post\"" in sw, sw)
+        assertTrue("name=\"back\"" in sw && "value=\"/groceries?view=pinned&amp;q=leche\"" in sw, sw)
+        assertEquals(listOf("laureles", "colombia"), Regex("name=\"store\"[^>]*value=\"([a-z]+)\"|value=\"([a-z]+)\"[^>]*name=\"store\"").findAll(sw).map { it.groupValues[1] + it.groupValues[2] }.toList())
+        assertEquals(1, Regex("aria-pressed=\"true\"").findAll(sw).count())
+        assertTrue(Regex("aria-pressed=\"true\"[^>]*>Exito Laureles<|typetag on[^>]*>Exito Laureles<").containsMatchIn(sw), sw)
+        val colombia = buyingAt(com.luis.dealstracker.exito.CartStore.COLOMBIA) { html { cartStoreSwitch("/household?view=pinned") } }
+        assertTrue(Regex("typetag on[^>]*>Exito Colombia<").containsMatchIn(colombia), colombia)
+    }
+
+    @Test
+    fun `open cart links go through the tracker, which sets pickup before sending the browser to Exito`() {
+        assertEquals(OPEN_CART_PATH, openCartVia("https://www.exito.com/checkout/?orderFormId=abc#/cart"))
+        assertEquals(null, openCartVia(null))
+        assertTrue("href=\"$OPEN_CART_PATH\"" in openCartLink(openCartVia("https://x/cart")))
+        val toast = cartToast(CartResult.Added("Leche", 1), "Leche", openCartVia("https://x/cart"))
+        assertTrue("href=\"$OPEN_CART_PATH\"" in toast, toast)
+    }
+
+    @Test
+    fun `the cart link and the toasts name the store`() {
+        assertTrue("Open Exito Laureles cart" in openCartLink("https://x/cart"))
+        assertEquals("", openCartLink(null))
+        val colombia = com.luis.dealstracker.exito.CartStore.COLOMBIA
+        assertTrue("Open Exito Colombia cart" in openCartLink("https://x/cart", colombia))
+        assertTrue("Added to your Exito Colombia cart" in cartToast(CartResult.Added("Leche", 1), "Leche", store = colombia))
+        assertTrue("Colombia is sold out of it right now" in cartToast(CartResult.SoldOut, "Leche", store = colombia))
     }
 
     @Test
